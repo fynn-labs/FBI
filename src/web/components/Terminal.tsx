@@ -196,14 +196,17 @@ export function Terminal({ runId, interactive }: Props) {
     });
     observer.observe(document.documentElement, { attributes: true, attributeFilter: ['class'] });
 
-    // Coalesce ResizeObserver callbacks into one fit per frame.
-    let roRaf: number | null = null;
+    // Debounce fit during active resize (SplitPane drag fires mousemove
+    // 60+ times/sec and each triggers a layout → ResizeObserver tick).
+    // Wait until the user stops resizing for ~120ms, then fit once.
+    let roTimer: ReturnType<typeof setTimeout> | null = null;
+    const runFit = () => {
+      roTimer = null;
+      if (safeFit() && interactive) shell.resize(term.cols, term.rows);
+    };
     const ro = new ResizeObserver(() => {
-      if (roRaf !== null) return;
-      roRaf = requestAnimationFrame(() => {
-        roRaf = null;
-        if (safeFit() && interactive) shell.resize(term.cols, term.rows);
-      });
+      if (roTimer !== null) clearTimeout(roTimer);
+      roTimer = setTimeout(runFit, 120);
     });
     ro.observe(host);
 
@@ -213,8 +216,15 @@ export function Terminal({ runId, interactive }: Props) {
       else if (msg.type === 'state') publishState(runId, msg as unknown as RunWsStateMessage);
     });
 
+    // Same debounce for window resize — user dragging the browser edge
+    // fires continuously; fit once after they stop.
+    let winResizeTimer: ReturnType<typeof setTimeout> | null = null;
     const onResize = () => {
-      if (safeFit() && interactive) shell.resize(term.cols, term.rows);
+      if (winResizeTimer !== null) clearTimeout(winResizeTimer);
+      winResizeTimer = setTimeout(() => {
+        winResizeTimer = null;
+        if (safeFit() && interactive) shell.resize(term.cols, term.rows);
+      }, 120);
     };
     window.addEventListener('resize', onResize);
 
@@ -232,7 +242,8 @@ export function Terminal({ runId, interactive }: Props) {
       cancelAnimationFrame(raf1);
       const raf2 = (safeFit as unknown as { _raf?: number })._raf;
       if (raf2 !== undefined) cancelAnimationFrame(raf2);
-      if (roRaf !== null) cancelAnimationFrame(roRaf);
+      if (roTimer !== null) clearTimeout(roTimer);
+      if (winResizeTimer !== null) clearTimeout(winResizeTimer);
       ro.disconnect();
       observer.disconnect();
       window.removeEventListener('resize', onResize);
