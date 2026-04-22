@@ -53,13 +53,16 @@ interface JsonEditorProps {
 }
 
 export function JsonEditor({ label, value, onChange }: JsonEditorProps) {
+  // We toggle `.light` on <html>, not `.dark`. Dark is the default (no class).
+  // NOTE: CodeMirror theme objects use intentional concrete hex colors — they are opaque
+  // and cannot resolve CSS variables. TODO: read from tokens.css at mount time.
   const [isDark, setIsDark] = useState(() =>
-    document.documentElement.classList.contains('dark')
+    !document.documentElement.classList.contains('light')
   );
 
   useEffect(() => {
     const observer = new MutationObserver(() => {
-      setIsDark(document.documentElement.classList.contains('dark'));
+      setIsDark(!document.documentElement.classList.contains('light'));
     });
     observer.observe(document.documentElement, { attributeFilter: ['class'] });
     return () => observer.disconnect();

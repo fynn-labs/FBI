@@ -3,6 +3,7 @@ import { useNavigate, useParams } from 'react-router-dom';
 import type { Project, Run } from '@shared/types.js';
 import { api } from '../lib/api.js';
 import { LoadingState } from '@ui/patterns/LoadingState.js';
+import { ErrorState } from '@ui/patterns/index.js';
 import { RunHeader } from '../features/runs/RunHeader.js';
 import { RunTerminal } from '../features/runs/RunTerminal.js';
 import { RunSidePanel } from '../features/runs/RunSidePanel.js';
@@ -24,20 +25,31 @@ export function RunDetailPage() {
   const [creatingPr, setCreatingPr] = useState(false);
   const [drawerOpen, setDrawerOpen] = useState(true);
   const [diff, setDiff] = useState<Awaited<ReturnType<typeof api.getRunDiff>> | null>(null);
+  const [error, setError] = useState<string | null>(null);
 
   useKeyBinding({ chord: 'mod+j', handler: () => setDrawerOpen((v) => !v), description: 'Toggle run drawer' }, []);
 
   useEffect(() => {
     let alive = true;
+    let intervalId: ReturnType<typeof setInterval> | null = null;
     const load = async () => {
       try {
         const r = await api.getRun(runId);
         if (alive) setRun(r);
-      } catch { /* ignore */ }
+      } catch (err) {
+        const msg = String(err);
+        if (msg.includes('HTTP 404') || msg.includes(' 404 ')) {
+          if (alive) {
+            setError(`Run #${runId} not found`);
+            if (intervalId !== null) { clearInterval(intervalId); intervalId = null; }
+          }
+        }
+        // transient errors: keep polling
+      }
     };
     void load();
-    const t = setInterval(load, 3000);
-    return () => { alive = false; clearInterval(t); };
+    intervalId = setInterval(load, 3000);
+    return () => { alive = false; if (intervalId !== null) clearInterval(intervalId); };
   }, [runId]);
 
   useEffect(() => {
@@ -80,6 +92,7 @@ export function RunDetailPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [run?.id, run?.state]);
 
+  if (error) return <ErrorState message={error} />;
   if (!run) return <LoadingState label="Loading run…" />;
   const interactive = run.state === 'running' || run.state === 'queued';
 

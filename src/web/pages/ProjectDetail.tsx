@@ -18,13 +18,42 @@ export function ProjectDetailPage() {
 
   useEffect(() => {
     let cancelled = false;
+    let intervalId: ReturnType<typeof setInterval> | null = null;
+
+    const is404 = (e: unknown) => {
+      const msg = String(e);
+      return msg.includes('HTTP 404') || msg.includes(' 404 ');
+    };
+
+    void api.getProject(pid)
+      .then((p) => { if (!cancelled) setProject(p); })
+      .catch((e) => {
+        if (!cancelled) {
+          if (is404(e)) {
+            setError(`Project #${pid} not found`);
+            cancelled = true;
+            if (intervalId !== null) { clearInterval(intervalId); intervalId = null; }
+          }
+        }
+      });
+
     const loadRuns = () => api.listProjectRuns(pid)
       .then((r) => { if (!cancelled) setRuns(r); })
-      .catch((e) => { if (!cancelled) setError(String(e)); });
-    void api.getProject(pid).then((p) => { if (!cancelled) setProject(p); });
+      .catch((e) => {
+        if (!cancelled) {
+          if (is404(e)) {
+            setError(`Project #${pid} not found`);
+            cancelled = true;
+            if (intervalId !== null) { clearInterval(intervalId); intervalId = null; }
+          } else {
+            setError(String(e));
+          }
+        }
+      });
+
     loadRuns();
-    const t = setInterval(loadRuns, 5000);
-    return () => { cancelled = true; clearInterval(t); };
+    intervalId = setInterval(loadRuns, 5000);
+    return () => { cancelled = true; if (intervalId !== null) clearInterval(intervalId); };
   }, [pid]);
 
   if (error) return <ErrorState message={error} />;
