@@ -143,6 +143,9 @@ export class Orchestrator {
           `GIT_AUTHOR_EMAIL=${authorEmail}`,
           `FBI_MARKETPLACES=${marketplaces.join('\n')}`,
           `FBI_PLUGINS=${plugins.join('\n')}`,
+          // Signals to Claude Code that we're in a sandboxed env; bypasses
+          // its root/sudo refusal path (harmless here since we're non-root).
+          'IS_SANDBOX=1',
           ...Object.entries(auth.env()).map(([k, v]) => `${k}=${v}`),
           ...Object.entries(projectSecrets).map(([k, v]) => `${k}=${v}`),
         ],
@@ -187,6 +190,16 @@ export class Orchestrator {
         projectSecrets,
       );
       await injectFiles(container, '/home/agent', { '.claude.json': claudeJson }, 1000);
+
+      // Pre-accept the bypass-permissions dialog. Without this, Claude Code
+      // prompts on first launch even with --dangerously-skip-permissions,
+      // which breaks unattended runs.
+      await injectFiles(
+        container,
+        '/home/agent/.claude',
+        { 'settings.json': JSON.stringify({ skipDangerousModePermissionPrompt: true }) },
+        1000,
+      );
 
       const attach = await container.attach({
         stream: true,
