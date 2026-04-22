@@ -9,6 +9,15 @@ import {
   requestResync,
 } from '../lib/shellRegistry.js';
 import { publishUsage, publishState, publishTitle } from '../features/runs/usageBus.js';
+import {
+  record as traceRecord,
+  strPreview,
+  isTracing,
+  setTracing,
+  subscribe as traceSubscribe,
+  eventCount as traceEventCount,
+  downloadTrace,
+} from '../lib/terminalTrace.js';
 import type {
   UsageSnapshot,
   RunWsStateMessage,
@@ -40,6 +49,20 @@ export function Terminal({ runId, interactive }: Props) {
   const loadFullRef = useRef<() => void>(() => {});
   const [historyMode, setHistoryMode] = useState(false);
   const [loaded, setLoaded] = useState(false);
+  // Re-render the trace indicator whenever trace state or count changes.
+  const [, forceTraceRerender] = useState(0);
+  useEffect(() => traceSubscribe(() => forceTraceRerender((n) => n + 1)), []);
+  // Ctrl+Shift+D toggles tracing globally for the whole app.
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent): void => {
+      if (e.ctrlKey && e.shiftKey && (e.key === 'D' || e.key === 'd')) {
+        e.preventDefault();
+        setTracing(!isTracing());
+      }
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, []);
 
   useEffect(() => {
     const host = hostRef.current;
@@ -55,11 +78,16 @@ export function Terminal({ runId, interactive }: Props) {
     const fit = new FitAddon();
     term.loadAddon(fit);
     term.open(host);
+    traceRecord('term.mount', { runId, interactive });
 
     const safeFit = () => {
       const rect = host.getBoundingClientRect();
       if (rect.width < 4 || rect.height < 4) return false;
-      try { fit.fit(); return true; } catch { return false; }
+      try {
+        fit.fit();
+        traceRecord('term.fit', { cols: term.cols, rows: term.rows });
+        return true;
+      } catch { return false; }
     };
 
     let disposed = false;
@@ -84,9 +112,11 @@ export function Terminal({ runId, interactive }: Props) {
       // through to the queue if it's already pumping (preserves order)
       // or the chunk is large (worth pacing across frames).
       if (data.byteLength <= WRITE_CHUNK && writeQueue.length === 0 && !pumping) {
+        traceRecord('term.write', { len: data.byteLength, path: 'direct' });
         term.write(data);
         return;
       }
+      traceRecord('term.write', { len: data.byteLength, path: 'queue' });
       if (data.byteLength <= WRITE_CHUNK) {
         writeQueue.push(data);
       } else {
@@ -111,6 +141,12 @@ export function Terminal({ runId, interactive }: Props) {
     let ready = false; // true once first snapshot has been applied
 
     const applySnapshot = (ansi: string) => {
+      traceRecord('term.applySnapshot', {
+        ansiLen: ansi.length,
+        termCols: term.cols,
+        termRows: term.rows,
+        ansiPreview: strPreview(ansi),
+      });
       clearQueue();
       // Don't full-reset (RIS clears mode state — DECSTBM scroll region,
       // DECTCEM cursor visibility — that the live PTY's subsequent updates
@@ -141,7 +177,14 @@ export function Terminal({ runId, interactive }: Props) {
     if (cached && isMatchingDims(cached)) applySnapshot(cached.ansi);
 
     unsubSnapshot = shell.onSnapshot((snap) => {
-      if (!isMatchingDims(snap)) return;
+      if (!isMatchingDims(snap)) {
+        traceRecord('term.dropSnapshot', {
+          reason: 'dimMismatch',
+          snapCols: snap.cols, snapRows: snap.rows,
+          termCols: term.cols, termRows: term.rows,
+        });
+        return;
+      }
       applySnapshot(snap.ansi);
     });
 
@@ -201,6 +244,7 @@ export function Terminal({ runId, interactive }: Props) {
       if (!stale || unsubSnapshot === null) return;
       stale = false;
       clearQueue();
+      traceRecord('term.resync.request', { reason: 'focus' });
       requestResync(runId);
       // The next snapshot frame will land via unsubSnapshot → applySnapshot.
     };
@@ -220,6 +264,7 @@ export function Terminal({ runId, interactive }: Props) {
     // live view. Exposed via loadFullRef so the JSX button can call it.
     loadFullRef.current = async () => {
       if (disposed) return;
+      traceRecord('term.history.start', { runId });
       setHistoryMode(true);
       setLoaded(false); // show loading while we fetch + write the transcript
       if (unsubBytes) { unsubBytes(); unsubBytes = null; }
@@ -243,10 +288,12 @@ export function Terminal({ runId, interactive }: Props) {
           await new Promise<void>((resolve) => term.write(buf.subarray(off, end), resolve));
         }
         if (!disposed) setLoaded(true);
+        traceRecord('term.history.end', { runId, bytes: buf.byteLength });
       } catch {
         if (disposed) return;
         term.write(new TextEncoder().encode('\r\n[failed to load history]\r\n'));
         setLoaded(true);
+        traceRecord('term.history.end', { runId, error: true });
       }
     };
 
@@ -257,20 +304,35 @@ export function Terminal({ runId, interactive }: Props) {
       term.reset();
       ready = false;
       setLoaded(false); // show loading until the resync snapshot lands
-      unsubSnapshot = shell.onSnapshot((snap) => applySnapshot(snap.ansi));
+      unsubSnapshot = shell.onSnapshot((snap) => {
+        if (!isMatchingDims(snap)) {
+          traceRecord('term.dropSnapshot', {
+            reason: 'dimMismatch.resume',
+            snapCols: snap.cols, snapRows: snap.rows,
+            termCols: term.cols, termRows: term.rows,
+          });
+          return;
+        }
+        applySnapshot(snap.ansi);
+      });
       unsubBytes = shell.onBytes((data) => { if (ready) enqueueWrite(data); });
+      traceRecord('term.resync.request', { reason: 'resumeLive' });
       requestResync(runId);
     };
     // Stash resumeLive on the ref so the JSX button can call it.
     (loadFullRef as unknown as { resume?: () => void }).resume = resumeLive;
 
     if (interactive) {
-      term.onData((d) => shell.send(new TextEncoder().encode(d)));
+      term.onData((d) => {
+        traceRecord('term.input', strPreview(d));
+        shell.send(new TextEncoder().encode(d));
+      });
       host.addEventListener('click', () => term.focus());
     }
 
     return () => {
       disposed = true;
+      traceRecord('term.unmount', { runId });
       if (roTimer !== null) clearTimeout(roTimer);
       if (winResizeTimer !== null) clearTimeout(winResizeTimer);
       ro.disconnect();
@@ -314,6 +376,20 @@ export function Terminal({ runId, interactive }: Props) {
             className="text-accent hover:text-accent-strong transition-colors duration-fast ease-out"
           >
             Resume live
+          </button>
+        </div>
+      )}
+      {isTracing() && (
+        <div
+          className="absolute bottom-1 right-2 z-30 select-none rounded bg-red-900/80 px-2 py-0.5 text-[10px] font-mono text-red-100 shadow ring-1 ring-red-300/30 backdrop-blur"
+          title="Terminal trace recording (Ctrl+Shift+D to stop). Click to download."
+        >
+          <button
+            type="button"
+            onClick={() => downloadTrace()}
+            className="cursor-pointer"
+          >
+            ● REC {traceEventCount()} ↓
           </button>
         </div>
       )}

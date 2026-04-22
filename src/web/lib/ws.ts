@@ -1,4 +1,5 @@
 import type { RunWsSnapshotMessage } from '@shared/types.js';
+import { record, bytesPreview, strPreview } from './terminalTrace.js';
 
 export interface ShellHandle {
   onBytes(cb: (data: Uint8Array) => void): () => void;
@@ -15,6 +16,8 @@ export function openShell(runId: number): ShellHandle {
   const proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
   const ws = new WebSocket(`${proto}//${location.host}/api/runs/${runId}/shell`);
   ws.binaryType = 'arraybuffer';
+  ws.addEventListener('open', () => record('ws.open', { runId }));
+  ws.addEventListener('close', (e) => record('ws.close', { runId, code: e.code, reason: e.reason }));
   const bytesCbs: Array<(d: Uint8Array) => void> = [];
   const typedCbs: Array<(msg: { type: string }) => void> = [];
   const snapshotCbs: Array<(s: RunWsSnapshotMessage) => void> = [];
@@ -23,12 +26,20 @@ export function openShell(runId: number): ShellHandle {
       try {
         const msg = JSON.parse(ev.data) as { type: string };
         if (msg.type === 'snapshot') {
-          for (const cb of snapshotCbs) cb(msg as unknown as RunWsSnapshotMessage);
+          const snap = msg as unknown as RunWsSnapshotMessage;
+          record('ws.in.snapshot', {
+            cols: snap.cols, rows: snap.rows,
+            ansiLen: snap.ansi.length,
+            ansiPreview: strPreview(snap.ansi),
+          });
+          for (const cb of snapshotCbs) cb(snap);
           return;
         }
+        record('ws.in.event', { type: msg.type, msg });
         for (const cb of typedCbs) cb(msg);
       } catch {
         const data = new TextEncoder().encode(ev.data);
+        record('ws.in.bytes', { source: 'text-fallback', ...bytesPreview(data) });
         for (const cb of bytesCbs) cb(data);
       }
       return;
@@ -36,6 +47,7 @@ export function openShell(runId: number): ShellHandle {
     const data = ev.data instanceof ArrayBuffer
       ? new Uint8Array(ev.data)
       : new TextEncoder().encode('');
+    record('ws.in.bytes', bytesPreview(data));
     for (const cb of bytesCbs) cb(data);
   };
   return {
@@ -54,15 +66,22 @@ export function openShell(runId: number): ShellHandle {
     },
     onOpen: (cb) => { ws.addEventListener('open', cb, { once: true }); },
     send: (data) => {
-      if (ws.readyState === WebSocket.OPEN) ws.send(data);
+      if (ws.readyState === WebSocket.OPEN) {
+        record('ws.out.send', bytesPreview(data));
+        ws.send(data);
+      }
     },
     resize: (cols, rows) => {
-      if (ws.readyState === WebSocket.OPEN)
+      if (ws.readyState === WebSocket.OPEN) {
+        record('ws.out.resize', { cols, rows });
         ws.send(JSON.stringify({ type: 'resize', cols, rows }));
+      }
     },
     sendResync: () => {
-      if (ws.readyState === WebSocket.OPEN)
+      if (ws.readyState === WebSocket.OPEN) {
+        record('ws.out.resync', {});
         ws.send(JSON.stringify({ type: 'resync' }));
+      }
     },
     close: () => ws.close(),
   };
