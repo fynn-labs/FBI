@@ -12,6 +12,7 @@ interface GhDeps {
   prForBranch(repo: string, branch: string): Promise<{ number: number; url: string; state: 'OPEN' | 'CLOSED' | 'MERGED'; title: string } | null>;
   prChecks(repo: string, branch: string): Promise<Check[]>;
   createPr(repo: string, p: { head: string; base: string; title: string; body: string }): Promise<{ number: number; url: string; state: 'OPEN' | 'CLOSED' | 'MERGED'; title: string }>;
+  compareFiles(repo: string, base: string, head: string): Promise<Array<{ filename: string; additions: number; deletions: number; status: string }>>;
 }
 
 interface Deps {
@@ -35,6 +36,17 @@ function setCached(runId: number, value: unknown): void {
   ghStatusCache.set(runId, { value, expiresAt: Date.now() + GH_STATUS_TTL_MS });
 }
 function invalidate(runId: number): void { ghStatusCache.delete(runId); }
+
+const DIFF_TTL_MS = 60_000;
+const diffCache = new Map<number, { value: unknown; expiresAt: number }>();
+function getDiffCached(runId: number): unknown | null {
+  const e = diffCache.get(runId);
+  if (!e || Date.now() > e.expiresAt) return null;
+  return e.value;
+}
+function setDiffCached(runId: number, value: unknown): void {
+  diffCache.set(runId, { value, expiresAt: Date.now() + DIFF_TTL_MS });
+}
 
 export function registerRunsRoutes(app: FastifyInstance, deps: Deps): void {
   app.get('/api/runs', async (req) => {
@@ -139,6 +151,42 @@ export function registerRunsRoutes(app: FastifyInstance, deps: Deps): void {
       github_available: true,
     };
     setCached(runId, payload);
+    return payload;
+  });
+
+  app.get('/api/runs/:id/diff', async (req, reply) => {
+    const { id } = req.params as { id: string };
+    const runId = Number(id);
+    const run = deps.runs.get(runId);
+    if (!run) return reply.code(404).send({ error: 'not found' });
+
+    const cached = getDiffCached(runId);
+    if (cached) return cached;
+
+    const project = deps.projects.get(run.project_id);
+    const repo = project ? parseGitHubRepo(project.repo_url) : null;
+    const available = await deps.gh.available();
+    if (!project || !repo || !run.branch_name || !available) {
+      const payload = {
+        base: project?.default_branch ?? '',
+        head: run.branch_name,
+        files: [],
+        github_available: available && !!repo,
+      };
+      setDiffCached(runId, payload);
+      return payload;
+    }
+
+    const files = await deps.gh
+      .compareFiles(repo, project.default_branch, run.branch_name)
+      .catch(() => []);
+    const payload = {
+      base: project.default_branch,
+      head: run.branch_name,
+      files,
+      github_available: true,
+    };
+    setDiffCached(runId, payload);
     return payload;
   });
 

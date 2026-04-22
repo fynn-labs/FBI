@@ -97,4 +97,10 @@ export const api = {
 
   createRunPr: (id: number) => request<{ number: number; url: string; state: string; title: string }>(
     `/api/runs/${id}/github/pr`, { method: 'POST', body: JSON.stringify({}) }),
+
+  getRunDiff: (id: number) => request<{
+    base: string; head: string;
+    files: Array<{ filename: string; additions: number; deletions: number; status: string }>;
+    github_available: boolean;
+  }>(`/api/runs/${id}/diff`),
 };

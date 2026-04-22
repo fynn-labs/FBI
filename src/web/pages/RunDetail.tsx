@@ -11,6 +11,7 @@ export function RunDetailPage() {
   const nav = useNavigate();
   const [run, setRun] = useState<Run | null>(null);
   const [gh, setGh] = useState<Awaited<ReturnType<typeof api.getRunGithub>> | null>(null);
+  const [diff, setDiff] = useState<Awaited<ReturnType<typeof api.getRunDiff>> | null>(null);
   const [creatingPr, setCreatingPr] = useState(false);
 
   useEffect(() => {
@@ -38,6 +39,11 @@ export function RunDetailPage() {
     void load();
     const t = setInterval(load, 30_000);
     return () => { alive = false; clearInterval(t); };
+  }, [run?.id, run?.state]);
+
+  useEffect(() => {
+    if (!run || run.state !== 'succeeded') return;
+    void api.getRunDiff(run.id).then(setDiff).catch(() => {});
   }, [run?.id, run?.state]);
 
   if (!run) return <div>Loading…</div>;
@@ -137,6 +143,38 @@ export function RunDetailPage() {
             </>
           )}
         </div>
+      )}
+      {run.state === 'succeeded' && diff && diff.github_available && (
+        <details className="border rounded dark:border-gray-600">
+          <summary className="cursor-pointer px-3 py-2 text-sm select-none">
+            Files changed ({diff.files.length})
+          </summary>
+          {diff.files.length === 0 ? (
+            <p className="px-3 py-2 text-xs text-gray-500">No files changed.</p>
+          ) : (
+            <table className="w-full text-xs font-mono">
+              <thead>
+                <tr className="text-gray-500"><th className="text-left px-2">Status</th><th className="text-left px-2">File</th><th className="text-right px-2">+</th><th className="text-right px-2">−</th></tr>
+              </thead>
+              <tbody>
+                {diff.files.map((f) => {
+                  const repo = (() => {
+                    try { return new URL(gh?.pr?.url ?? '').pathname.split('/').slice(1, 3).join('/'); } catch { return null; }
+                  })();
+                  const href = repo ? `https://github.com/${repo}/blob/${diff.head}/${f.filename}` : '#';
+                  return (
+                    <tr key={f.filename}>
+                      <td className="px-2">{f.status[0].toUpperCase()}</td>
+                      <td className="px-2"><a href={href} target="_blank" rel="noreferrer" className="text-blue-600 dark:text-blue-300">{f.filename}</a></td>
+                      <td className="px-2 text-right text-green-600">{f.additions}</td>
+                      <td className="px-2 text-right text-red-600">{f.deletions}</td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          )}
+        </details>
       )}
     </div>
   );
