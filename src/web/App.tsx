@@ -18,6 +18,8 @@ import { RunsPage } from './pages/Runs.js';
 import { RunDetailPage } from './pages/RunDetail.js';
 import { SettingsPage } from './pages/Settings.js';
 import { DesignPage } from './pages/Design.js';
+import { UsagePage } from './features/usage/UsagePage.js';
+import { UsageNotifier } from './features/usage/UsageNotifier.js';
 
 function Shell({ projects, runs, children }: { projects: Project[]; runs: Run[]; children: ReactNode }) {
   const location = useLocation();
@@ -130,6 +132,7 @@ export function App() {
   return (
     <>
       <Shell projects={projects} runs={runs}>
+        <UsageNotifier />
         <Routes>
           <Route path="/" element={<Navigate to="/runs" replace />} />
           <Route path="/projects" element={<ProjectsPage />}>
@@ -144,6 +147,7 @@ export function App() {
             <Route path=":id" element={<RunDetailPage />} />
           </Route>
           <Route path="/settings" element={<SettingsPage />} />
+          <Route path="/usage" element={<UsagePage />} />
           <Route path="/design" element={<DesignPage />} />
           <Route path="*" element={<Navigate to="/" replace />} />
         </Routes>

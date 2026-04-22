@@ -3,6 +3,7 @@ import { NavLink } from 'react-router-dom';
 import { cn } from '../cn.js';
 import { StatusDot } from '../primitives/StatusDot.js';
 import { sidebarRegistry, type SidebarView } from './sidebarRegistry.js';
+import { SidebarUsage } from '../../features/usage/SidebarUsage.js';
 
 export interface SidebarProject {
   id: number;
@@ -73,6 +74,9 @@ export function Sidebar({ projects, collapsed }: SidebarProps) {
           )}
         </NavLink>
       ))}
+      <div className="mt-auto">
+        <SidebarUsage collapsed={collapsed} />
+      </div>
     </div>
   );
 }
