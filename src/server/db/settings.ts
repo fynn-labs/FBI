@@ -12,6 +12,8 @@ interface SettingsRow {
   last_gc_bytes: number | null;
   global_marketplaces_json: string;
   global_plugins_json: string;
+  auto_resume_enabled: number;
+  auto_resume_max_attempts: number;
   updated_at: number;
 }
 
@@ -38,6 +40,8 @@ export class SettingsRepo {
       last_gc_bytes: row.last_gc_bytes,
       global_marketplaces: JSON.parse(row.global_marketplaces_json || '[]') as string[],
       global_plugins: JSON.parse(row.global_plugins_json || '[]') as string[],
+      auto_resume_enabled: row.auto_resume_enabled === 1,
+      auto_resume_max_attempts: row.auto_resume_max_attempts,
       updated_at: row.updated_at,
     };
   }
@@ -49,6 +53,8 @@ export class SettingsRepo {
     image_gc_enabled?: boolean;
     global_marketplaces?: string[];
     global_plugins?: string[];
+    auto_resume_enabled?: boolean;
+    auto_resume_max_attempts?: number;
   }): Settings {
     const existing = this.get();
     const merged = {
@@ -58,13 +64,17 @@ export class SettingsRepo {
       image_gc_enabled: patch.image_gc_enabled ?? existing.image_gc_enabled,
       global_marketplaces: patch.global_marketplaces ?? existing.global_marketplaces,
       global_plugins: patch.global_plugins ?? existing.global_plugins,
+      auto_resume_enabled: patch.auto_resume_enabled ?? existing.auto_resume_enabled,
+      auto_resume_max_attempts: patch.auto_resume_max_attempts ?? existing.auto_resume_max_attempts,
     };
     const now = Date.now();
     this.db.prepare(
       `UPDATE settings SET
         global_prompt = ?, notifications_enabled = ?,
         concurrency_warn_at = ?, image_gc_enabled = ?,
-        global_marketplaces_json = ?, global_plugins_json = ?, updated_at = ?
+        global_marketplaces_json = ?, global_plugins_json = ?,
+        auto_resume_enabled = ?, auto_resume_max_attempts = ?,
+        updated_at = ?
        WHERE id = 1`
     ).run(
       merged.global_prompt,
@@ -73,6 +83,8 @@ export class SettingsRepo {
       merged.image_gc_enabled ? 1 : 0,
       JSON.stringify(merged.global_marketplaces),
       JSON.stringify(merged.global_plugins),
+      merged.auto_resume_enabled ? 1 : 0,
+      merged.auto_resume_max_attempts,
       now,
     );
     return this.get();

@@ -96,3 +96,24 @@ describe('startup migration pattern', () => {
     expect(repo.get().global_marketplaces).toEqual(['https://existing.com']);
   });
 });
+
+describe('SettingsRepo auto-resume', () => {
+  it('returns defaults on fresh DB', () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'fbi-'));
+    const db = openDb(path.join(dir, 'db.sqlite'));
+    const settings = new SettingsRepo(db);
+    const s = settings.get();
+    expect(s.auto_resume_enabled).toBe(true);
+    expect(s.auto_resume_max_attempts).toBe(5);
+  });
+
+  it('patches and reads back both fields', () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'fbi-'));
+    const db = openDb(path.join(dir, 'db.sqlite'));
+    const settings = new SettingsRepo(db);
+    settings.update({ auto_resume_enabled: false, auto_resume_max_attempts: 3 });
+    const s = settings.get();
+    expect(s.auto_resume_enabled).toBe(false);
+    expect(s.auto_resume_max_attempts).toBe(3);
+  });
+});
