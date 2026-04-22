@@ -40,7 +40,7 @@ export function ProjectsPage() {
       </div>
       <ul className="space-y-2">
         {projects.map((p) => (
-          <li key={p.id} className="bg-white border rounded p-4 flex justify-between dark:bg-gray-800 dark:border-gray-700">
+          <li key={p.id} className="bg-white border rounded p-4 flex justify-between dark:bg-gray-700 dark:border-gray-600">
             <div>
               <Link to={`/projects/${p.id}`} className="text-lg font-medium text-blue-700 dark:text-blue-400">
                 {p.name}

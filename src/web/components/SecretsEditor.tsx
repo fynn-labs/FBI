@@ -30,7 +30,7 @@ export function SecretsEditor({ projectId }: { projectId: number }) {
     } catch (e) { setError(String(e)); }
   }
   return (
-    <section className="bg-white border rounded p-4 dark:bg-gray-800 dark:border-gray-700">
+    <section className="bg-white border rounded p-4 dark:bg-gray-700 dark:border-gray-600">
       <h2 className="font-semibold mb-2">Secrets</h2>
       <ul className="mb-3 space-y-1">
         {names.length === 0 && <li className="text-gray-500 dark:text-gray-400">None</li>}

@@ -6,7 +6,7 @@ const VERSION = import.meta.env.VITE_VERSION as string | undefined;
 
 export function Layout({ children }: { children: ReactNode }) {
   return (
-    <div className="min-h-screen flex flex-col bg-white dark:bg-gray-900">
+    <div className="min-h-screen flex flex-col bg-white dark:bg-gray-800 dark:text-gray-100">
       <nav aria-label="Main" className="bg-white border-b dark:bg-gray-900 dark:border-gray-700 px-6 py-3 flex gap-6 items-center">
         <Link to="/" className="font-bold text-lg">FBI</Link>
         <Link to="/runs" className="text-gray-700 hover:text-gray-900 dark:text-gray-300 dark:hover:text-gray-100">Runs</Link>

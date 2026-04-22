@@ -50,7 +50,7 @@ export function RunDetailPage() {
         <h1 className="text-2xl font-semibold">Run #{run.id}</h1>
         <StateBadge state={run.state} />
         {run.head_commit && (
-          <code className="text-sm bg-gray-100 dark:bg-gray-800 rounded px-2 py-0.5">
+          <code className="text-sm bg-gray-100 dark:bg-gray-700 rounded px-2 py-0.5">
             {run.branch_name} @ {run.head_commit.slice(0, 8)}
           </code>
         )}
@@ -67,7 +67,7 @@ export function RunDetailPage() {
           )}
         </div>
       </div>
-      <details className="bg-white border rounded p-3 text-sm dark:bg-gray-800 dark:border-gray-700">
+      <details className="bg-white border rounded p-3 text-sm dark:bg-gray-700 dark:border-gray-600">
         <summary className="cursor-pointer">Prompt</summary>
         <pre className="mt-2 whitespace-pre-wrap">{run.prompt}</pre>
       </details>

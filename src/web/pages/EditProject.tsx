@@ -65,7 +65,7 @@ function Text({ label, value, onChange }: { label: string; value: string; onChan
     <label className="block">
       <span className="block text-sm font-medium mb-1">{label}</span>
       <input value={value} onChange={(e) => onChange(e.target.value)}
-             className="w-full border rounded px-2 py-1 font-mono dark:bg-gray-800 dark:border-gray-600 dark:text-gray-100" />
+             className="w-full border rounded px-2 py-1 font-mono dark:bg-gray-900 dark:border-gray-600 dark:text-gray-100" />
     </label>
   );
 }
@@ -74,7 +74,7 @@ function Area({ label, value, onChange }: { label: string; value: string; onChan
     <label className="block">
       <span className="block text-sm font-medium mb-1">{label}</span>
       <textarea value={value} onChange={(e) => onChange(e.target.value)} rows={5}
-                className="w-full border rounded px-2 py-1 font-mono text-sm dark:bg-gray-800 dark:border-gray-600 dark:text-gray-100" />
+                className="w-full border rounded px-2 py-1 font-mono text-sm dark:bg-gray-900 dark:border-gray-600 dark:text-gray-100" />
     </label>
   );
 }

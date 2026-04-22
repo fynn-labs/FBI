@@ -43,7 +43,7 @@ export function ProjectDetailPage() {
 
       <SecretsEditor projectId={pid} />
 
-      <section className="bg-white border rounded p-4 dark:bg-gray-800 dark:border-gray-700">
+      <section className="bg-white border rounded p-4 dark:bg-gray-700 dark:border-gray-600">
         <h2 className="font-semibold mb-2">Runs</h2>
         <ul className="divide-y dark:divide-gray-700">
           {runs.length === 0 && <li className="text-gray-500 dark:text-gray-400">No runs yet</li>}

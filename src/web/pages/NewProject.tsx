@@ -42,7 +42,7 @@ export function NewProjectPage() {
           value={name}
           onChange={(e) => setName(e.target.value)}
           required
-          className="w-full border rounded px-2 py-1 dark:bg-gray-800 dark:border-gray-600 dark:text-gray-100"
+          className="w-full border rounded px-2 py-1 dark:bg-gray-900 dark:border-gray-600 dark:text-gray-100"
         />
       </Field>
       <Field label="Repo URL (SSH)">
@@ -50,7 +50,7 @@ export function NewProjectPage() {
           value={repoUrl}
           onChange={(e) => setRepoUrl(e.target.value)}
           required
-          className="w-full border rounded px-2 py-1 font-mono dark:bg-gray-800 dark:border-gray-600 dark:text-gray-100"
+          className="w-full border rounded px-2 py-1 font-mono dark:bg-gray-900 dark:border-gray-600 dark:text-gray-100"
         />
       </Field>
       <Field label="Default Branch">
@@ -58,7 +58,7 @@ export function NewProjectPage() {
           value={defaultBranch}
           onChange={(e) => setDefaultBranch(e.target.value)}
           required
-          className="w-full border rounded px-2 py-1 dark:bg-gray-800 dark:border-gray-600 dark:text-gray-100"
+          className="w-full border rounded px-2 py-1 dark:bg-gray-900 dark:border-gray-600 dark:text-gray-100"
         />
       </Field>
       <Field label="Project-level instructions (optional)">
@@ -66,7 +66,7 @@ export function NewProjectPage() {
           value={instructions}
           onChange={(e) => setInstructions(e.target.value)}
           rows={4}
-          className="w-full border rounded px-2 py-1 font-mono text-sm dark:bg-gray-800 dark:border-gray-600 dark:text-gray-100"
+          className="w-full border rounded px-2 py-1 font-mono text-sm dark:bg-gray-900 dark:border-gray-600 dark:text-gray-100"
         />
       </Field>
       {error && <div className="text-red-600">{error}</div>}
