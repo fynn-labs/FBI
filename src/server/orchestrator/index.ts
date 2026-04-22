@@ -27,6 +27,7 @@ import type { RateLimitStateRepo } from '../db/rateLimitState.js';
 import type { UsageRepo } from '../db/usage.js';
 import { UsageTailer } from './usageTailer.js';
 import { LimitMonitor } from './limitMonitor.js';
+import { WaitingMonitor } from './waitingMonitor.js';
 import { nudgeClaudeToExit } from './nudgeClaude.js';
 import { checkContinueEligibility } from './continueEligibility.js';
 
@@ -226,6 +227,7 @@ export class Orchestrator {
 
     let tailer: UsageTailer | null = null;
     let limitMonitor: LimitMonitor | null = null;
+    let waitingMonitor: WaitingMonitor | null = null;
 
     try {
       const { container, projectSecrets } = await this.createContainerForRun(
@@ -253,9 +255,15 @@ export class Orchestrator {
         stream: true, stdin: true, stdout: true, stderr: true, hijack: true,
       });
       limitMonitor = this.makeLimitMonitor(runId, container, attach, onBytes);
-      attach.on('data', (c: Buffer) => { limitMonitor!.feedLog(c); onBytes(c); });
+      waitingMonitor = this.makeWaitingMonitor(runId, onBytes);
+      attach.on('data', (c: Buffer) => {
+        limitMonitor!.feedLog(c);
+        waitingMonitor!.feedLog(c);
+        onBytes(c);
+      });
       await container.start();
       limitMonitor.start();
+      waitingMonitor.start();
       this.active.set(runId, { container, attachStream: attach });
       this.deps.runs.markStarted(runId, container.id);
       this.publishState(runId);
@@ -290,6 +298,7 @@ export class Orchestrator {
     } finally {
       if (tailer) await tailer.stop();
       if (limitMonitor) limitMonitor.stop();
+      if (waitingMonitor) waitingMonitor.stop();
     }
   }
 
@@ -561,6 +570,25 @@ export class Orchestrator {
           killContainer: () => container.kill().then(() => undefined),
           log: (msg) => onBytes(Buffer.from(msg)),
         });
+      },
+    });
+  }
+
+  private makeWaitingMonitor(
+    runId: number,
+    onBytes: (chunk: Uint8Array) => void,
+  ): WaitingMonitor {
+    return new WaitingMonitor({
+      mountDir: this.mountDirFor(runId),
+      onEnter: () => {
+        this.deps.runs.markWaiting(runId);
+        this.publishState(runId);
+        onBytes(Buffer.from('\n[fbi] waiting for user input\n'));
+      },
+      onExit: () => {
+        this.deps.runs.markRunningFromWaiting(runId);
+        this.publishState(runId);
+        onBytes(Buffer.from('\n[fbi] user responded; resuming\n'));
       },
     });
   }
