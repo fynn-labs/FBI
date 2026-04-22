@@ -50,7 +50,22 @@ function migrate(db: DB): void {
       'ALTER TABLE settings ADD COLUMN notifications_enabled INTEGER NOT NULL DEFAULT 1'
     );
   }
+  if (!settingsCols.has('concurrency_warn_at')) {
+    db.exec('ALTER TABLE settings ADD COLUMN concurrency_warn_at INTEGER NOT NULL DEFAULT 3');
+  }
+  if (!settingsCols.has('image_gc_enabled')) {
+    db.exec('ALTER TABLE settings ADD COLUMN image_gc_enabled INTEGER NOT NULL DEFAULT 0');
+  }
+  if (!settingsCols.has('last_gc_at')) {
+    db.exec('ALTER TABLE settings ADD COLUMN last_gc_at INTEGER');
+  }
+  if (!settingsCols.has('last_gc_count')) {
+    db.exec('ALTER TABLE settings ADD COLUMN last_gc_count INTEGER');
+  }
+  if (!settingsCols.has('last_gc_bytes')) {
+    db.exec('ALTER TABLE settings ADD COLUMN last_gc_bytes INTEGER');
+  }
   db.prepare(
-    "INSERT OR IGNORE INTO settings (id, global_prompt, notifications_enabled, updated_at) VALUES (1, '', 1, ?)"
+    "INSERT OR IGNORE INTO settings (id, global_prompt, notifications_enabled, concurrency_warn_at, image_gc_enabled, updated_at) VALUES (1, '', 1, 3, 0, ?)"
   ).run(Date.now());
 }

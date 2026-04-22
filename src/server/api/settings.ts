@@ -12,10 +12,9 @@ export function registerSettingsRoutes(app: FastifyInstance, deps: Deps): void {
     const body = req.body as {
       global_prompt?: string;
       notifications_enabled?: boolean;
+      concurrency_warn_at?: number;
+      image_gc_enabled?: boolean;
     };
-    return deps.settings.update({
-      global_prompt: body.global_prompt,
-      notifications_enabled: body.notifications_enabled,
-    });
+    return deps.settings.update(body);
   });
 }

@@ -48,5 +48,10 @@ export interface SecretName {
 export interface Settings {
   global_prompt: string;
   notifications_enabled: boolean;
+  concurrency_warn_at: number;
+  image_gc_enabled: boolean;
+  last_gc_at: number | null;
+  last_gc_count: number | null;
+  last_gc_bytes: number | null;
   updated_at: number;
 }

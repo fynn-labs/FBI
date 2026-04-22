@@ -48,6 +48,13 @@ CREATE TABLE IF NOT EXISTS settings (
   id INTEGER PRIMARY KEY CHECK (id = 1),
   global_prompt TEXT NOT NULL DEFAULT '',
   notifications_enabled INTEGER NOT NULL DEFAULT 1,
+  concurrency_warn_at INTEGER NOT NULL DEFAULT 3,
+  image_gc_enabled INTEGER NOT NULL DEFAULT 0,
+  last_gc_at INTEGER,
+  last_gc_count INTEGER,
+  last_gc_bytes INTEGER,
   updated_at INTEGER NOT NULL
 );
-INSERT OR IGNORE INTO settings (id, global_prompt, updated_at) VALUES (1, '', 0);
+INSERT OR IGNORE INTO settings
+  (id, global_prompt, notifications_enabled, concurrency_warn_at, image_gc_enabled, updated_at)
+VALUES (1, '', 1, 3, 0, 0);
