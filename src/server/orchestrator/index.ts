@@ -239,9 +239,14 @@ export class Orchestrator {
 
     const store = new LogStore(run.log_path);
     const broadcaster = this.deps.streams.getOrCreate(runId);
+    const screen = this.deps.streams.getOrCreateScreen(runId);
     const onBytes = (chunk: Uint8Array) => {
       store.append(chunk);
       broadcaster.publish(chunk);
+      // ScreenState.write returns a promise (parser is async). We don't
+      // await — ordering is preserved internally by xterm-headless, and
+      // snapshot callers tolerate "at most one frame stale."
+      void screen.write(chunk);
     };
 
     const branchHint = run.branch_name;
@@ -473,7 +478,12 @@ export class Orchestrator {
     // Reuse the existing log store and broadcaster.
     const store = new LogStore(run.log_path);
     const broadcaster = this.deps.streams.getOrCreate(runId);
-    const onBytes = (chunk: Uint8Array) => { store.append(chunk); broadcaster.publish(chunk); };
+    const screen = this.deps.streams.getOrCreateScreen(runId);
+    const onBytes = (chunk: Uint8Array) => {
+      store.append(chunk);
+      broadcaster.publish(chunk);
+      void screen.write(chunk);
+    };
 
     onBytes(Buffer.from(
       `\n[fbi] resuming (attempt ${run.resume_attempts} of ${this.deps.settings.get().auto_resume_max_attempts})\n`,
@@ -701,6 +711,7 @@ export class Orchestrator {
     const a = this.active.get(runId);
     if (!a) return;
     await a.container.resize({ w: cols, h: rows }).catch(() => {});
+    this.deps.streams.getScreen(runId)?.resize(cols, rows);
   }
 
   /** Cancel a running run. Safe to call on non-running runs (no-op). */
@@ -784,9 +795,11 @@ export class Orchestrator {
       project?.mem_mb ?? this.deps.config.containerMemMb;
     const store = new LogStore(run.log_path);
     const broadcaster = this.deps.streams.getOrCreate(runId);
+    const screen = this.deps.streams.getOrCreateScreen(runId);
     const onBytes = (chunk: Uint8Array) => {
       store.append(chunk);
       broadcaster.publish(chunk);
+      void screen.write(chunk);
     };
 
     onBytes(Buffer.from(`\n[fbi] reattached after orchestrator restart\n`));
