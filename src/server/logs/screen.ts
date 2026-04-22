@@ -39,6 +39,7 @@ export class ScreenState {
   }
 
   dispose(): void {
+    this.serializer.dispose();
     this.term.dispose();
   }
 }
