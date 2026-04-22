@@ -3,6 +3,7 @@ import fastifyStatic from '@fastify/static';
 import fastifyWebsocket from '@fastify/websocket';
 import Docker from 'dockerode';
 import fs from 'node:fs';
+import path from 'node:path';
 import { loadConfig, legacyDefaultLists } from './config.js';
 import { openDb } from './db/index.js';
 import { ProjectsRepo } from './db/projects.js';
@@ -11,8 +12,11 @@ import { SecretsRepo } from './db/secrets.js';
 import { SettingsRepo } from './db/settings.js';
 import { McpServersRepo } from './db/mcpServers.js';
 import { RateLimitStateRepo } from './db/rateLimitState.js';
+import { RateLimitBucketsRepo } from './db/rateLimitBuckets.js';
 import { UsageRepo } from './db/usage.js';
-import type { UsageState } from '../shared/types.js';
+import { CredentialsReader } from './credentialsReader.js';
+import { OAuthUsagePoller } from './oauthUsagePoller.js';
+import type { UsageWsMessage } from '../shared/types.js';
 import { loadKey } from './crypto.js';
 import { RunStreamRegistry } from './logs/registry.js';
 import { Orchestrator } from './orchestrator/index.js';
@@ -24,6 +28,7 @@ import { registerConfigRoutes } from './api/config.js';
 import { registerMcpServerRoutes } from './api/mcpServers.js';
 import { registerWsRoute } from './api/ws.js';
 import { registerUsageRoutes } from './api/usage.js';
+import { registerUsageWsRoute } from './api/wsUsage.js';
 import { registerProxyRoutes } from './api/proxy.js';
 import { GhClient } from './github/gh.js';
 
@@ -39,7 +44,24 @@ async function main() {
   const settings = new SettingsRepo(db);
   const mcpServers = new McpServersRepo(db);
   const rateLimitState = new RateLimitStateRepo(db);
+  const rateLimitBuckets = new RateLimitBucketsRepo(db);
   const usage = new UsageRepo(db);
+
+  // Usage WebSocket bus — poller publishes snapshots + threshold_crossed here.
+  const usageSubs = new Set<(m: UsageWsMessage) => void>();
+  const onUsageEvent = (m: UsageWsMessage): void => { for (const cb of usageSubs) cb(m); };
+
+  const credsReader = new CredentialsReader({
+    file: path.join(config.hostClaudeDir, '.credentials.json'),
+  });
+  const poller = new OAuthUsagePoller({
+    fetch,
+    readToken: () => credsReader.read(),
+    state: rateLimitState,
+    buckets: rateLimitBuckets,
+    onEvent: onUsageEvent,
+  });
+  credsReader.onChange(() => { void poller.nudge(); });
 
   // One-time migration: if FBI_DEFAULT_* env vars are set and the DB still has empty
   // global lists, migrate them in so existing deployments don't lose configuration.
@@ -57,6 +79,7 @@ async function main() {
 
   const orchestrator = new Orchestrator({
     docker, config, projects, runs, secrets, settings, mcpServers, streams, rateLimitState, usage,
+    poller: { nudge: () => poller.nudge() },
   });
   const gh = new GhClient();
 
@@ -85,12 +108,13 @@ async function main() {
   registerConfigRoutes(app, { config });
   registerMcpServerRoutes(app, { mcpServers });
   registerWsRoute(app, { runs, streams, orchestrator });
-  // TODO(task-14): replace with real poller.snapshot()
-  const pollerSnapshotStub = (): UsageState => ({
-    plan: null, observed_at: null, last_error: null, last_error_at: null,
-    buckets: [], pacing: {},
+  registerUsageRoutes(app, { usage, pollerSnapshot: () => poller.snapshot() });
+  registerUsageWsRoute(app, {
+    bus: {
+      snapshot: () => poller.snapshot(),
+      subscribe: (cb) => { usageSubs.add(cb); return () => usageSubs.delete(cb); },
+    },
   });
-  registerUsageRoutes(app, { usage, pollerSnapshot: pollerSnapshotStub });
   registerProxyRoutes(app, {
     runs, streams,
     orchestrator: { getLiveContainer: (id) => orchestrator.getLiveContainer(id) },
@@ -106,6 +130,7 @@ async function main() {
   await orchestrator.rehydrateSchedules();
   await orchestrator.startGcScheduler();
   await app.listen({ port: config.port, host: '0.0.0.0' });
+  poller.start();
 }
 
 main().catch((err) => {

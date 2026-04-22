@@ -53,6 +53,7 @@ export interface OrchestratorDeps {
   streams: RunStreamRegistry;
   rateLimitState: RateLimitStateRepo;
   usage: UsageRepo;
+  poller: { nudge: () => Promise<void> };
 }
 
 export class Orchestrator {
@@ -279,6 +280,7 @@ export class Orchestrator {
         onError: () => { this.deps.usage.bumpParseErrors(runId); },
       });
       tailer.start();
+      void this.deps.poller.nudge();
 
       await this.awaitAndComplete(runId, container, onBytes, store, broadcaster);
     } catch (err) {
@@ -401,6 +403,7 @@ export class Orchestrator {
       this.deps.streams.release(runId);
     } finally {
       this.lastRateLimit.delete(runId);
+      void this.deps.poller.nudge();
     }
   }
 
