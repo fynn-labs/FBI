@@ -21,6 +21,9 @@ export function registerProjectRoutes(app: FastifyInstance, deps: Deps): void {
       git_author_email?: string | null;
       marketplaces?: string[];
       plugins?: string[];
+      mem_mb?: number | null;
+      cpus?: number | null;
+      pids_limit?: number | null;
     };
     const created = deps.projects.create({
       name: body.name,
@@ -32,6 +35,9 @@ export function registerProjectRoutes(app: FastifyInstance, deps: Deps): void {
       git_author_email: body.git_author_email ?? null,
       marketplaces: body.marketplaces ?? [],
       plugins: body.plugins ?? [],
+      mem_mb: body.mem_mb ?? null,
+      cpus: body.cpus ?? null,
+      pids_limit: body.pids_limit ?? null,
     });
     reply.code(201);
     return created;
