@@ -5,3 +5,6 @@ export * from './Kbd.js';
 export * from './Pill.js';
 export * from './StatusDot.js';
 export * from './Tag.js';
+export * from './Input.js';
+export * from './Textarea.js';
+export * from './FieldLabel.js';
