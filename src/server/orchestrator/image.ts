@@ -71,9 +71,9 @@ export class ImageBuilder {
       .map(([k, v]) => `ENV ${k}=${JSON.stringify(v)}`)
       .join('\n');
     return DOCKERFILE_TMPL
-      .replace('__BASE_IMAGE__', base)
-      .replace('__APT_PACKAGES__', apt)
-      .replace('__ENV_EXPORTS__', envLines);
+      .replaceAll('__BASE_IMAGE__', base)
+      .replaceAll('__APT_PACKAGES__', apt)
+      .replaceAll('__ENV_EXPORTS__', envLines);
   }
 
   private async buildFallback(
