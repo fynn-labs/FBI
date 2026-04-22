@@ -45,6 +45,10 @@ export const api = {
   listProjectRuns: (projectId: number) =>
     request<Run[]>(`/api/projects/${projectId}/runs`),
   getRun: (id: number) => request<Run>(`/api/runs/${id}`),
+  getRecentPrompts: (projectId: number, limit = 10) =>
+    request<{ prompt: string; last_used_at: number; run_id: number }[]>(
+      `/api/projects/${projectId}/prompts/recent?limit=${limit}`
+    ),
   createRun: (projectId: number, prompt: string) =>
     request<Run>(`/api/projects/${projectId}/runs`, {
       method: 'POST',
