@@ -325,8 +325,9 @@ function claudeAuthMounts(hostClaudeDir: string): string[] {
 }
 
 // Reads the host's ~/.claude.json, strips fields that would leak host install
-// details into the container, and returns the result as a string. Returns
-// undefined if the host file doesn't exist.
+// details into the container, and seeds trust for /workspace so the agent
+// doesn't hit the "trust this folder?" prompt. Returns undefined if the host
+// file doesn't exist.
 function sanitizedClaudeJson(hostClaudeDir: string): string | undefined {
   const hostJson = path.join(path.dirname(hostClaudeDir), '.claude.json');
   if (!fs.existsSync(hostJson)) return undefined;
@@ -338,6 +339,18 @@ function sanitizedClaudeJson(hostClaudeDir: string): string | undefined {
   }
   delete obj.installMethod;
   delete obj.autoUpdates;
+
+  const projects = (obj.projects as Record<string, Record<string, unknown>>) ?? {};
+  projects['/workspace'] = {
+    ...(projects['/workspace'] ?? {}),
+    hasTrustDialogAccepted: true,
+    hasCompletedProjectOnboarding: true,
+    projectOnboardingSeenCount: 1,
+    hasClaudeMdExternalIncludesApproved: true,
+    hasClaudeMdExternalIncludesWarningShown: true,
+  };
+  obj.projects = projects;
+
   return JSON.stringify(obj);
 }
 
