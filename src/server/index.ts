@@ -16,6 +16,7 @@ import { registerProjectRoutes } from './api/projects.js';
 import { registerSecretsRoutes } from './api/secrets.js';
 import { registerRunsRoutes } from './api/runs.js';
 import { registerSettingsRoutes } from './api/settings.js';
+import { registerConfigRoutes } from './api/config.js';
 import { registerWsRoute } from './api/ws.js';
 
 async function main() {
@@ -52,6 +53,7 @@ async function main() {
     cancel: (id) => orchestrator.cancel(id),
   });
   registerSettingsRoutes(app, { settings });
+  registerConfigRoutes(app, { config });
   registerWsRoute(app, { runs, streams, orchestrator });
 
   // SPA fallback: any non-/api route returns index.html.

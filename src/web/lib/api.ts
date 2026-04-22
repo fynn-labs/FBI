@@ -78,4 +78,8 @@ export const api = {
   getSettings: () => request<Settings>('/api/settings'),
   updateSettings: (patch: { global_prompt?: string; notifications_enabled?: boolean }) =>
     request<Settings>('/api/settings', { method: 'PATCH', body: JSON.stringify(patch) }),
+
+  getConfigDefaults: () => request<{ defaultMarketplaces: string[]; defaultPlugins: string[] }>(
+    '/api/config/defaults'
+  ),
 };
