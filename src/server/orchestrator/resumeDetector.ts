@@ -35,13 +35,29 @@ const ANSI_RE =
   // eslint-disable-next-line no-control-regex
   /\x1b\[[\x30-\x3F]*[\x20-\x2F]*[\x40-\x7E]|\x1b\][^\x07\x1b]*(?:\x07|\x1b\\)/g;
 
+export function stripAnsi(s: string): string {
+  return s.replace(ANSI_RE, '');
+}
+
+/**
+ * True if the (already-stripped or raw) log tail carries an explicit limit
+ * phrase. Used by the streaming monitor to decide when Claude is stuck on an
+ * in-TUI limit message and needs to be nudged out. Intentionally excludes the
+ * lenient pattern — a lenient match on its own is too weak a signal to
+ * terminate a live run.
+ */
+export function containsLimitSignal(tail: string): boolean {
+  const t = stripAnsi(tail);
+  return RE_PIPE_EPOCH.test(t) || RE_HUMAN.test(t) || RE_HUMAN_NEW.test(t);
+}
+
 export function classify(
   logTail: string,
   state: RateLimitStateInput | null,
   now: number,
 ): ResumeVerdict {
   const raw = logTail.length > TAIL_BYTES ? logTail.slice(-TAIL_BYTES) : logTail;
-  const tail = raw.replace(ANSI_RE, '');
+  const tail = stripAnsi(raw);
 
   // 1. Pipe-delimited epoch.
   const mEpoch = tail.match(RE_PIPE_EPOCH);

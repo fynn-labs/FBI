@@ -26,6 +26,7 @@ import { scanSessionId, runMountDir } from './sessionId.js';
 import type { RateLimitStateRepo } from '../db/rateLimitState.js';
 import type { UsageRepo } from '../db/usage.js';
 import { UsageTailer } from './usageTailer.js';
+import { LimitMonitor } from './limitMonitor.js';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const SUPERVISOR = path.join(HERE, 'supervisor.sh');
@@ -212,6 +213,7 @@ export class Orchestrator {
     ].join('\n');
 
     let tailer: UsageTailer | null = null;
+    let limitMonitor: LimitMonitor | null = null;
 
     try {
       const { container, projectSecrets } = await this.createContainerForRun(
@@ -238,8 +240,10 @@ export class Orchestrator {
       const attach = await container.attach({
         stream: true, stdin: true, stdout: true, stderr: true, hijack: true,
       });
-      attach.on('data', (c: Buffer) => onBytes(c));
+      limitMonitor = this.makeLimitMonitor(runId, container, attach, onBytes);
+      attach.on('data', (c: Buffer) => { limitMonitor!.feedLog(c); onBytes(c); });
       await container.start();
+      limitMonitor.start();
       this.active.set(runId, { container, attachStream: attach });
       this.deps.runs.markStarted(runId, container.id);
       this.publishState(runId);
@@ -273,6 +277,7 @@ export class Orchestrator {
       this.deps.streams.release(runId);
     } finally {
       if (tailer) await tailer.stop();
+      if (limitMonitor) limitMonitor.stop();
     }
   }
 
@@ -435,13 +440,19 @@ export class Orchestrator {
       const attach = await container.attach({
         stream: true, stdin: true, stdout: true, stderr: true, hijack: true,
       });
-      attach.on('data', (c: Buffer) => onBytes(c));
+      const limitMonitor = this.makeLimitMonitor(runId, container, attach, onBytes);
+      attach.on('data', (c: Buffer) => { limitMonitor.feedLog(c); onBytes(c); });
       await container.start();
+      limitMonitor.start();
       this.active.set(runId, { container, attachStream: attach });
       this.deps.runs.markResuming(runId, container.id);
       this.publishState(runId);
 
-      await this.awaitAndComplete(runId, container, onBytes, store, broadcaster);
+      try {
+        await this.awaitAndComplete(runId, container, onBytes, store, broadcaster);
+      } finally {
+        limitMonitor.stop();
+      }
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
       onBytes(Buffer.from(`\n[fbi] resume error: ${msg}\n`));
@@ -450,6 +461,35 @@ export class Orchestrator {
       this.active.delete(runId);
       store.close(); broadcaster.end(); this.deps.streams.release(runId);
     }
+  }
+
+  /**
+   * Builds a LimitMonitor that nudges Claude to exit when its in-TUI
+   * rate-limit message appears. Newer Claude Code wordings ("You've hit your
+   * limit · resets <time>") display the limit in-TUI without exiting, so the
+   * container waits forever and the existing classify()-at-exit flow never
+   * runs. We send Ctrl-C so Claude exits cleanly and supervisor.sh can still
+   * commit+push the WIP; SIGKILL is the 30s fallback.
+   */
+  private makeLimitMonitor(
+    runId: number,
+    container: Docker.Container,
+    attach: NodeJS.ReadWriteStream,
+    onBytes: (chunk: Uint8Array) => void,
+  ): LimitMonitor {
+    return new LimitMonitor({
+      mountDir: this.mountDirFor(runId),
+      onDetect: () => {
+        if (!this.deps.settings.get().auto_resume_enabled) return;
+        onBytes(Buffer.from(
+          '\n[fbi] rate-limit message detected in stream; sending SIGINT to claude\n',
+        ));
+        try { attach.write(Buffer.from([0x03])); } catch { /* already closed */ }
+        setTimeout(() => {
+          container.kill().catch(() => { /* already stopped */ });
+        }, 30_000).unref?.();
+      },
+    });
   }
 
   // Active run bookkeeping.
