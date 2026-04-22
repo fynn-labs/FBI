@@ -1,0 +1,19 @@
+[Unit]
+Description=FBI Agent Runtime
+After=network-online.target docker.service
+Requires=docker.service
+
+[Service]
+Type=simple
+User=fbi
+Group=fbi
+EnvironmentFile=/etc/default/fbi
+WorkingDirectory=/opt/fbi
+ExecStart=/usr/bin/node /opt/fbi/dist/server/index.js
+Restart=on-failure
+RestartSec=3s
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target
