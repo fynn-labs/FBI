@@ -49,6 +49,13 @@ export function NewRunPage() {
   async function submit(e: FormEvent) {
     e.preventDefault();
     if (!prompt.trim()) return;
+    const warn = settings?.concurrency_warn_at ?? 0;
+    if (warn > 0) {
+      const running = await api.listRuns('running').catch(() => []);
+      if (running.length >= warn) {
+        if (!window.confirm(`You already have ${running.length} run(s) in flight. Start another?`)) return;
+      }
+    }
     setSubmitting(true);
     try {
       const run = await api.createRun(pid, prompt, branch);

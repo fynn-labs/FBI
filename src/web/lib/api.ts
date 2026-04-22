@@ -76,8 +76,14 @@ export const api = {
   deleteRun: (id: number) => request<void>(`/api/runs/${id}`, { method: 'DELETE' }),
 
   getSettings: () => request<Settings>('/api/settings'),
-  updateSettings: (patch: { global_prompt?: string; notifications_enabled?: boolean }) =>
-    request<Settings>('/api/settings', { method: 'PATCH', body: JSON.stringify(patch) }),
+  updateSettings: (patch: {
+    global_prompt?: string;
+    notifications_enabled?: boolean;
+    concurrency_warn_at?: number;
+    image_gc_enabled?: boolean;
+  }) => request<Settings>('/api/settings', { method: 'PATCH', body: JSON.stringify(patch) }),
+  runGc: () => request<{ deletedCount: number; deletedBytes: number }>(
+    '/api/settings/run-gc', { method: 'POST', body: JSON.stringify({}) }),
 
   getConfigDefaults: () => request<{ defaultMarketplaces: string[]; defaultPlugins: string[] }>(
     '/api/config/defaults'
