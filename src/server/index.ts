@@ -14,6 +14,7 @@ import { Orchestrator } from './orchestrator/index.js';
 import { registerProjectRoutes } from './api/projects.js';
 import { registerSecretsRoutes } from './api/secrets.js';
 import { registerRunsRoutes } from './api/runs.js';
+import { registerWsRoute } from './api/ws.js';
 
 async function main() {
   const config = loadConfig();
@@ -47,7 +48,7 @@ async function main() {
     launch: (id) => orchestrator.launch(id),
     cancel: (id) => orchestrator.cancel(id),
   });
-  // registerWsRoute is wired in Task 25 once the module exists.
+  registerWsRoute(app, { runs, streams, orchestrator });
 
   // SPA fallback: any non-/api route returns index.html.
   app.setNotFoundHandler((req, reply) => {
