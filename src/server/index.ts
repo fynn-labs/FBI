@@ -18,6 +18,7 @@ import { registerRunsRoutes } from './api/runs.js';
 import { registerSettingsRoutes } from './api/settings.js';
 import { registerConfigRoutes } from './api/config.js';
 import { registerWsRoute } from './api/ws.js';
+import { GhClient } from './github/gh.js';
 
 async function main() {
   const config = loadConfig();
@@ -35,6 +36,7 @@ async function main() {
   const orchestrator = new Orchestrator({
     docker, config, projects, runs, secrets, settings, streams,
   });
+  const gh = new GhClient();
 
   const app = Fastify({ logger: true });
   await app.register(fastifyWebsocket);
@@ -47,7 +49,7 @@ async function main() {
   registerProjectRoutes(app, { projects, secrets, runs });
   registerSecretsRoutes(app, { secrets });
   registerRunsRoutes(app, {
-    runs,
+    runs, projects, gh,
     runsDir: config.runsDir,
     launch: (id) => orchestrator.launch(id),
     cancel: (id) => orchestrator.cancel(id),

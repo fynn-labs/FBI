@@ -8,6 +8,14 @@ import { ProjectsRepo } from '../db/projects.js';
 import { RunsRepo } from '../db/runs.js';
 import { registerRunsRoutes } from './runs.js';
 
+const stubGh = {
+  available: async () => true,
+  prForBranch: async () => null,
+  prChecks: async () => [],
+  createPr: async () => ({ number: 1, url: 'u', state: 'OPEN' as const, title: 't' }),
+  compareFiles: async () => [],
+};
+
 function setup() {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'fbi-'));
   const db = openDb(path.join(dir, 'db.sqlite'));
@@ -22,7 +30,7 @@ function setup() {
   const cancelled: number[] = [];
   const app = Fastify();
   registerRunsRoutes(app, {
-    runs,
+    runs, projects, gh: stubGh,
     runsDir: dir,
     launch: async (id: number) => {
       launched.push(id);
@@ -41,7 +49,7 @@ function makeApp() {
   const runs = new RunsRepo(db);
   const app = Fastify();
   registerRunsRoutes(app, {
-    runs,
+    runs, projects, gh: stubGh,
     runsDir: dir,
     launch: async (_id: number) => {},
     cancel: async (_id: number) => {},
