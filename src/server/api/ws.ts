@@ -26,17 +26,22 @@ export function registerWsRoute(app: FastifyInstance, deps: Deps): void {
   app.get('/api/runs/:id/shell', { websocket: true }, (socket: WebSocket, req) => {
     const { id } = req.params as { id: string };
     const runId = Number(id);
+
+    // Fix 4: guard against NaN run ids.
+    if (!Number.isFinite(runId)) {
+      socket.close(4004, 'invalid run id');
+      return;
+    }
+
     const run = deps.runs.get(runId);
     if (!run) {
       socket.close(4004, 'run not found');
       return;
     }
 
-    // Replay existing log bytes.
-    const existing = LogStore.readAll(run.log_path);
-
-    // If run is finished, replay and then close.
+    // If run is finished, replay log and then close.
     if (run.state !== 'running' && run.state !== 'queued') {
+      const existing = LogStore.readAll(run.log_path);
       if (existing.length > 0) {
         socket.send(existing, () => {
           socket.close(1000, 'ended');
@@ -47,18 +52,38 @@ export function registerWsRoute(app: FastifyInstance, deps: Deps): void {
       return;
     }
 
-    if (existing.length > 0) socket.send(existing);
-
-    // Subscribe to live broadcaster.
+    // Fix 2: Subscribe first so no live bytes are missed while we replay.
     const bc = deps.streams.getOrCreate(runId);
+    const buffered: Uint8Array[] = [];
+    let live = false;
     const unsub = bc.subscribe(
       (chunk) => {
-        if (socket.readyState === socket.OPEN) socket.send(chunk);
+        if (!live) { buffered.push(chunk); return; }
+        if (socket.readyState === socket.OPEN) {
+          socket.send(chunk, (err) => { if (err) unsub(); });
+        }
       },
       () => {
         try { socket.close(1000, 'ended'); } catch { /* noop */ }
       }
     );
+
+    // Replay log, then flush any buffered live chunks.
+    const existing = LogStore.readAll(run.log_path);
+    if (existing.length > 0) socket.send(existing);
+    live = true;
+    for (const chunk of buffered) {
+      if (socket.readyState === socket.OPEN) {
+        socket.send(chunk, (err) => { if (err) unsub(); });
+      }
+    }
+
+    // Fix 3: If broadcaster already ended, close now.
+    if (bc.isEnded()) {
+      unsub();
+      socket.close(1000, 'ended');
+      return;
+    }
 
     socket.on('message', (data: Buffer, isBinary: boolean) => {
       if (!isBinary) {
@@ -67,9 +92,9 @@ export function registerWsRoute(app: FastifyInstance, deps: Deps): void {
           const msg = JSON.parse(data.toString('utf8')) as ControlFrame;
           if (msg.type === 'resize') {
             void deps.orchestrator.resize(runId, msg.cols, msg.rows);
-            return;
           }
-        } catch { /* fall through to stdin */ }
+          return; // Fix 5: all text control frames: do not forward to stdin
+        } catch { /* not valid JSON — fall through to stdin */ }
       }
       deps.orchestrator.writeStdin(runId, data);
     });

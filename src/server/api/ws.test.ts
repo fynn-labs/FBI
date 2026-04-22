@@ -40,7 +40,7 @@ async function setup() {
     resize: async () => {},
     cancel: async () => {},
   };
-  registerWsRoute(app, { runs, streams, orchestrator: orchestrator as never });
+  registerWsRoute(app, { runs, streams, orchestrator });
   await app.listen({ port: 0 });
   const address = app.server.address();
   if (!address || typeof address === 'string') throw new Error('no port');
