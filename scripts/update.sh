@@ -25,11 +25,10 @@ sudo rsync -a --delete \
   "$SOURCE_DIR/" "$APP_DIR/"
 
 # ── Build ──────────────────────────────────────────────────────────────────────
-export VITE_VERSION
 VITE_VERSION="$(git -C "$SOURCE_DIR" rev-parse --short HEAD 2>/dev/null || echo dev)"
 
 sudo npm --prefix "$APP_DIR" ci
-sudo npm --prefix "$APP_DIR" run build
+sudo VITE_VERSION="$VITE_VERSION" npm --prefix "$APP_DIR" run build
 
 sudo chown -R fbi:fbi "$APP_DIR"
 
