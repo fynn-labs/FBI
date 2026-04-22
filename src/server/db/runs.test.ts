@@ -110,4 +110,53 @@ describe('RunsRepo', () => {
     });
     expect(runs.get(run.id)!.branch_name).toBe('fix-login-bug');
   });
+
+  it('listFiltered filters by state', () => {
+    const a = runs.create({ project_id: projectId, prompt: 'x',
+      log_path_tmpl: (id) => `/tmp/${id}.log` });
+    runs.create({ project_id: projectId, prompt: 'y',
+      log_path_tmpl: (id) => `/tmp/${id}.log` });
+    runs.markStarted(a.id, 'c');
+    runs.markFinished(a.id, { state: 'succeeded', exit_code: 0, head_commit: 'h' });
+
+    const res = runs.listFiltered({ state: 'succeeded', limit: 50, offset: 0 });
+    expect(res.total).toBe(1);
+    expect(res.items.map((r) => r.id)).toEqual([a.id]);
+  });
+
+  it('listFiltered supports pagination', () => {
+    for (let i = 0; i < 5; i++) {
+      runs.create({ project_id: projectId, prompt: `p${i}`,
+        log_path_tmpl: (id) => `/tmp/${id}.log` });
+    }
+    const page1 = runs.listFiltered({ limit: 2, offset: 0 });
+    const page2 = runs.listFiltered({ limit: 2, offset: 2 });
+    expect(page1.total).toBe(5);
+    expect(page1.items.length).toBe(2);
+    expect(page2.items.length).toBe(2);
+    expect(page1.items[0].id).not.toBe(page2.items[0].id);
+  });
+
+  it('listFiltered supports prompt search (case-insensitive)', () => {
+    runs.create({ project_id: projectId, prompt: 'FIX LOGIN bug',
+      log_path_tmpl: (id) => `/tmp/${id}.log` });
+    runs.create({ project_id: projectId, prompt: 'unrelated',
+      log_path_tmpl: (id) => `/tmp/${id}.log` });
+    const res = runs.listFiltered({ q: 'fix login', limit: 50, offset: 0 });
+    expect(res.total).toBe(1);
+    expect(res.items[0].prompt).toBe('FIX LOGIN bug');
+  });
+
+  it('listFiltered scopes by project_id', () => {
+    const otherProj = new ProjectsRepo((runs as any).db)
+      .create({ name: 'p2', repo_url: 'b', default_branch: 'main',
+        devcontainer_override_json: null, instructions: null,
+        git_author_name: null, git_author_email: null });
+    runs.create({ project_id: projectId, prompt: 'a',
+      log_path_tmpl: (id) => `/tmp/${id}.log` });
+    runs.create({ project_id: otherProj.id, prompt: 'b',
+      log_path_tmpl: (id) => `/tmp/${id}.log` });
+    const res = runs.listFiltered({ project_id: projectId, limit: 50, offset: 0 });
+    expect(res.total).toBe(1);
+  });
 });
