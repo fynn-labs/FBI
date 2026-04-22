@@ -15,3 +15,7 @@ export * from './Card.js';
 export * from './Section.js';
 export * from './Tabs.js';
 export * from './Dialog.js';
+export * from './Drawer.js';
+export * from './Menu.js';
+export * from './Tooltip.js';
+export * from './Table.js';
