@@ -64,3 +64,5 @@ CREATE TABLE IF NOT EXISTS mcp_servers (
   created_at INTEGER NOT NULL,
   UNIQUE(project_id, name)
 );
+CREATE UNIQUE INDEX IF NOT EXISTS idx_mcp_servers_global_name
+  ON mcp_servers(name) WHERE project_id IS NULL;

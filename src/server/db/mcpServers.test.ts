@@ -68,4 +68,19 @@ describe('McpServersRepo', () => {
     db.prepare('DELETE FROM projects WHERE id = ?').run(projectId);
     expect(repo.listForProject(projectId)).toHaveLength(0);
   });
+
+  it('returns undefined for non-existent id in get()', () => {
+    expect(repo.get(9999)).toBeUndefined();
+  });
+
+  it('returns null for non-existent id in update()', () => {
+    expect(repo.update(9999, { args: [] })).toBeNull();
+  });
+
+  it('throws on duplicate name within same scope', () => {
+    repo.create({ project_id: null, name: 'dup', type: 'stdio', command: 'npx', args: [] });
+    expect(() =>
+      repo.create({ project_id: null, name: 'dup', type: 'stdio', command: 'npx', args: [] })
+    ).toThrow();
+  });
 });

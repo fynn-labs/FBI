@@ -13,6 +13,21 @@ interface McpServerRow {
   created_at: number;
 }
 
+function parseArgs(json: string): string[] {
+  const v = JSON.parse(json) as unknown;
+  return Array.isArray(v) ? v.filter((s): s is string => typeof s === 'string') : [];
+}
+
+function parseEnv(json: string): Record<string, string> {
+  const v = JSON.parse(json) as unknown;
+  if (!v || typeof v !== 'object' || Array.isArray(v)) return {};
+  return Object.fromEntries(
+    Object.entries(v as Record<string, unknown>).filter(
+      (entry): entry is [string, string] => typeof entry[1] === 'string'
+    )
+  );
+}
+
 function fromRow(row: McpServerRow): McpServer {
   return {
     id: row.id,
@@ -20,9 +35,9 @@ function fromRow(row: McpServerRow): McpServer {
     name: row.name,
     type: row.type,
     command: row.command,
-    args: JSON.parse(row.args_json) as string[],
+    args: parseArgs(row.args_json),
     url: row.url,
-    env: JSON.parse(row.env_json) as Record<string, string>,
+    env: parseEnv(row.env_json),
     created_at: row.created_at,
   };
 }
@@ -60,7 +75,14 @@ export class McpServersRepo {
     const map = new Map<string, McpServer>();
     for (const s of this.listGlobal()) map.set(s.name, s);
     for (const s of this.listForProject(projectId)) map.set(s.name, s);
-    return [...map.values()];
+    return [...map.values()].sort((a, b) => a.name.localeCompare(b.name));
+  }
+
+  get(id: number): McpServer | undefined {
+    const row = this.db
+      .prepare('SELECT * FROM mcp_servers WHERE id = ?')
+      .get(id) as McpServerRow | undefined;
+    return row ? fromRow(row) : undefined;
   }
 
   create(input: CreateMcpServerInput): McpServer {
