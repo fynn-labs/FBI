@@ -1,5 +1,9 @@
-import { Terminal } from '@xterm/headless';
+// @xterm/headless is a CJS bundle whose minified wrapper defeats Node's
+// named-export detection; import the default and destructure.
+import headless from '@xterm/headless';
 import { SerializeAddon } from '@xterm/addon-serialize';
+const { Terminal } = headless;
+type Terminal = InstanceType<typeof Terminal>;
 
 /**
  * Server-side virtual terminal. Holds a headless xterm that parses every byte
