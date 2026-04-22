@@ -8,6 +8,14 @@ export interface CreateRunInput {
   log_path_tmpl: (id: number) => string;
 }
 
+export interface ListFilteredInput {
+  state?: RunState;
+  project_id?: number;
+  q?: string;
+  limit: number;
+  offset: number;
+}
+
 export interface FinishInput {
   state: Extract<RunState, 'succeeded' | 'failed' | 'cancelled'>;
   exit_code?: number | null;
@@ -113,6 +121,40 @@ export class RunsRepo {
         Date.now(),
         id
       );
+  }
+
+  listFiltered(input: ListFilteredInput): { items: Run[]; total: number } {
+    const where: string[] = [];
+    const params: unknown[] = [];
+    if (input.state) { where.push('state = ?'); params.push(input.state); }
+    if (typeof input.project_id === 'number') { where.push('project_id = ?'); params.push(input.project_id); }
+    if (input.q && input.q.trim() !== '') {
+      where.push('LOWER(prompt) LIKE ?');
+      params.push('%' + input.q.trim().toLowerCase() + '%');
+    }
+    const whereSql = where.length ? `WHERE ${where.join(' AND ')}` : '';
+
+    const total = (this.db
+      .prepare(`SELECT COUNT(*) AS n FROM runs ${whereSql}`)
+      .get(...params) as { n: number }).n;
+
+    const items = this.db
+      .prepare(`SELECT * FROM runs ${whereSql} ORDER BY created_at DESC, id DESC LIMIT ? OFFSET ?`)
+      .all(...params, input.limit, input.offset) as Run[];
+
+    return { items, total };
+  }
+
+  listSiblings(runId: number, limit = 10): Run[] {
+    const self = this.get(runId);
+    if (!self) return [];
+    return this.db
+      .prepare(
+        `SELECT * FROM runs
+          WHERE project_id = ? AND prompt = ? AND id != ?
+          ORDER BY id DESC LIMIT ?`
+      )
+      .all(self.project_id, self.prompt, self.id, limit) as Run[];
   }
 
   delete(id: number): void {

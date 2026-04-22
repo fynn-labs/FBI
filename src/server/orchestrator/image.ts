@@ -8,10 +8,10 @@ import { computeConfigHash } from './configHash.js';
 import { execFileSync } from 'node:child_process';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
-const POSTBUILD = fs.readFileSync(path.join(HERE, 'postbuild.sh'), 'utf8');
+export const POSTBUILD = fs.readFileSync(path.join(HERE, 'postbuild.sh'), 'utf8');
 const DOCKERFILE_TMPL = fs.readFileSync(path.join(HERE, 'Dockerfile.tmpl'), 'utf8');
 
-const ALWAYS = ['git', 'openssh-client', 'gh', 'ca-certificates', 'claude-cli'];
+export const ALWAYS = ['git', 'openssh-client', 'gh', 'ca-certificates', 'claude-cli'];
 
 export interface ResolveInput {
   projectId: number;

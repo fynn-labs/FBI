@@ -43,6 +43,21 @@ export const api = {
 
   listRuns: (state?: 'queued' | 'running' | 'succeeded' | 'failed' | 'cancelled') =>
     request<Run[]>(state ? `/api/runs?state=${state}` : '/api/runs'),
+  listRunsPaged: (params: {
+    state?: 'queued' | 'running' | 'succeeded' | 'failed' | 'cancelled';
+    project_id?: number;
+    q?: string;
+    limit: number;
+    offset: number;
+  }) => {
+    const qs = new URLSearchParams();
+    if (params.state) qs.set('state', params.state);
+    if (typeof params.project_id === 'number') qs.set('project_id', String(params.project_id));
+    if (params.q) qs.set('q', params.q);
+    qs.set('limit', String(params.limit));
+    qs.set('offset', String(params.offset));
+    return request<{ items: Run[]; total: number }>(`/api/runs?${qs.toString()}`);
+  },
   listProjectRuns: (projectId: number) =>
     request<Run[]>(`/api/projects/${projectId}/runs`),
   getRun: (id: number) => request<Run>(`/api/runs/${id}`),
@@ -61,6 +76,33 @@ export const api = {
   deleteRun: (id: number) => request<void>(`/api/runs/${id}`, { method: 'DELETE' }),
 
   getSettings: () => request<Settings>('/api/settings'),
-  updateSettings: (patch: { global_prompt?: string; notifications_enabled?: boolean }) =>
-    request<Settings>('/api/settings', { method: 'PATCH', body: JSON.stringify(patch) }),
+  updateSettings: (patch: {
+    global_prompt?: string;
+    notifications_enabled?: boolean;
+    concurrency_warn_at?: number;
+    image_gc_enabled?: boolean;
+  }) => request<Settings>('/api/settings', { method: 'PATCH', body: JSON.stringify(patch) }),
+  runGc: () => request<{ deletedCount: number; deletedBytes: number }>(
+    '/api/settings/run-gc', { method: 'POST', body: JSON.stringify({}) }),
+
+  getConfigDefaults: () => request<{ defaultMarketplaces: string[]; defaultPlugins: string[] }>(
+    '/api/config/defaults'
+  ),
+
+  getRunGithub: (id: number) => request<{
+    pr: null | { number: number; url: string; state: 'OPEN' | 'CLOSED' | 'MERGED'; title: string };
+    checks: null | { state: 'pending' | 'success' | 'failure'; passed: number; failed: number; total: number };
+    github_available: boolean;
+  }>(`/api/runs/${id}/github`),
+
+  createRunPr: (id: number) => request<{ number: number; url: string; state: string; title: string }>(
+    `/api/runs/${id}/github/pr`, { method: 'POST', body: JSON.stringify({}) }),
+
+  getRunDiff: (id: number) => request<{
+    base: string; head: string;
+    files: Array<{ filename: string; additions: number; deletions: number; status: string }>;
+    github_available: boolean;
+  }>(`/api/runs/${id}/diff`),
+
+  getRunSiblings: (id: number) => request<Run[]>(`/api/runs/${id}/siblings`),
 };
