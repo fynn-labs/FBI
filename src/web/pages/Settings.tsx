@@ -34,14 +34,14 @@ export function SettingsPage() {
       <h1 className="text-2xl font-semibold">Settings</h1>
       <label className="block">
         <span className="block text-sm font-medium mb-1">Global prompt</span>
-        <span className="block text-xs text-gray-500 mb-2">
+        <span className="block text-xs text-gray-500 dark:text-gray-400 mb-2">
           Prepended to every run across every project, before project instructions.
         </span>
         <textarea
           value={prompt}
           onChange={(e) => setPrompt(e.target.value)}
           rows={10}
-          className="w-full border rounded px-2 py-1 font-mono text-sm"
+          className="w-full border rounded px-2 py-1 font-mono text-sm dark:bg-gray-900 dark:border-gray-600 dark:text-gray-100"
         />
       </label>
       {error && <div className="text-red-600">{error}</div>}
