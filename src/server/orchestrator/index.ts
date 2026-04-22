@@ -111,7 +111,7 @@ export class Orchestrator {
     runId: number,
     opts: { resumeSessionId: string | null },
     onBytes: (chunk: Uint8Array) => void,
-  ): Promise<{ container: Docker.Container; imageTag: string; authCleanup: () => void }> {
+  ): Promise<{ container: Docker.Container; imageTag: string; projectSecrets: Record<string, string>; authCleanup: () => void }> {
     const run = this.deps.runs.get(runId)!;
     const project = this.deps.projects.get(run.project_id)!;
     const memMb = project.mem_mb ?? this.deps.config.containerMemMb;
@@ -179,7 +179,7 @@ export class Orchestrator {
       },
     });
 
-    return { container, imageTag, authCleanup: () => { /* no-op */ } };
+    return { container, imageTag, projectSecrets, authCleanup: () => { /* no-op */ } };
   }
 
   /** Kicks off a queued run. Fire-and-forget; state transitions go through DB. */
@@ -209,10 +209,9 @@ export class Orchestrator {
     ].join('\n');
 
     try {
-      const { container } = await this.createContainerForRun(
+      const { container, projectSecrets } = await this.createContainerForRun(
         runId, { resumeSessionId: null }, onBytes,
       );
-      const projectSecrets = this.deps.secrets.decryptAll(project.id);
       const effectiveMcps = this.deps.mcpServers.listEffective(project.id);
 
       await injectFiles(container, '/fbi', {
@@ -310,7 +309,8 @@ export class Orchestrator {
           this.scheduler.schedule(runId, verdict.reset_at);
           await container.remove({ force: true, v: true }).catch(() => {});
           this.active.delete(runId);
-          // Keep log + broadcaster open — resume() will append.
+          // Close and re-open on resume — resume() opens in append mode.
+          store.close(); broadcaster.end();
           return;
         }
         await container.remove({ force: true, v: true }).catch(() => {});
@@ -318,6 +318,9 @@ export class Orchestrator {
         store.close(); broadcaster.end();
         this.deps.streams.release(runId);
         return;
+      }
+      if (verdict.kind === 'rate_limit') {
+        onBytes(Buffer.from(`\n[fbi] rate limited but no reset time available; failing\n`));
       }
     }
 

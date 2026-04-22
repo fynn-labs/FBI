@@ -34,6 +34,10 @@ export class ResumeScheduler {
     setTimeout(() => { void this.fire(runId); }, 0);
   }
 
+  cancelAll(): void {
+    for (const [id] of this.timers) this.cancel(id);
+  }
+
   async rehydrate(): Promise<void> {
     const rows = this.deps.runs.listAwaiting();
     for (const row of rows) {
