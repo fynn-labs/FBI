@@ -23,6 +23,7 @@ export function ProjectsPage() {
   return (
     <SplitPane
       leftWidth="320px"
+      storageKey="projects"
       left={
         <div className="flex flex-col h-full">
           <ProjectList projects={projects} runs={runs} />

@@ -83,6 +83,7 @@ export function ProjectDetailPage() {
   return (
     <SplitPane
       leftWidth="360px"
+      storageKey="project-detail"
       left={
         <div className="h-full flex flex-col min-h-0">
           <ProjectHeader project={project} />

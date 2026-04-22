@@ -48,6 +48,7 @@ export function RunsPage() {
   return (
     <SplitPane
       leftWidth="360px"
+      storageKey="runs"
       left={<RunsList runs={runs} toHref={(r) => `/runs/${r.id}`} currentId={params.id ? Number(params.id) : null} />}
       right={
         params.id ? <Outlet /> : (
