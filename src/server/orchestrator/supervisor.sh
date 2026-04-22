@@ -2,9 +2,10 @@
 # FBI run container entrypoint. Mounted at /usr/local/bin/supervisor.sh.
 #
 # Claude owns branching: supervisor does NOT pre-create a branch. It runs the
-# agent on the default branch checkout, captures HEAD afterwards, creates a
-# fallback branch if Claude never branched, and pushes whatever branch HEAD
-# points to.
+# agent on the default branch checkout, then hands off to finalizeBranch.sh
+# which decides whether to push (skips empty / already-merged runs), creates
+# a fallback branch if Claude stayed on the default branch AND produced new
+# commits, and writes /tmp/result.json.
 #
 # Required env vars (set by orchestrator):
 #   RUN_ID, REPO_URL, DEFAULT_BRANCH,
@@ -74,24 +75,11 @@ else
 fi
 set -e
 
-# Capture uncommitted work.
-git add -A
-git commit -m "wip: claude run $RUN_ID" 2>/dev/null || true
-
-# Detect current branch. If Claude never branched, create the fallback so we
-# never push to the default branch.
-CURRENT_BRANCH="$(git rev-parse --abbrev-ref HEAD)"
-if [ "$CURRENT_BRANCH" = "$DEFAULT_BRANCH" ]; then
-    CURRENT_BRANCH="claude/run-$RUN_ID"
-    git checkout -b "$CURRENT_BRANCH"
-    echo "[fbi] claude didn't branch; pushing to fallback $CURRENT_BRANCH"
-fi
-
-PUSH_EXIT=0
-git push -u origin "$CURRENT_BRANCH" || PUSH_EXIT=$?
-
-HEAD_SHA="$(git rev-parse HEAD 2>/dev/null || echo '')"
-printf '{"exit_code":%d,"push_exit":%d,"head_sha":"%s","branch":"%s"}\n' \
-    "$CLAUDE_EXIT" "$PUSH_EXIT" "$HEAD_SHA" "$CURRENT_BRANCH" > /tmp/result.json
+# Finalize the run's branch state: decide whether to push, create a fallback
+# branch if Claude stayed on the default branch, and write /tmp/result.json.
+# Kept in a separate script so it can be tested in isolation — see
+# finalizeBranch.test.ts.
+CLAUDE_EXIT="$CLAUDE_EXIT" RESULT_PATH=/tmp/result.json \
+    /usr/local/bin/fbi-finalize-branch.sh
 
 exit $CLAUDE_EXIT

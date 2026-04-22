@@ -30,6 +30,7 @@ import { LimitMonitor } from './limitMonitor.js';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const SUPERVISOR = path.join(HERE, 'supervisor.sh');
+const FINALIZE_BRANCH = path.join(HERE, 'finalizeBranch.sh');
 
 export interface OrchestratorDeps {
   docker: Docker;
@@ -174,6 +175,7 @@ export class Orchestrator {
         PidsLimit: pids,
         Binds: [
           `${SUPERVISOR}:/usr/local/bin/supervisor.sh:ro`,
+          `${FINALIZE_BRANCH}:/usr/local/bin/fbi-finalize-branch.sh:ro`,
           `${mountDir}:/home/agent/.claude/projects/`,
           ...claudeAuthMounts(this.deps.config.hostClaudeDir),
           ...auth.mounts().map((m) =>
