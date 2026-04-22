@@ -1,4 +1,4 @@
-import type { Project, Run, SecretName, Settings } from '@shared/types.js';
+import type { McpServer, Project, Run, SecretName, Settings } from '@shared/types.js';
 
 async function request<T>(url: string, init?: RequestInit): Promise<T> {
   let res: Response;
@@ -21,6 +21,15 @@ async function request<T>(url: string, init?: RequestInit): Promise<T> {
   }
   return res.json() as Promise<T>;
 }
+
+type McpServerInput = {
+  name: string;
+  type: 'stdio' | 'sse';
+  command?: string | null;
+  args?: string[];
+  url?: string | null;
+  env?: Record<string, string>;
+};
 
 export const api = {
   listProjects: () => request<Project[]>('/api/projects'),
@@ -61,6 +70,35 @@ export const api = {
   deleteRun: (id: number) => request<void>(`/api/runs/${id}`, { method: 'DELETE' }),
 
   getSettings: () => request<Settings>('/api/settings'),
-  updateSettings: (patch: { global_prompt?: string; notifications_enabled?: boolean }) =>
-    request<Settings>('/api/settings', { method: 'PATCH', body: JSON.stringify(patch) }),
+  updateSettings: (patch: {
+    global_prompt?: string;
+    notifications_enabled?: boolean;
+    global_marketplaces?: string[];
+    global_plugins?: string[];
+  }) => request<Settings>('/api/settings', { method: 'PATCH', body: JSON.stringify(patch) }),
+
+  // Global MCP servers
+  listMcpServers: () => request<McpServer[]>('/api/mcp-servers'),
+  createMcpServer: (input: McpServerInput) =>
+    request<McpServer>('/api/mcp-servers', { method: 'POST', body: JSON.stringify(input) }),
+  updateMcpServer: (id: number, patch: Partial<McpServerInput>) =>
+    request<McpServer>(`/api/mcp-servers/${id}`, { method: 'PATCH', body: JSON.stringify(patch) }),
+  deleteMcpServer: (id: number) =>
+    request<void>(`/api/mcp-servers/${id}`, { method: 'DELETE' }),
+
+  // Per-project MCP servers
+  listProjectMcpServers: (projectId: number) =>
+    request<McpServer[]>(`/api/projects/${projectId}/mcp-servers`),
+  createProjectMcpServer: (projectId: number, input: McpServerInput) =>
+    request<McpServer>(`/api/projects/${projectId}/mcp-servers`, {
+      method: 'POST',
+      body: JSON.stringify(input),
+    }),
+  updateProjectMcpServer: (projectId: number, serverId: number, patch: Partial<McpServerInput>) =>
+    request<McpServer>(`/api/projects/${projectId}/mcp-servers/${serverId}`, {
+      method: 'PATCH',
+      body: JSON.stringify(patch),
+    }),
+  deleteProjectMcpServer: (projectId: number, serverId: number) =>
+    request<void>(`/api/projects/${projectId}/mcp-servers/${serverId}`, { method: 'DELETE' }),
 };
