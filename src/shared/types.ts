@@ -49,3 +49,15 @@ export interface Settings {
   notifications_enabled: boolean;
   updated_at: number;
 }
+
+export interface McpServer {
+  id: number;
+  project_id: number | null;
+  name: string;
+  type: 'stdio' | 'sse';
+  command: string | null;
+  args: string[];
+  url: string | null;
+  env: Record<string, string>;
+  created_at: number;
+}
