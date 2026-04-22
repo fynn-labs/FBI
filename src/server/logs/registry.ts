@@ -18,6 +18,7 @@ export class RunStreamRegistry {
   private events = new Map<number, TypedBroadcaster<RunEvent>>();
   private globalStates = new TypedBroadcaster<GlobalStateMessage>();
   private screens = new Map<number, ScreenState>();
+  private rebuilds = new Map<number, Promise<ScreenState>>();
 
   getOrCreate(runId: number): Broadcaster {
     let b = this.bytes.get(runId);
@@ -65,6 +66,21 @@ export class RunStreamRegistry {
     cols = 120,
     rows = 40,
   ): Promise<ScreenState> {
+    const inflight = this.rebuilds.get(runId);
+    if (inflight) return inflight;
+    const p = this.doRebuild(runId, logPath, cols, rows).finally(() => {
+      this.rebuilds.delete(runId);
+    });
+    this.rebuilds.set(runId, p);
+    return p;
+  }
+
+  private async doRebuild(
+    runId: number,
+    logPath: string,
+    cols: number,
+    rows: number,
+  ): Promise<ScreenState> {
     const existing = this.screens.get(runId);
     if (existing) existing.dispose();
     const fresh = new ScreenState(cols, rows);
@@ -91,7 +107,11 @@ export class RunStreamRegistry {
         await fd.close();
       }
     } catch (err: unknown) {
-      if ((err as NodeJS.ErrnoException).code !== 'ENOENT') throw err;
+      if ((err as NodeJS.ErrnoException).code !== 'ENOENT') {
+        this.screens.delete(runId);
+        fresh.dispose();
+        throw err;
+      }
     }
     return fresh;
   }

@@ -70,4 +70,35 @@ describe('RunStreamRegistry', () => {
     r.release(1);
     fs.rmSync(dir, { recursive: true, force: true });
   });
+
+  it('rebuildScreenFromLog: missing log file yields an empty fresh ScreenState without throwing', async () => {
+    const r = new RunStreamRegistry();
+    const screen = await r.rebuildScreenFromLog(1234, '/tmp/fbi-nonexistent-never-created.log', 80, 24);
+    expect(screen.cols).toBe(80);
+    expect(screen.rows).toBe(24);
+    // An empty ScreenState should serialize to something that, re-parsed,
+    // still serializes equivalently (idempotent empty snapshot).
+    const again = new (await import('./screen.js')).ScreenState(80, 24);
+    expect(screen.serialize()).toBe(again.serialize());
+    r.release(1234);
+    again.dispose();
+  });
+
+  it('rebuildScreenFromLog dedups concurrent calls for the same runId', async () => {
+    const fs = await import('node:fs');
+    const os = await import('node:os');
+    const path = await import('node:path');
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'fbi-screen-dedup-'));
+    const logPath = path.join(dir, 'run.log');
+    fs.writeFileSync(logPath, new TextEncoder().encode('hello\r\n'));
+
+    const r = new RunStreamRegistry();
+    const [a, b] = await Promise.all([
+      r.rebuildScreenFromLog(7, logPath, 80, 24),
+      r.rebuildScreenFromLog(7, logPath, 80, 24),
+    ]);
+    expect(a).toBe(b);
+    r.release(7);
+    fs.rmSync(dir, { recursive: true, force: true });
+  });
 });
