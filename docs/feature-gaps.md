@@ -27,54 +27,56 @@ Work through categories one at a time: brainstorm → spec → plan → implemen
 
 ## A. Run iteration & reuse
 
-**Status:** shipped (P1s) · todo (P2)
-**Spec:** [`2026-04-21-p1-improvements-design.md`](superpowers/specs/2026-04-21-p1-improvements-design.md) §2, §3 (P1s only)
+**Status:** shipped (P1s, P2)
+**Spec:** [`2026-04-21-p1-improvements-design.md`](superpowers/specs/2026-04-21-p1-improvements-design.md) §2, §3 · [`2026-04-21-p2-improvements-design.md`](superpowers/specs/2026-04-21-p2-improvements-design.md) §7
 
-- [x] **(P1) Follow-up run on the same branch.** Reframed during brainstorming: Claude owns branch naming, follow-up collapses to "new run with pre-filled branch field." See spec §2.
-- [x] **(P1) Prompt history / templates.** Spec'd as history-only: "Recent prompts" dropdown on NewRun, top N distinct prompts per project, no new table. See spec §3.
-- [ ] **(P2) Run comparison.** Two runs from the same prompt → no side-by-side of what each did.
+- [x] **(P1) Follow-up run on the same branch.** Reframed during brainstorming: Claude owns branch naming, follow-up collapses to "new run with pre-filled branch field." See P1 spec §2.
+- [x] **(P1) Prompt history / templates.** Spec'd as history-only: "Recent prompts" dropdown on NewRun, top N distinct prompts per project, no new table. See P1 spec §3.
+- [x] **(P2) Run comparison.** Shipped as "Related runs" on RunDetail: siblings sharing a prompt, each with a GitHub compare link. See P2 spec §7.
 
 ---
 
 ## B. Visibility & post-run signal
 
-**Status:** shipped (P1) · todo (P2, P3)
-**Spec:** [`2026-04-21-p1-improvements-design.md`](superpowers/specs/2026-04-21-p1-improvements-design.md) §4 (P1 only)
+**Status:** shipped (P1, P2) · todo (P3)
+**Spec:** [`2026-04-21-p1-improvements-design.md`](superpowers/specs/2026-04-21-p1-improvements-design.md) §4 · [`2026-04-21-p2-improvements-design.md`](superpowers/specs/2026-04-21-p2-improvements-design.md) §2, §5, §6
 
-- [x] **(P1) Run-completion notification.** Spec'd: Browser Notification API + tab title prefix + favicon dot, global watcher via 5s poll, Settings toggle. See spec §4.
-- [ ] **(P2) "What's running now" on the home page.** `/` lists projects with name+repo; no visibility into which projects have active runs without clicking through.
-- [ ] **(P2) PR / CI / branch-status surfacing.** No "did CI pass on the pushed branch?" or "has a PR been opened against this branch?" Post-run lives entirely on GitHub.
-- [ ] **(P2) File-level diff summary on the run page.** You go click out to GitHub for every post-mortem.
+- [x] **(P1) Run-completion notification.** Spec'd: Browser Notification API + tab title prefix + favicon dot, global watcher via 5s poll, Settings toggle. See P1 spec §4.
+- [x] **(P2) "What's running now" on the home page.** `/projects` shows a "● N running" chip per project, populated from the watcher. See P2 spec §2.
+- [x] **(P2) PR / CI / branch-status surfacing.** RunDetail renders a GitHub status card (`gh pr list` + `gh pr checks`) with 10s cache and 30s poll. See P2 spec §5.
+- [x] **(P2) File-level diff summary on the run page.** RunDetail renders a "Files changed" table via `gh api …/compare`. See P2 spec §6.
 - [ ] **(P3) Duration / token / cost metrics.** Explicit non-goal, but the absence compounds over time.
 
 ---
 
 ## C. Filtering & scale
 
-**Status:** todo
+**Status:** shipped (P2) · todo (P3)
+**Spec:** [`2026-04-21-p2-improvements-design.md`](superpowers/specs/2026-04-21-p2-improvements-design.md) §2
 
-- [ ] **(P2) `/runs` filters, search, pagination.** API accepts a `state` filter (spec §6) but the UI doesn't expose it. 50 runs in, this page is useless.
-- [ ] **(P2) `/projects` shows last-run state/time.** Spec §7 says project cards should include this; `Projects.tsx` doesn't render it yet.
+- [x] **(P2) `/runs` filters, search, pagination.** State/project dropdowns, debounced prompt search, page-of-50 pagination, URL-synced.
+- [x] **(P2) `/projects` shows last-run state/time.** Project cards render state badge + relative time from `Project.last_run`.
 - [ ] **(P3) Tags / labels on runs** for triage.
 
 ---
 
 ## D. Safety & limits
 
-**Status:** shipped (P1) · todo (P2)
-**Spec:** [`2026-04-21-p1-improvements-design.md`](superpowers/specs/2026-04-21-p1-improvements-design.md) §5 (P1 only)
+**Status:** shipped (P1, P2)
+**Spec:** [`2026-04-21-p1-improvements-design.md`](superpowers/specs/2026-04-21-p1-improvements-design.md) §5 · [`2026-04-21-p2-improvements-design.md`](superpowers/specs/2026-04-21-p2-improvements-design.md) §4
 
-- [x] **(P1) Resource caps per container** (cpu/mem/pids). Spec'd: global env defaults + nullable per-project override, enforced via Docker HostConfig, OOM surfaced as a specific error. See spec §5.
-- [ ] **(P2) Concurrency / queue cap.** Spec §3 explicitly says no cap in v1 — a choice, not a bug — but a soft cap ("you already have 5 running — are you sure?") is cheap protection.
-- [ ] **(P2) Image GC.** Listed as future work. Over months, disk fills silently.
+- [x] **(P1) Resource caps per container** (cpu/mem/pids). Spec'd: global env defaults + nullable per-project override, enforced via Docker HostConfig, OOM surfaced as a specific error. See P1 spec §5.
+- [x] **(P2) Concurrency / queue cap.** Soft warning at configurable threshold (default 3; 0 disables). NewRun confirm dialog; operator always has the final say. See P2 spec §4.1.
+- [x] **(P2) Image GC.** Opt-in nightly sweep + on-demand button. Keeps reachable `fbi/*` images + anything a container references; deletes unreachable `fbi/*` older than 30 days. See P2 spec §4.2.
 
 ---
 
 ## E. Completion & workflow
 
-**Status:** todo
+**Status:** shipped (P2) · todo (P3)
+**Spec:** [`2026-04-21-p2-improvements-design.md`](superpowers/specs/2026-04-21-p2-improvements-design.md) §5
 
-- [ ] **(P2) Auto-PR / one-click "open PR on GitHub."** Spec defers this (§11), but it's the natural next click after every successful run.
+- [x] **(P2) Auto-PR / one-click "open PR on GitHub."** "Create PR" button on RunDetail; uses `gh pr create` with run prompt as body. See P2 spec §5.4.
 - [ ] **(P3) Webhook / scheduled triggers.** Explicit non-goal (spec §2).
 - [ ] **(P3) "Reply to PR comment → start run"** integration.
 
@@ -82,10 +84,11 @@ Work through categories one at a time: brainstorm → spec → plan → implemen
 
 ## F. Prompt composition transparency
 
-**Status:** todo
+**Status:** shipped (P2)
+**Spec:** [`2026-04-21-p2-improvements-design.md`](superpowers/specs/2026-04-21-p2-improvements-design.md) §3
 
-- [ ] **(P2) Composed-prompt preview.** Global + project instructions + run prompt get concatenated by `supervisor.sh`; user can't see the final payload until it appears in the terminal output.
-- [ ] **(P2) Effective plugins/marketplaces preview.** Show which will actually be installed for this run before starting (global ∪ project, deduped).
+- [x] **(P2) Composed-prompt preview.** NewRun shows a live-updating `<details>` panel with the exact text Claude will receive (preamble + global + instructions + prompt), using a shared `composePrompt` helper tested for parity with `supervisor.sh`.
+- [x] **(P2) Effective plugins/marketplaces preview.** NewRun renders the deduped union of global defaults + project additions above the Start button.
 
 ---
 
@@ -104,9 +107,9 @@ Work through categories one at a time: brainstorm → spec → plan → implemen
 
 Spec §2 and §11 mark these out-of-scope. Listed here so they're one place to find:
 - Multi-user / RBAC
-- Auto-PR creation (duplicated in E — promote if prioritized)
+- Auto-PR creation (now shipped — see E)
 - Run retry / resume / chaining
-- In-app diff viewer (duplicated in B — promote if prioritized)
+- In-app diff viewer (see B — diff summary ships, but viewer is still deferred)
 - Mobile UI
 - Webhooks, scheduled triggers
 - Cross-project templates
@@ -121,3 +124,4 @@ Spec §2 and §11 mark these out-of-scope. Listed here so they're one place to f
 - 2026-04-21 — doc created; findings from post-v1 evaluation
 - 2026-04-21 — all four P1s spec'd in `superpowers/specs/2026-04-21-p1-improvements-design.md` (A: branch autonomy + recent prompts; B: completion notifications; D: resource caps)
 - 2026-04-21 — P1 pack shipped; branch autonomy, recent prompts, notifications, and resource caps live.
+- 2026-04-21 — P2 pack shipped; scale & visibility, pre-run transparency, safety caps + image GC, GitHub status + PR creation, file-level diff, related runs.
