@@ -465,9 +465,11 @@ export class Orchestrator {
         stream: true, stdin: true, stdout: true, stderr: true, hijack: true,
       });
       const limitMonitor = this.makeLimitMonitor(runId, container, attach, onBytes);
-      attach.on('data', (c: Buffer) => { limitMonitor.feedLog(c); onBytes(c); });
+      const waitingMonitor = this.makeWaitingMonitor(runId, onBytes);
+      attach.on('data', (c: Buffer) => { limitMonitor.feedLog(c); waitingMonitor.feedLog(c); onBytes(c); });
       await container.start();
       limitMonitor.start();
+      waitingMonitor.start();
       this.active.set(runId, { container, attachStream: attach });
       this.deps.runs.markResuming(runId, container.id);
       this.publishState(runId);
@@ -476,6 +478,7 @@ export class Orchestrator {
         await this.awaitAndComplete(runId, container, onBytes, store, broadcaster);
       } finally {
         limitMonitor.stop();
+        waitingMonitor.stop();
       }
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
@@ -522,9 +525,11 @@ export class Orchestrator {
         stream: true, stdin: true, stdout: true, stderr: true, hijack: true,
       });
       const limitMonitor = this.makeLimitMonitor(runId, container, attach, onBytes);
-      attach.on('data', (c: Buffer) => { limitMonitor.feedLog(c); onBytes(c); });
+      const waitingMonitor = this.makeWaitingMonitor(runId, onBytes);
+      attach.on('data', (c: Buffer) => { limitMonitor.feedLog(c); waitingMonitor.feedLog(c); onBytes(c); });
       await container.start();
       limitMonitor.start();
+      waitingMonitor.start();
       this.active.set(runId, { container, attachStream: attach });
       this.deps.runs.markContinuing(runId, container.id);
       this.publishState(runId);
@@ -533,6 +538,7 @@ export class Orchestrator {
         await this.awaitAndComplete(runId, container, onBytes, store, broadcaster);
       } finally {
         limitMonitor.stop();
+        waitingMonitor.stop();
       }
     } catch (err) {
       if (err instanceof ContinueNotEligibleError) throw err;
