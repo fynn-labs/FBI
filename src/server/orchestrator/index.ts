@@ -597,16 +597,6 @@ export class Orchestrator {
 
     onBytes(Buffer.from(`\n[fbi] reattached after orchestrator restart\n`));
 
-    // Output: follow container.logs from where we left off.
-    const sinceSec = Math.floor((run.started_at ?? Date.now()) / 1000);
-    const logsStream = (await container.logs({
-      follow: true,
-      stdout: true,
-      stderr: true,
-      since: sinceSec,
-    })) as unknown as NodeJS.ReadableStream;
-    logsStream.on('data', (c: Buffer) => onBytes(c));
-
     // Stdin: fresh attach with only stdin.
     const attachStream = await container.attach({
       stream: true,
@@ -619,6 +609,20 @@ export class Orchestrator {
 
     const claudeProjectsDir = path.join(this.deps.config.runsDir, String(runId), 'claude-projects');
     fs.mkdirSync(claudeProjectsDir, { recursive: true, mode: 0o777 });
+
+    // Output: follow container.logs from where we left off, and feed into the
+    // same LimitMonitor used by fresh launches so a pre-existing container
+    // stuck on the in-TUI rate-limit message also gets nudged out.
+    const limitMonitor = this.makeLimitMonitor(runId, container, attachStream, onBytes);
+    const sinceSec = Math.floor((run.started_at ?? Date.now()) / 1000);
+    const logsStream = (await container.logs({
+      follow: true,
+      stdout: true,
+      stderr: true,
+      since: sinceSec,
+    })) as unknown as NodeJS.ReadableStream;
+    logsStream.on('data', (c: Buffer) => { limitMonitor.feedLog(c); onBytes(c); });
+    limitMonitor.start();
     const events = this.deps.streams.getOrCreateEvents(runId);
     const tailer = new UsageTailer({
       dir: claudeProjectsDir,
@@ -682,6 +686,7 @@ export class Orchestrator {
       await container.remove({ force: true, v: true }).catch(() => {});
     } finally {
       await tailer.stop();
+      limitMonitor.stop();
       events.end();
       this.active.delete(runId);
       store.close();
