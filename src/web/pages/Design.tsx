@@ -70,8 +70,8 @@ export function DesignPage() {
               <label htmlFor="agree" className="text-[12px] text-text-dim">Accept terms</label>
             </div>
           </FormRow>
-          <FormRow label="Backend">
-            <Select><option>claude</option><option>codex</option></Select>
+          <FormRow label="Backend" htmlFor="backend-select">
+            <Select id="backend-select"><option>claude</option><option>codex</option></Select>
           </FormRow>
         </div>
       </Section>

@@ -17,6 +17,7 @@ const DOT: Record<DotTone, string> = {
 export function StatusDot({ tone, className, ...rest }: StatusDotProps) {
   return (
     <span
+      role="img"
       data-tone={tone}
       className={cn('inline-block w-[7px] h-[7px] rounded-full', DOT[tone], className)}
       {...rest}
