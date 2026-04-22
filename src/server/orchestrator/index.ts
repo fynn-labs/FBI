@@ -1,5 +1,4 @@
 import Docker from 'dockerode';
-import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import type { RunsRepo } from '../db/runs.js';
@@ -63,17 +62,6 @@ export class Orchestrator {
       const authorName = project.git_author_name ?? this.deps.config.gitAuthorName;
       const authorEmail = project.git_author_email ?? this.deps.config.gitAuthorEmail;
 
-      const runTmpDir = fs.mkdtempSync(path.join('/tmp', 'fbi-run-'));
-      // mkdtempSync creates with 0700; container agent user has a different UID
-      // and needs read+execute on the directory, and read on the files.
-      fs.chmodSync(runTmpDir, 0o755);
-      fs.writeFileSync(path.join(runTmpDir, 'prompt.txt'), run.prompt ?? '', { mode: 0o644 });
-      fs.writeFileSync(
-        path.join(runTmpDir, 'instructions.txt'),
-        project.instructions ?? '',
-        { mode: 0o644 }
-      );
-
       onBytes(Buffer.from(`[fbi] starting container\n`));
       const container = await this.deps.docker.createContainer({
         Image: imageTag,
@@ -98,12 +86,18 @@ export class Orchestrator {
           Binds: [
             `${SUPERVISOR}:/usr/local/bin/supervisor.sh:ro`,
             `${this.deps.config.hostClaudeDir}:/home/agent/.claude:ro`,
-            `${runTmpDir}:/fbi:ro`,
             ...auth.mounts().map((m) =>
               `${m.source}:${m.target}${m.readOnly ? ':ro' : ''}`
             ),
           ],
         },
+      });
+
+      // Inject prompt files directly into the container filesystem so we
+      // don't depend on directory bind mounts (which fail silently on some hosts).
+      await injectFiles(container, '/fbi', {
+        'prompt.txt': run.prompt ?? '',
+        'instructions.txt': project.instructions ?? '',
       });
 
       const attach = await container.attach({
@@ -149,7 +143,6 @@ export class Orchestrator {
       });
       onBytes(Buffer.from(`\n[fbi] run ${state}\n`));
       await container.remove({ force: true, v: true }).catch(() => {});
-      fs.rmSync(runTmpDir, { recursive: true, force: true });
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
       onBytes(Buffer.from(`\n[fbi] error: ${msg}\n`));
@@ -296,6 +289,20 @@ export class Orchestrator {
     broadcaster.end();
     this.deps.streams.release(runId);
   }
+}
+
+async function injectFiles(
+  container: Docker.Container,
+  destDir: string,
+  files: Record<string, string>
+): Promise<void> {
+  const tar = await import('tar-stream');
+  const pack = tar.pack();
+  for (const [name, contents] of Object.entries(files)) {
+    pack.entry({ name, mode: 0o644 }, contents);
+  }
+  pack.finalize();
+  await container.putArchive(pack as unknown as NodeJS.ReadableStream, { path: destDir });
 }
 
 async function readFileFromContainer(

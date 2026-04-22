@@ -63,3 +63,7 @@ chmod 600 /home/agent/.ssh/known_hosts
 # Create workspace directory owned by agent so git clone works.
 mkdir -p /workspace
 chown agent:agent /workspace
+
+# Create prompt injection directory (filled via putArchive before container start).
+mkdir -p /fbi
+chown agent:agent /fbi
