@@ -185,3 +185,8 @@ export interface GlobalStateMessage {
   resume_attempts: number;
   last_limit_reset_at: number | null;
 }
+
+export interface ListeningPort {
+  port: number;
+  proto: 'tcp';
+}

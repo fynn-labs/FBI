@@ -1,4 +1,4 @@
-import type { DailyUsage, McpServer, Project, Run, RunUsageBreakdownRow, SecretName, Settings, UsageState } from '@shared/types.js';
+import type { DailyUsage, ListeningPort, McpServer, Project, Run, RunUsageBreakdownRow, SecretName, Settings, UsageState } from '@shared/types.js';
 
 async function request<T>(url: string, init?: RequestInit): Promise<T> {
   let res: Response;
@@ -70,6 +70,8 @@ export const api = {
   listProjectRuns: (projectId: number) =>
     request<Run[]>(`/api/projects/${projectId}/runs`),
   getRun: (id: number) => request<Run>(`/api/runs/${id}`),
+  getRunListeningPorts: (id: number) =>
+    request<{ ports: ListeningPort[] }>(`/api/runs/${id}/listening-ports`),
   getRecentPrompts: (projectId: number, limit = 10) =>
     request<{ prompt: string; last_used_at: number; run_id: number }[]>(
       `/api/projects/${projectId}/prompts/recent?limit=${limit}`

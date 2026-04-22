@@ -17,6 +17,7 @@ export interface Config {
   gitAuthorName: string;
   gitAuthorEmail: string;
   webDir: string;
+  cliDistDir: string;
   containerMemMb: number;
   containerCpus: number;
   containerPids: number;
@@ -38,6 +39,7 @@ export function loadConfig(): Config {
     gitAuthorName: required('GIT_AUTHOR_NAME'),
     gitAuthorEmail: required('GIT_AUTHOR_EMAIL'),
     webDir: process.env.WEB_DIR ?? path.resolve('dist/web'),
+    cliDistDir: process.env.CLI_DIST_DIR ?? path.resolve('dist/cli'),
     containerMemMb: Number(process.env.FBI_CONTAINER_MEM_MB ?? 4096),
     containerCpus: Number(process.env.FBI_CONTAINER_CPUS ?? 2),
     containerPids: Number(process.env.FBI_CONTAINER_PIDS ?? 4096),

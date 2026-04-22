@@ -25,6 +25,7 @@ import { registerSecretsRoutes } from './api/secrets.js';
 import { registerRunsRoutes } from './api/runs.js';
 import { registerSettingsRoutes } from './api/settings.js';
 import { registerConfigRoutes } from './api/config.js';
+import { registerCliRoutes } from './api/cli.js';
 import { registerMcpServerRoutes } from './api/mcpServers.js';
 import { registerWsRoute } from './api/ws.js';
 import { registerUsageRoutes } from './api/usage.js';
@@ -120,6 +121,20 @@ async function main() {
     runs, streams,
     orchestrator: { getLiveContainer: (id) => orchestrator.getLiveContainer(id) },
   });
+
+  registerCliRoutes(app, {
+    cliDistDir: config.cliDistDir,
+    version: process.env.FBI_VERSION,
+  });
+
+  // Startup log: is the fbi-tunnel dist dir populated?
+  try {
+    const entries = fs.readdirSync(config.cliDistDir).filter((f) => f.startsWith('fbi-tunnel-'));
+    if (entries.length >= 4) app.log.info({ dir: config.cliDistDir, count: entries.length }, 'fbi-tunnel binaries present');
+    else app.log.warn({ dir: config.cliDistDir, count: entries.length }, 'fbi-tunnel binaries missing — /api/cli/fbi-tunnel/* will 503');
+  } catch {
+    app.log.warn({ dir: config.cliDistDir }, 'fbi-tunnel binaries missing — /api/cli/fbi-tunnel/* will 503');
+  }
 
   // SPA fallback: any non-/api route returns index.html.
   app.setNotFoundHandler((req, reply) => {
