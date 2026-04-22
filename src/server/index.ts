@@ -12,6 +12,7 @@ import { SettingsRepo } from './db/settings.js';
 import { McpServersRepo } from './db/mcpServers.js';
 import { RateLimitStateRepo } from './db/rateLimitState.js';
 import { UsageRepo } from './db/usage.js';
+import type { UsageState } from '../shared/types.js';
 import { loadKey } from './crypto.js';
 import { RunStreamRegistry } from './logs/registry.js';
 import { Orchestrator } from './orchestrator/index.js';
@@ -84,7 +85,12 @@ async function main() {
   registerConfigRoutes(app, { config });
   registerMcpServerRoutes(app, { mcpServers });
   registerWsRoute(app, { runs, streams, orchestrator });
-  registerUsageRoutes(app, { usage });
+  // TODO(task-14): replace with real poller.snapshot()
+  const pollerSnapshotStub = (): UsageState => ({
+    plan: null, observed_at: null, last_error: null, last_error_at: null,
+    buckets: [], pacing: {},
+  });
+  registerUsageRoutes(app, { usage, pollerSnapshot: pollerSnapshotStub });
   registerProxyRoutes(app, {
     runs, streams,
     orchestrator: { getLiveContainer: (id) => orchestrator.getLiveContainer(id) },

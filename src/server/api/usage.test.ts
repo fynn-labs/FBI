@@ -8,8 +8,14 @@ import { ProjectsRepo } from '../db/projects.js';
 import { RunsRepo } from '../db/runs.js';
 import { UsageRepo } from '../db/usage.js';
 import { registerUsageRoutes } from './usage.js';
+import type { UsageState } from '../../shared/types.js';
 
-function setup() {
+const DEFAULT_SNAPSHOT: UsageState = {
+  plan: null, observed_at: null, last_error: null, last_error_at: null,
+  buckets: [], pacing: {},
+};
+
+function setup(opts: { pollerSnapshot?: () => UsageState } = {}) {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'fbi-usage-api-'));
   const db = openDb(path.join(dir, 'db.sqlite'));
   const projects = new ProjectsRepo(db);
@@ -25,35 +31,40 @@ function setup() {
     log_path_tmpl: (id) => `/tmp/${id}.log`,
   });
   const app = Fastify();
-  registerUsageRoutes(app, { usage });
+  const pollerSnapshot = opts.pollerSnapshot ?? (() => DEFAULT_SNAPSHOT);
+  registerUsageRoutes(app, { usage, pollerSnapshot });
   return { app, runs, usage, runId: run.id };
 }
 
-describe('GET /api/usage/rate-limit', () => {
-  it('returns a null-shape when nothing observed', async () => {
-    const { app } = setup();
-    const r = await app.inject({ method: 'GET', url: '/api/usage/rate-limit' });
+describe('GET /api/usage', () => {
+  it('returns the poller snapshot', async () => {
+    const snap: UsageState = {
+      plan: 'max', observed_at: 1000, last_error: null, last_error_at: null,
+      buckets: [{ id: 'five_hour', utilization: 0.5, reset_at: 5000, window_started_at: 1000 }],
+      pacing: { five_hour: { delta: 0, zone: 'on_track' } },
+    };
+    const { app } = setup({ pollerSnapshot: () => snap });
+    const r = await app.inject({ method: 'GET', url: '/api/usage' });
     expect(r.statusCode).toBe(200);
-    const body = r.json();
-    expect(body.observed_at).toBeNull();
-    expect(body.percent_used).toBeNull();
+    expect(r.json()).toEqual(snap);
   });
 
-  it('returns derived fields when a snapshot exists', async () => {
-    const { app, usage, runId } = setup();
-    const now = Date.now();
-    usage.upsertRateLimitState({
-      observed_at: now, observed_from_run_id: runId,
-      snapshot: {
-        requests_remaining: 50, requests_limit: 200,
-        tokens_remaining: null, tokens_limit: null,
-        reset_at: now + 1800_000,
-      },
-    });
-    const r = await app.inject({ method: 'GET', url: '/api/usage/rate-limit' });
+  it('returns a neutral snapshot when nothing observed yet', async () => {
+    const { app } = setup();
+    const r = await app.inject({ method: 'GET', url: '/api/usage' });
+    expect(r.statusCode).toBe(200);
     const body = r.json();
-    expect(body.percent_used).toBeCloseTo(0.75, 2);
-    expect(body.reset_in_seconds).toBeGreaterThan(0);
+    expect(body.plan).toBeNull();
+    expect(body.observed_at).toBeNull();
+    expect(body.last_error).toBeNull();
+    expect(Array.isArray(body.buckets)).toBe(true);
+    expect(body.buckets).toHaveLength(0);
+  });
+
+  it('GET /api/usage/rate-limit is no longer registered', async () => {
+    const { app } = setup();
+    const r = await app.inject({ method: 'GET', url: '/api/usage/rate-limit' });
+    expect(r.statusCode).toBe(404);
   });
 });
 
