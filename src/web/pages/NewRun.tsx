@@ -36,7 +36,7 @@ export function NewRunPage() {
         onChange={(e) => setPrompt(e.target.value)}
         rows={12}
         placeholder="Describe what Claude should do…"
-        className="w-full border rounded px-3 py-2 font-mono text-sm"
+        className="w-full border rounded px-3 py-2 font-mono text-sm dark:bg-gray-800 dark:border-gray-600 dark:text-gray-100"
         autoFocus
       />
       {error && <div className="text-red-600">{error}</div>}
