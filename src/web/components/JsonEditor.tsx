@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react';
-import CodeMirror, { createTheme } from '@uiw/react-codemirror';
+import CodeMirror from '@uiw/react-codemirror';
+import { createTheme } from '@uiw/codemirror-themes';
 import { json } from '@codemirror/lang-json';
 import { tags as t } from '@lezer/highlight';
 
