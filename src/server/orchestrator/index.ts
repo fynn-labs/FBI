@@ -8,7 +8,9 @@ import type { RunsRepo } from '../db/runs.js';
 import type { ProjectsRepo } from '../db/projects.js';
 import type { SecretsRepo } from '../db/secrets.js';
 import type { SettingsRepo } from '../db/settings.js';
+import type { McpServersRepo } from '../db/mcpServers.js';
 import type { Config } from '../config.js';
+import { buildContainerClaudeJson } from './claudeJson.js';
 import type { RunStreamRegistry } from '../logs/registry.js';
 import { LogStore } from '../logs/store.js';
 import { ImageBuilder, ALWAYS, POSTBUILD } from './image.js';
@@ -26,6 +28,7 @@ export interface OrchestratorDeps {
   runs: RunsRepo;
   secrets: SecretsRepo;
   settings: SettingsRepo;
+  mcpServers: McpServersRepo;
   streams: RunStreamRegistry;
 }
 
@@ -114,12 +117,13 @@ export class Orchestrator {
       const authorEmail = project.git_author_email ?? this.deps.config.gitAuthorEmail;
 
       // Plugins: global defaults + per-project additions (dedup, preserve order).
+      const settingsData = this.deps.settings.get();
       const marketplaces = uniq([
-        ...this.deps.config.defaultMarketplaces,
+        ...settingsData.global_marketplaces,
         ...project.marketplaces,
       ]);
       const plugins = uniq([
-        ...this.deps.config.defaultPlugins,
+        ...settingsData.global_plugins,
         ...project.plugins,
       ]);
 
@@ -175,11 +179,14 @@ export class Orchestrator {
 
       // Inject a sanitized ~/.claude.json: strip the host-specific installMethod
       // so Claude doesn't warn about missing /home/agent/.local/bin/claude
-      // (host installed via curl, container uses npm).
-      const claudeJson = sanitizedClaudeJson(this.deps.config.hostClaudeDir);
-      if (claudeJson) {
-        await injectFiles(container, '/home/agent', { '.claude.json': claudeJson }, 1000);
-      }
+      // (host installed via curl, container uses npm). Also injects MCP server config.
+      const effectiveMcps = this.deps.mcpServers.listEffective(project.id);
+      const claudeJson = buildContainerClaudeJson(
+        this.deps.config.hostClaudeDir,
+        effectiveMcps,
+        projectSecrets,
+      );
+      await injectFiles(container, '/home/agent', { '.claude.json': claudeJson }, 1000);
 
       const attach = await container.attach({
         stream: true,
@@ -393,42 +400,12 @@ export class Orchestrator {
 
 // Bind-mount OAuth tokens. On Linux they live in ~/.claude/.credentials.json;
 // macOS uses Keychain so nothing to mount. ~/.claude.json is injected separately
-// (see sanitizedClaudeJson) so we can strip host-specific fields.
+// (see buildContainerClaudeJson) so we can strip host-specific fields.
 function claudeAuthMounts(hostClaudeDir: string): string[] {
   const hostCreds = path.join(hostClaudeDir, '.credentials.json');
   return fs.existsSync(hostCreds)
     ? [`${hostCreds}:/home/agent/.claude/.credentials.json`]
     : [];
-}
-
-// Reads the host's ~/.claude.json, strips fields that would leak host install
-// details into the container, and seeds trust for /workspace so the agent
-// doesn't hit the "trust this folder?" prompt. Returns undefined if the host
-// file doesn't exist.
-function sanitizedClaudeJson(hostClaudeDir: string): string | undefined {
-  const hostJson = path.join(path.dirname(hostClaudeDir), '.claude.json');
-  if (!fs.existsSync(hostJson)) return undefined;
-  let obj: Record<string, unknown>;
-  try {
-    obj = JSON.parse(fs.readFileSync(hostJson, 'utf8')) as Record<string, unknown>;
-  } catch {
-    return undefined;
-  }
-  delete obj.installMethod;
-  delete obj.autoUpdates;
-
-  const projects = (obj.projects as Record<string, Record<string, unknown>>) ?? {};
-  projects['/workspace'] = {
-    ...(projects['/workspace'] ?? {}),
-    hasTrustDialogAccepted: true,
-    hasCompletedProjectOnboarding: true,
-    projectOnboardingSeenCount: 1,
-    hasClaudeMdExternalIncludesApproved: true,
-    hasClaudeMdExternalIncludesWarningShown: true,
-  };
-  obj.projects = projects;
-
-  return JSON.stringify(obj);
 }
 
 function uniq(xs: string[]): string[] {

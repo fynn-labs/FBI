@@ -65,6 +65,12 @@ function migrate(db: DB): void {
   if (!settingsCols.has('last_gc_bytes')) {
     db.exec('ALTER TABLE settings ADD COLUMN last_gc_bytes INTEGER');
   }
+  if (!settingsCols.has('global_marketplaces_json')) {
+    db.exec("ALTER TABLE settings ADD COLUMN global_marketplaces_json TEXT NOT NULL DEFAULT '[]'");
+  }
+  if (!settingsCols.has('global_plugins_json')) {
+    db.exec("ALTER TABLE settings ADD COLUMN global_plugins_json TEXT NOT NULL DEFAULT '[]'");
+  }
   db.prepare(
     "INSERT OR IGNORE INTO settings (id, global_prompt, notifications_enabled, concurrency_warn_at, image_gc_enabled, updated_at) VALUES (1, '', 1, 3, 0, ?)"
   ).run(Date.now());

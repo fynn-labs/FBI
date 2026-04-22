@@ -15,6 +15,8 @@ export function registerSettingsRoutes(app: FastifyInstance, deps: Deps): void {
       notifications_enabled?: boolean;
       concurrency_warn_at?: number;
       image_gc_enabled?: boolean;
+      global_marketplaces?: string[];
+      global_plugins?: string[];
     };
     return deps.settings.update(body);
   });

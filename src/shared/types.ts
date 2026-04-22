@@ -53,5 +53,19 @@ export interface Settings {
   last_gc_at: number | null;
   last_gc_count: number | null;
   last_gc_bytes: number | null;
+  global_marketplaces: string[];
+  global_plugins: string[];
   updated_at: number;
+}
+
+export interface McpServer {
+  id: number;
+  project_id: number | null;
+  name: string;
+  type: 'stdio' | 'sse';
+  command: string | null;
+  args: string[];
+  url: string | null;
+  env: Record<string, string>;
+  created_at: number;
 }

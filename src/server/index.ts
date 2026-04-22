@@ -3,12 +3,13 @@ import fastifyStatic from '@fastify/static';
 import fastifyWebsocket from '@fastify/websocket';
 import Docker from 'dockerode';
 import fs from 'node:fs';
-import { loadConfig } from './config.js';
+import { loadConfig, legacyDefaultLists } from './config.js';
 import { openDb } from './db/index.js';
 import { ProjectsRepo } from './db/projects.js';
 import { RunsRepo } from './db/runs.js';
 import { SecretsRepo } from './db/secrets.js';
 import { SettingsRepo } from './db/settings.js';
+import { McpServersRepo } from './db/mcpServers.js';
 import { loadKey } from './crypto.js';
 import { RunStreamRegistry } from './logs/registry.js';
 import { Orchestrator } from './orchestrator/index.js';
@@ -17,6 +18,7 @@ import { registerSecretsRoutes } from './api/secrets.js';
 import { registerRunsRoutes } from './api/runs.js';
 import { registerSettingsRoutes } from './api/settings.js';
 import { registerConfigRoutes } from './api/config.js';
+import { registerMcpServerRoutes } from './api/mcpServers.js';
 import { registerWsRoute } from './api/ws.js';
 import { GhClient } from './github/gh.js';
 
@@ -30,11 +32,24 @@ async function main() {
   const runs = new RunsRepo(db);
   const secrets = new SecretsRepo(db, key);
   const settings = new SettingsRepo(db);
+  const mcpServers = new McpServersRepo(db);
+
+  // One-time migration: if FBI_DEFAULT_* env vars are set and the DB still has empty
+  // global lists, migrate them in so existing deployments don't lose configuration.
+  const legacy = legacyDefaultLists();
+  const currentSettings = settings.get();
+  const migrationPatch: { global_marketplaces?: string[]; global_plugins?: string[] } = {};
+  if (legacy.marketplaces.length > 0 && currentSettings.global_marketplaces.length === 0)
+    migrationPatch.global_marketplaces = legacy.marketplaces;
+  if (legacy.plugins.length > 0 && currentSettings.global_plugins.length === 0)
+    migrationPatch.global_plugins = legacy.plugins;
+  if (Object.keys(migrationPatch).length > 0) settings.update(migrationPatch);
+
   const streams = new RunStreamRegistry();
   const docker = new Docker();
 
   const orchestrator = new Orchestrator({
-    docker, config, projects, runs, secrets, settings, streams,
+    docker, config, projects, runs, secrets, settings, mcpServers, streams,
   });
   const gh = new GhClient();
 
@@ -59,6 +74,7 @@ async function main() {
     runGc: () => orchestrator.runGcOnce(),
   });
   registerConfigRoutes(app, { config });
+  registerMcpServerRoutes(app, { mcpServers });
   registerWsRoute(app, { runs, streams, orchestrator });
 
   // SPA fallback: any non-/api route returns index.html.

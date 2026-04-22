@@ -45,4 +45,54 @@ describe('SettingsRepo', () => {
     expect(s.last_gc_count).toBe(3);
     expect(s.last_gc_bytes).toBe(2048);
   });
+
+  it('reads and updates global_marketplaces and global_plugins', () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'fbi-'));
+    const db = openDb(path.join(dir, 'db.sqlite'));
+    const settings = new SettingsRepo(db);
+    expect(settings.get().global_marketplaces).toEqual([]);
+    expect(settings.get().global_plugins).toEqual([]);
+    settings.update({ global_marketplaces: ['https://reg.example.com'], global_plugins: ['my-plugin@reg'] });
+    expect(settings.get().global_marketplaces).toEqual(['https://reg.example.com']);
+    expect(settings.get().global_plugins).toEqual(['my-plugin@reg']);
+  });
+});
+
+describe('startup migration pattern', () => {
+  it('migrates env-var values into empty DB columns', () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'fbi-'));
+    const db = openDb(path.join(dir, 'db.sqlite'));
+    const repo = new SettingsRepo(db);
+
+    // Simulate: FBI_DEFAULT_MARKETPLACES=https://r.example.com, DB is empty
+    const legacyMarketplaces = ['https://r.example.com'];
+    const current = repo.get();
+    const patch: { global_marketplaces?: string[]; global_plugins?: string[] } = {};
+    if (legacyMarketplaces.length > 0 && current.global_marketplaces.length === 0)
+      patch.global_marketplaces = legacyMarketplaces;
+    if (Object.keys(patch).length > 0) repo.update(patch);
+
+    expect(repo.get().global_marketplaces).toEqual(['https://r.example.com']);
+    expect(repo.get().global_plugins).toEqual([]);
+  });
+
+  it('does not overwrite existing DB values with env-var values', () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'fbi-'));
+    const db = openDb(path.join(dir, 'db.sqlite'));
+    const repo = new SettingsRepo(db);
+
+    // Pre-populate
+    repo.update({ global_marketplaces: ['https://existing.com'] });
+
+    // Simulate migration attempt with a different env-var value
+    const legacyMarketplaces = ['https://different.com'];
+    const current = repo.get();
+    const patch: { global_marketplaces?: string[] } = {};
+    if (legacyMarketplaces.length > 0 && current.global_marketplaces.length === 0)
+      patch.global_marketplaces = legacyMarketplaces;
+    if (Object.keys(patch).length > 0) repo.update(patch);
+
+    // Should NOT have been overwritten
+    expect(repo.get().global_marketplaces).toEqual(['https://existing.com']);
+  });
 });

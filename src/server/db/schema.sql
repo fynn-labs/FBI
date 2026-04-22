@@ -59,3 +59,18 @@ CREATE TABLE IF NOT EXISTS settings (
 -- needed ALTER TABLEs have added columns that may be missing on upgraded
 -- databases. Seeding here would fail on a pre-existing settings table that
 -- doesn't yet have the new columns.
+
+CREATE TABLE IF NOT EXISTS mcp_servers (
+  id INTEGER PRIMARY KEY,
+  project_id INTEGER REFERENCES projects(id) ON DELETE CASCADE,
+  name TEXT NOT NULL,
+  type TEXT NOT NULL CHECK(type IN ('stdio','sse')),
+  command TEXT,
+  args_json TEXT NOT NULL DEFAULT '[]',
+  url TEXT,
+  env_json TEXT NOT NULL DEFAULT '{}',
+  created_at INTEGER NOT NULL,
+  UNIQUE(project_id, name)
+);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_mcp_servers_global_name
+  ON mcp_servers(name) WHERE project_id IS NULL;
