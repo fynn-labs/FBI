@@ -10,8 +10,9 @@
 #   RUN_ID, REPO_URL, DEFAULT_BRANCH,
 #   GIT_AUTHOR_NAME, GIT_AUTHOR_EMAIL
 # Optional:
-#   FBI_MARKETPLACES  newline-separated plugin marketplace sources
-#   FBI_PLUGINS       newline-separated plugin specs (name@marketplace)
+#   FBI_MARKETPLACES        newline-separated plugin marketplace sources
+#   FBI_PLUGINS             newline-separated plugin specs (name@marketplace)
+#   FBI_RESUME_SESSION_ID   when set, uses claude --resume instead of fresh start
 #   Any project secret, injected as env var.
 # Required mounts:
 #   /ssh-agent              (host ssh-agent socket, RW)
