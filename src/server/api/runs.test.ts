@@ -192,6 +192,10 @@ describe('runs routes', () => {
     runs.markStarted(run.id, 'c1');
     runs.setClaudeSessionId(run.id, 'sess');
     runs.markFinished(run.id, { state: 'failed' });
+    // Plant a session jsonl so the handler's eligibility check passes.
+    const sessDir = path.join(dir, String(run.id), 'claude-projects');
+    fs.mkdirSync(sessDir, { recursive: true });
+    fs.writeFileSync(path.join(sessDir, 'sess.jsonl'), '{"x":1}\n');
 
     const continued: number[] = [];
     const app = Fastify();
@@ -203,7 +207,50 @@ describe('runs routes', () => {
     });
     const res = await app.inject({ method: 'POST', url: `/api/runs/${run.id}/continue` });
     expect(res.statusCode).toBe(204);
+    // Allow the fire-and-forget microtask to run.
+    await new Promise((r) => setTimeout(r, 10));
     expect(continued).toEqual([run.id]);
+  });
+
+  it('POST /api/runs/:id/continue returns 204 without waiting for the run to finish (fire-and-forget)', async () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'fbi-'));
+    const db = openDb(path.join(dir, 'db.sqlite'));
+    const projects = new ProjectsRepo(db);
+    const runs = new RunsRepo(db);
+    const proj = projects.create({
+      name: 'p', repo_url: 'r', default_branch: 'main',
+      devcontainer_override_json: null, instructions: null,
+      git_author_name: null, git_author_email: null,
+    });
+    const run = runs.create({
+      project_id: proj.id, prompt: 'x',
+      log_path_tmpl: (id) => path.join(dir, `${id}.log`),
+    });
+    runs.markStarted(run.id, 'c1');
+    runs.setClaudeSessionId(run.id, 'sess');
+    runs.markFinished(run.id, { state: 'failed' });
+    const sessDir = path.join(dir, String(run.id), 'claude-projects');
+    fs.mkdirSync(sessDir, { recursive: true });
+    fs.writeFileSync(path.join(sessDir, 'sess.jsonl'), '{"x":1}\n');
+
+    // continueRun simulates a long-running container lifecycle — it never
+    // resolves within the test window.
+    let resolveContinue!: () => void;
+    const longContinue = new Promise<void>((r) => { resolveContinue = r; });
+    const app = Fastify();
+    registerRunsRoutes(app, {
+      runs, projects, gh: stubGh, runsDir: dir,
+      launch: async () => {}, cancel: async () => {},
+      fireResumeNow: () => {},
+      continueRun: () => longContinue,
+    });
+    const start = Date.now();
+    const res = await app.inject({ method: 'POST', url: `/api/runs/${run.id}/continue` });
+    const elapsed = Date.now() - start;
+    expect(res.statusCode).toBe(204);
+    // Must not have waited for the long-running promise.
+    expect(elapsed).toBeLessThan(500);
+    resolveContinue();
   });
 
   it('POST /api/runs/:id/continue returns 409 with code when ineligible', async () => {
@@ -220,6 +267,7 @@ describe('runs routes', () => {
       project_id: proj.id, prompt: 'x',
       log_path_tmpl: (id) => path.join(dir, `${id}.log`),
     });
+    // Run is `failed` but has no claude_session_id captured.
     runs.markStarted(run.id, 'c1');
     runs.markFinished(run.id, { state: 'failed' });
     const app = Fastify();
@@ -227,13 +275,12 @@ describe('runs routes', () => {
       runs, projects, gh: stubGh, runsDir: dir,
       launch: async () => {}, cancel: async () => {},
       fireResumeNow: () => {},
-      continueRun: async () => {
-        const { ContinueNotEligibleError } = await import('../orchestrator/index.js');
-        throw new ContinueNotEligibleError('no_session', 'no claude session');
-      },
+      continueRun: async () => { throw new Error('should not be called'); },
     });
     const res = await app.inject({ method: 'POST', url: `/api/runs/${run.id}/continue` });
     expect(res.statusCode).toBe(409);
-    expect(res.json()).toEqual({ code: 'no_session', message: 'no claude session' });
+    const body = res.json() as { code: string; message: string };
+    expect(body.code).toBe('no_session');
+    expect(body.message).toMatch(/session/i);
   });
 });

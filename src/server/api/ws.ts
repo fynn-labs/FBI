@@ -39,18 +39,11 @@ export function registerWsRoute(app: FastifyInstance, deps: Deps): void {
       return;
     }
 
-    // If run is finished, replay log and then close.
-    if (run.state !== 'running' && run.state !== 'queued' && run.state !== 'awaiting_resume') {
-      const existing = LogStore.readAll(run.log_path);
-      if (existing.length > 0) {
-        socket.send(existing, () => {
-          socket.close(1000, 'ended');
-        });
-      } else {
-        socket.close(1000, 'ended');
-      }
-      return;
-    }
+    // Terminal runs keep the socket open after replay: a user clicking
+    // Continue revives the run into the same row, the orchestrator publishes
+    // new bytes/state into the registry, and the client must still be
+    // subscribed to receive them. When the continued run ends for real,
+    // the broadcaster's end() fires onEnd below, which closes the socket.
 
     // Fix 2: Subscribe first so no live bytes are missed while we replay.
     const bc = deps.streams.getOrCreate(runId);

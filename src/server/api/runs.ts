@@ -6,6 +6,7 @@ import type { Check } from '../github/gh.js';
 import type { ProjectsRepo } from '../db/projects.js';
 import { parseGitHubRepo } from '../../shared/parseGitHubRepo.js';
 import { LogStore } from '../logs/store.js';
+import { checkContinueEligibility } from '../orchestrator/continueEligibility.js';
 
 interface GhDeps {
   available(): Promise<boolean>;
@@ -125,17 +126,18 @@ export function registerRunsRoutes(app: FastifyInstance, deps: Deps): void {
     const { id } = req.params as { id: string };
     const run = deps.runs.get(Number(id));
     if (!run) return reply.code(404).send({ error: 'not found' });
-    try {
-      await deps.continueRun(run.id);
-      return reply.code(204).send();
-    } catch (err) {
-      const { ContinueNotEligibleError } = await import('../orchestrator/index.js');
-      if (err instanceof ContinueNotEligibleError) {
-        return reply.code(409).send({ code: err.code, message: err.message.replace(/^[^:]+:\s*/, '') });
-      }
-      app.log.error({ err }, 'continueRun failed');
-      return reply.code(500).send({ message: err instanceof Error ? err.message : String(err) });
+    // Synchronous eligibility check so 409s don't pay the latency of the
+    // orchestrator's full container-start sequence.
+    const verdict = checkContinueEligibility(run, deps.runsDir);
+    if (!verdict.ok) {
+      return reply.code(409).send({ code: verdict.code, message: verdict.message });
     }
+    // Fire-and-forget: continueRun runs the entire container lifecycle, so
+    // awaiting it would block the HTTP response for the duration of the run.
+    void deps.continueRun(run.id).catch((err) => {
+      app.log.error({ err }, 'continueRun failed');
+    });
+    return reply.code(204).send();
   });
 
   app.get('/api/runs/:id/transcript', async (req, reply) => {

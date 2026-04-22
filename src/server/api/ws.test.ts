@@ -48,16 +48,71 @@ async function setup() {
 }
 
 describe('WS shell', () => {
-  it('replays transcript and closes for completed runs', async () => {
+  it('replays transcript and stays open for terminal runs (so a Continue can stream into it)', async () => {
     const { app, port, runId } = await setup();
     const ws = new WebSocket(`ws://127.0.0.1:${port}/api/runs/${runId}/shell`);
     const chunks: Buffer[] = [];
-    const done = new Promise<void>((resolve) => {
-      ws.on('message', (d) => chunks.push(d as Buffer));
-      ws.on('close', () => resolve());
-    });
-    await done;
+    ws.on('message', (d) => chunks.push(d as Buffer));
+    await new Promise<void>((r) => ws.once('open', () => r()));
+    // Give the server a tick to send the replay payload.
+    await new Promise((r) => setTimeout(r, 100));
     expect(Buffer.concat(chunks).toString()).toContain('past-output');
+    // Socket must still be open — a subsequent Continue would publish into
+    // the same broadcaster and the client must still be subscribed.
+    expect(ws.readyState).toBe(WebSocket.OPEN);
+    ws.close();
+    await app.close();
+  });
+
+  it('forwards bytes published to a terminal runs broadcaster (continue-after-terminal)', async () => {
+    const { app, port, runId } = await setup();
+
+    // Grab the server's stream registry via a second app.close()-aware path:
+    // The test's `setup` keeps its registry internal. We rebuild setup-equivalent
+    // wiring so we own the RunStreamRegistry and can publish into it.
+    // (Simpler path: re-run a minimal setup inline.)
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'fbi-'));
+    const db = openDb(path.join(dir, 'db.sqlite'));
+    const projects = new ProjectsRepo(db);
+    const runs = new RunsRepo(db);
+    const streams = new RunStreamRegistry();
+    const p = projects.create({
+      name: 'p', repo_url: 'r', default_branch: 'main',
+      devcontainer_override_json: null, instructions: null,
+      git_author_name: null, git_author_email: null,
+    });
+    const logPath = path.join(dir, 'run.log');
+    fs.writeFileSync(logPath, 'old-transcript');
+    const run = runs.create({ project_id: p.id, prompt: 'hi', log_path_tmpl: () => logPath });
+    runs.markStarted(run.id, 'c');
+    runs.markFinished(run.id, { state: 'failed', error: 'boom' });
+
+    const app2 = Fastify();
+    await app2.register(fastifyWebsocket);
+    registerWsRoute(app2, {
+      runs, streams,
+      orchestrator: { writeStdin: () => {}, resize: async () => {}, cancel: async () => {} },
+    });
+    await app2.listen({ port: 0 });
+    const addr = app2.server.address();
+    if (!addr || typeof addr === 'string') throw new Error('no port');
+
+    const ws = new WebSocket(`ws://127.0.0.1:${addr.port}/api/runs/${run.id}/shell`);
+    const chunks: Buffer[] = [];
+    ws.on('message', (d) => chunks.push(d as Buffer));
+    await new Promise<void>((r) => ws.once('open', () => r()));
+    await new Promise((r) => setTimeout(r, 50));
+
+    // Simulate a Continue firing: publish into the run's broadcaster.
+    streams.getOrCreate(run.id).publish(Buffer.from('\n[fbi] continuing from session x\n'));
+    await new Promise((r) => setTimeout(r, 100));
+
+    const combined = Buffer.concat(chunks).toString();
+    expect(combined).toContain('old-transcript');
+    expect(combined).toContain('continuing from session');
+
+    ws.close();
+    await app2.close();
     await app.close();
   });
 
