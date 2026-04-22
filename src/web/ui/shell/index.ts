@@ -7,3 +7,4 @@ export * from './statusRegistry.js';
 export * from './CommandPalette.js';
 export * from './paletteRegistry.js';
 export * from './KeyMap.js';
+export * from './Cheatsheet.js';

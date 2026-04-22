@@ -1,6 +1,6 @@
 import { useEffect, useState, type ReactNode } from 'react';
 import { Routes, Route, Navigate, useLocation, useNavigate } from 'react-router-dom';
-import { AppShell } from '@ui/shell/index.js';
+import { AppShell, Cheatsheet } from '@ui/shell/index.js';
 import { sidebarRegistry } from '@ui/shell/sidebarRegistry.js';
 import { paletteRegistry } from '@ui/shell/paletteRegistry.js';
 import { statusRegistry } from '@ui/shell/statusRegistry.js';
@@ -65,6 +65,7 @@ function StatusRegistrations({ active, today }: { active: number; today: number 
 
 export function App() {
   const [notif, setNotif] = useState(false);
+  const [cheatsheet, setCheatsheet] = useState(false);
   const nav = useNavigate();
 
   useEffect(() => {
@@ -90,29 +91,33 @@ export function App() {
     const offGR = keymap.register({ chord: 'g r', description: 'Go to runs', handler: () => nav('/runs') });
     const offGS = keymap.register({ chord: 'g s', description: 'Go to settings', handler: () => nav('/settings') });
     const offCP = keymap.register({ chord: 'c p', description: 'Create project', handler: () => nav('/projects/new') });
+    const offHelp = keymap.register({ chord: '?', description: 'Show keyboard shortcuts', handler: () => setCheatsheet(true) });
 
-    return () => { offRuns(); offSet(); offActions(); offGR(); offGS(); offCP(); };
+    return () => { offRuns(); offSet(); offActions(); offGR(); offGS(); offCP(); offHelp(); };
   }, [nav]);
 
   return (
-    <Shell>
-      <Routes>
-        <Route path="/" element={<Navigate to="/runs" replace />} />
-        <Route path="/projects" element={<ProjectsPage />}>
-          <Route path="new" element={<NewProjectPage />} />
-        </Route>
-        <Route path="/projects/:id" element={<ProjectDetailPage />}>
-          <Route path="runs/:rid" element={<RunDetailPage />} />
-          <Route path="runs/new" element={<NewRunPage />} />
-        </Route>
-        <Route path="/projects/:id/edit" element={<EditProjectPage />} />
-        <Route path="/runs" element={<RunsPage />}>
-          <Route path=":id" element={<RunDetailPage />} />
-        </Route>
-        <Route path="/settings" element={<SettingsPage />} />
-        <Route path="/design" element={<DesignPage />} />
-        <Route path="*" element={<Navigate to="/" replace />} />
-      </Routes>
-    </Shell>
+    <>
+      <Shell>
+        <Routes>
+          <Route path="/" element={<Navigate to="/runs" replace />} />
+          <Route path="/projects" element={<ProjectsPage />}>
+            <Route path="new" element={<NewProjectPage />} />
+          </Route>
+          <Route path="/projects/:id" element={<ProjectDetailPage />}>
+            <Route path="runs/:rid" element={<RunDetailPage />} />
+            <Route path="runs/new" element={<NewRunPage />} />
+          </Route>
+          <Route path="/projects/:id/edit" element={<EditProjectPage />} />
+          <Route path="/runs" element={<RunsPage />}>
+            <Route path=":id" element={<RunDetailPage />} />
+          </Route>
+          <Route path="/settings" element={<SettingsPage />} />
+          <Route path="/design" element={<DesignPage />} />
+          <Route path="*" element={<Navigate to="/" replace />} />
+        </Routes>
+      </Shell>
+      <Cheatsheet open={cheatsheet} onClose={() => setCheatsheet(false)} />
+    </>
   );
 }
