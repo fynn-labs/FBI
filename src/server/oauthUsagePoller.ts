@@ -78,6 +78,23 @@ export class OAuthUsagePoller {
         observed_at: now,
       })));
       this.opts.buckets.clearNotifiedIfReset();
+
+      // Threshold-cross detection.
+      for (const b of this.opts.buckets.list()) {
+        const crossed: (75 | 90)[] = [];
+        if (b.utilization >= 0.90 && (b.last_notified_threshold ?? 0) < 90) crossed.push(90);
+        else if (b.utilization >= 0.75 && (b.last_notified_threshold ?? 0) < 75) crossed.push(75);
+        for (const t of crossed) {
+          this.opts.buckets.markNotified(b.bucket_id, t, b.reset_at);
+          this.opts.onEvent({
+            type: 'threshold_crossed',
+            bucket_id: b.bucket_id,
+            threshold: t,
+            reset_at: b.reset_at,
+          });
+        }
+      }
+
       this.opts.state.setObserved(now);
 
       this.opts.onEvent({ type: 'snapshot', state: this.snapshot(now) });

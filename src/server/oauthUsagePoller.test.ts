@@ -128,6 +128,42 @@ describe('OAuthUsagePoller', () => {
   });
 });
 
+describe('OAuthUsagePoller threshold_crossed events', () => {
+  it('emits once per bucket per window', async () => {
+    const db = openDb(':memory:');
+    const state = new RateLimitStateRepo(db);
+    const buckets = new RateLimitBucketsRepo(db);
+    let util = 0.7;
+    let resetAt = 100_000;
+    const fetchMock = (async (url: string) => {
+      if (String(url).endsWith('/profile')) return jsonResponse({ plan: 'max' });
+      return jsonResponse({ buckets: [{ id: 'five_hour', utilization: util * 100, resets_at: resetAt }]});
+    }) as unknown as typeof fetch;
+    const events: UsageWsMessage[] = [];
+    const poller = new OAuthUsagePoller({
+      fetch: fetchMock, readToken: () => 'tok', state, buckets,
+      now: () => 1, onEvent: (e) => events.push(e),
+    });
+    await poller.pollOnce();
+    expect(events.filter(e => e.type === 'threshold_crossed')).toHaveLength(0);
+    util = 0.80;
+    await poller.pollOnce();
+    expect(events.filter(e => e.type === 'threshold_crossed' && e.threshold === 75)).toHaveLength(1);
+    util = 0.92;
+    await poller.pollOnce();
+    expect(events.filter(e => e.type === 'threshold_crossed' && e.threshold === 90)).toHaveLength(1);
+    // Next poll at 92% must NOT emit again.
+    await poller.pollOnce();
+    expect(events.filter(e => e.type === 'threshold_crossed')).toHaveLength(2);
+    // Window rolls → allowed to re-notify.
+    resetAt = 200_000;
+    await poller.pollOnce();
+    util = 0.91;
+    await poller.pollOnce();
+    expect(events.filter(e => e.type === 'threshold_crossed').length).toBeGreaterThan(2);
+  });
+});
+
 describe('OAuthUsagePoller cadence', () => {
   it('nudge within 60s of last poll is suppressed', async () => {
     const db = openDb(':memory:');
