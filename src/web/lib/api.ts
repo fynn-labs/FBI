@@ -1,4 +1,4 @@
-import type { DailyUsage, McpServer, Project, RateLimitState, Run, RunUsageBreakdownRow, SecretName, Settings, UsageState } from '@shared/types.js';
+import type { DailyUsage, McpServer, Project, Run, RunUsageBreakdownRow, SecretName, Settings, UsageState } from '@shared/types.js';
 
 async function request<T>(url: string, init?: RequestInit): Promise<T> {
   let res: Response;
@@ -133,7 +133,6 @@ export const api = {
   getRunSiblings: (id: number) => request<Run[]>(`/api/runs/${id}/siblings`),
 
   getUsage: () => request<UsageState>('/api/usage'),
-  getRateLimit: () => request<RateLimitState>('/api/usage/rate-limit'),
   getDailyUsage: (days = 14) => request<DailyUsage[]>(`/api/usage/daily?days=${days}`),
   listDailyUsage: (days = 14) => request<DailyUsage[]>(`/api/usage/daily?days=${days}`),
   getRunUsageBreakdown: (runId: number) => request<RunUsageBreakdownRow[]>(`/api/usage/runs/${runId}`),
