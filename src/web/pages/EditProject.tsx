@@ -3,6 +3,8 @@ import { useNavigate, useParams } from 'react-router-dom';
 import type { Project } from '@shared/types.js';
 import { api } from '../lib/api.js';
 import { JsonEditor } from '../components/JsonEditor.js';
+import { ChipInput } from '../components/ChipInput.js';
+import { McpServerList } from '../components/McpServerList.js';
 
 export function EditProjectPage() {
   const { id } = useParams();
@@ -45,12 +47,23 @@ export function EditProjectPage() {
       <Text label="Git author name (override)" value={p.git_author_name ?? ''} onChange={(v) => setP({ ...p, git_author_name: v || null })} />
       <Text label="Git author email (override)" value={p.git_author_email ?? ''} onChange={(v) => setP({ ...p, git_author_email: v || null })} />
       <Area label="Instructions" value={p.instructions ?? ''} onChange={(v) => setP({ ...p, instructions: v || null })} />
-      <Area label="Extra plugin marketplaces (one per line; merged with global defaults)"
-            value={p.marketplaces.join('\n')}
-            onChange={(v) => setP({ ...p, marketplaces: splitLines(v) })} />
-      <Area label="Extra plugins (one per line, format: name@marketplace)"
-            value={p.plugins.join('\n')}
-            onChange={(v) => setP({ ...p, plugins: splitLines(v) })} />
+      <ChipInput
+        label="Extra plugin marketplaces (merged with global defaults)"
+        values={p.marketplaces}
+        onChange={(v) => setP({ ...p, marketplaces: v })}
+        placeholder="https://registry.example.com"
+      />
+      <ChipInput
+        label="Extra plugins (merged with global defaults, format: name@marketplace)"
+        values={p.plugins}
+        onChange={(v) => setP({ ...p, plugins: v })}
+        placeholder="name@marketplace"
+      />
+      <div>
+        <span className="block text-sm font-medium mb-1">Additional MCP servers</span>
+        <p className="text-xs text-gray-500 dark:text-gray-400 mb-2">Added on top of global defaults for this project.</p>
+        <McpServerList projectId={pid} />
+      </div>
       <NumberField label="Memory cap (MB) — blank = global default"
                    value={p.mem_mb} onChange={(v) => setP({ ...p, mem_mb: v })} />
       <NumberField label="CPUs — blank = global default"
@@ -64,10 +77,6 @@ export function EditProjectPage() {
       <button type="submit" className="bg-blue-600 text-white px-4 py-2 rounded">Save</button>
     </form>
   );
-}
-
-function splitLines(v: string): string[] {
-  return v.split('\n').map((s) => s.trim()).filter((s) => s.length > 0);
 }
 
 function Text({ label, value, onChange }: { label: string; value: string; onChange: (v: string) => void }) {

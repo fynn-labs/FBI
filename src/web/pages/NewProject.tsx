@@ -3,10 +3,7 @@ import { useState, type FormEvent } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { api } from '../lib/api.js';
 import { JsonEditor } from '../components/JsonEditor.js';
-
-function splitLines(v: string): string[] {
-  return v.split('\n').map((s) => s.trim()).filter((s) => s.length > 0);
-}
+import { ChipInput } from '../components/ChipInput.js';
 
 export function NewProjectPage() {
   const nav = useNavigate();
@@ -16,8 +13,8 @@ export function NewProjectPage() {
   const [gitAuthorName, setGitAuthorName] = useState('');
   const [gitAuthorEmail, setGitAuthorEmail] = useState('');
   const [instructions, setInstructions] = useState('');
-  const [marketplaces, setMarketplaces] = useState('');
-  const [plugins, setPlugins] = useState('');
+  const [marketplaces, setMarketplaces] = useState<string[]>([]);
+  const [plugins, setPlugins] = useState<string[]>([]);
   const [devcontainerJson, setDevcontainerJson] = useState('');
   const [error, setError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
@@ -35,8 +32,8 @@ export function NewProjectPage() {
         devcontainer_override_json: devcontainerJson.trim() || null,
         git_author_name: gitAuthorName.trim() || null,
         git_author_email: gitAuthorEmail.trim() || null,
-        marketplaces: splitLines(marketplaces),
-        plugins: splitLines(plugins),
+        marketplaces,
+        plugins,
         mem_mb: null,
         cpus: null,
         pids_limit: null,
@@ -98,22 +95,18 @@ export function NewProjectPage() {
           className="w-full border rounded px-2 py-1 font-mono text-sm dark:bg-gray-900 dark:border-gray-600 dark:text-gray-100"
         />
       </Field>
-      <Field label="Extra plugin marketplaces (one per line; merged with global defaults)">
-        <textarea
-          value={marketplaces}
-          onChange={(e) => setMarketplaces(e.target.value)}
-          rows={3}
-          className="w-full border rounded px-2 py-1 font-mono text-sm dark:bg-gray-900 dark:border-gray-600 dark:text-gray-100"
-        />
-      </Field>
-      <Field label="Extra plugins (one per line, format: name@marketplace)">
-        <textarea
-          value={plugins}
-          onChange={(e) => setPlugins(e.target.value)}
-          rows={3}
-          className="w-full border rounded px-2 py-1 font-mono text-sm dark:bg-gray-900 dark:border-gray-600 dark:text-gray-100"
-        />
-      </Field>
+      <ChipInput
+        label="Extra plugin marketplaces (merged with global defaults)"
+        values={marketplaces}
+        onChange={setMarketplaces}
+        placeholder="https://registry.example.com"
+      />
+      <ChipInput
+        label="Extra plugins (merged with global defaults, format: name@marketplace)"
+        values={plugins}
+        onChange={setPlugins}
+        placeholder="name@marketplace"
+      />
       <JsonEditor
         label="Devcontainer override JSON (used when repo has no .devcontainer/devcontainer.json)"
         value={devcontainerJson}
