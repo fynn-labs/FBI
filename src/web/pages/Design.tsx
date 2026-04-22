@@ -55,9 +55,9 @@ export function DesignPage() {
 
       <Section title="Form primitives">
         <div className="max-w-md space-y-3">
-          <FormRow label="Project name" hint="Human-readable."><Input placeholder="My project" /></FormRow>
-          <FormRow label="Branch"><Input placeholder="feat/branch-name" /></FormRow>
-          <FormRow label="Prompt"><Textarea rows={3} placeholder="Describe what Claude should do…" /></FormRow>
+          <FormRow label="Project name" hint="Human-readable."><Input className="w-full" placeholder="My project" /></FormRow>
+          <FormRow label="Branch"><Input className="w-full" placeholder="feat/branch-name" /></FormRow>
+          <FormRow label="Prompt"><Textarea className="w-full" rows={3} placeholder="Describe what Claude should do…" /></FormRow>
           <FormRow label="Notifications">
             <div className="flex items-center gap-2">
               <Toggle checked={toggle} onChange={setToggle} aria-label="enable notifications" />

@@ -62,7 +62,7 @@ export function SettingsPage() {
 
       <Section title="Global prompt">
         <FormRow label="Text" hint="Prepended to every run, across every project, before project instructions.">
-          <Textarea rows={10} value={prompt} onChange={(e) => setPrompt(e.target.value)} />
+          <Textarea className="w-full" rows={10} value={prompt} onChange={(e) => setPrompt(e.target.value)} />
         </FormRow>
       </Section>
 

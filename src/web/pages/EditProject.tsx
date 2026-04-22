@@ -68,19 +68,19 @@ export function EditProjectPage() {
       <h1 className="text-[24px] font-semibold tracking-[-0.02em]">Edit project</h1>
 
       <Section title="Identity">
-        <FormRow label="Name"><Input value={name} onChange={(e) => setName(e.target.value)} required /></FormRow>
-        <FormRow label="Repo URL (SSH)"><Input value={repoUrl} onChange={(e) => setRepoUrl(e.target.value)} required /></FormRow>
-        <FormRow label="Default branch"><Input value={defaultBranch} onChange={(e) => setDefaultBranch(e.target.value)} required /></FormRow>
+        <FormRow label="Name"><Input className="w-full" value={name} onChange={(e) => setName(e.target.value)} required /></FormRow>
+        <FormRow label="Repo URL (SSH)"><Input className="w-full" value={repoUrl} onChange={(e) => setRepoUrl(e.target.value)} required /></FormRow>
+        <FormRow label="Default branch"><Input className="w-full" value={defaultBranch} onChange={(e) => setDefaultBranch(e.target.value)} required /></FormRow>
       </Section>
 
       <Section title="Git (overrides)">
-        <FormRow label="Author name"><Input value={gitAuthorName} onChange={(e) => setGitAuthorName(e.target.value)} /></FormRow>
-        <FormRow label="Author email"><Input value={gitAuthorEmail} onChange={(e) => setGitAuthorEmail(e.target.value)} /></FormRow>
+        <FormRow label="Author name"><Input className="w-full" value={gitAuthorName} onChange={(e) => setGitAuthorName(e.target.value)} /></FormRow>
+        <FormRow label="Author email"><Input className="w-full" value={gitAuthorEmail} onChange={(e) => setGitAuthorEmail(e.target.value)} /></FormRow>
       </Section>
 
       <Section title="Agent">
         <FormRow label="Project-level instructions" hint="Prepended after the global prompt, before the run prompt.">
-          <Textarea rows={4} value={instructions} onChange={(e) => setInstructions(e.target.value)} />
+          <Textarea className="w-full" rows={4} value={instructions} onChange={(e) => setInstructions(e.target.value)} />
         </FormRow>
       </Section>
 

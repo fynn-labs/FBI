@@ -42,10 +42,10 @@ export function NewRunPage() {
       <h1 className="text-[24px] font-semibold tracking-[-0.02em]">New run</h1>
       <RecentPromptsDropdown projectId={pid} onPick={setPrompt} />
       <FormRow label="Branch name" hint="Leave blank to let Claude choose.">
-        <Input value={branch} onChange={(e) => setBranch(e.target.value)} placeholder="feat/branch-name" />
+        <Input className="w-full" value={branch} onChange={(e) => setBranch(e.target.value)} placeholder="feat/branch-name" />
       </FormRow>
       <FormRow label="Prompt">
-        <Textarea rows={12} autoFocus value={prompt} onChange={(e) => setPrompt(e.target.value)} placeholder="Describe what Claude should do…" />
+        <Textarea className="w-full" rows={12} autoFocus value={prompt} onChange={(e) => setPrompt(e.target.value)} placeholder="Describe what Claude should do…" />
       </FormRow>
       {error && <ErrorState message={error} />}
       <div className="flex items-center gap-3">
