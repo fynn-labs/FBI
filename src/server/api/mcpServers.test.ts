@@ -95,6 +95,21 @@ describe('MCP server routes', () => {
     expect(body.project_id).toBe(project.id);
   });
 
+  it('PATCH /api/mcp-servers/:id → 404 if record is project-scoped', async () => {
+    const project = setup.projects.create({
+      name: 'p1', repo_url: 'git@x.com:x/y.git', default_branch: 'main',
+      devcontainer_override_json: null, instructions: null,
+      git_author_name: null, git_author_email: null,
+    });
+    const s = setup.mcpServers.create({ project_id: project.id, name: 'scoped', type: 'stdio', command: 'npx', args: [] });
+    const res = await setup.app.inject({
+      method: 'PATCH',
+      url: `/api/mcp-servers/${s.id}`,
+      body: { args: ['hacked'] },
+    });
+    expect(res.statusCode).toBe(404);
+  });
+
   it('PATCH /api/projects/:id/mcp-servers/:sid → 404 if sid belongs to different project', async () => {
     const p1 = setup.projects.create({
       name: 'p1', repo_url: 'git@x.com:x/y.git', default_branch: 'main',

@@ -23,6 +23,8 @@ export function registerMcpServerRoutes(
 
   app.patch('/api/mcp-servers/:id', async (req, reply) => {
     const { id } = req.params as { id: string };
+    const existing = deps.mcpServers.get(Number(id));
+    if (!existing || existing.project_id !== null) return reply.code(404).send({ error: 'not found' });
     const updated = deps.mcpServers.update(Number(id), req.body as Parameters<McpServersRepo['update']>[1]);
     if (!updated) return reply.code(404).send({ error: 'not found' });
     return updated;
@@ -31,7 +33,7 @@ export function registerMcpServerRoutes(
   app.delete('/api/mcp-servers/:id', async (req, reply) => {
     const { id } = req.params as { id: string };
     const existing = deps.mcpServers.get(Number(id));
-    if (!existing) return reply.code(404).send({ error: 'not found' });
+    if (!existing || existing.project_id !== null) return reply.code(404).send({ error: 'not found' });
     deps.mcpServers.delete(Number(id));
     reply.code(204);
   });

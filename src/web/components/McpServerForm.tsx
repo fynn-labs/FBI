@@ -36,8 +36,7 @@ export function McpServerForm({ initial, onSave, onCancel, skipCatalog }: McpSer
     setShowCatalog(false);
   }
 
-  function submit(e: React.FormEvent) {
-    e.preventDefault();
+  function submit() {
     const env: Record<string, string> = {};
     for (const { key, value } of envRows) {
       if (key.trim()) env[key.trim()] = value;
@@ -94,7 +93,7 @@ export function McpServerForm({ initial, onSave, onCancel, skipCatalog }: McpSer
   }
 
   return (
-    <form onSubmit={submit} className="border rounded dark:border-gray-600 p-4 space-y-3">
+    <div className="border rounded dark:border-gray-600 p-4 space-y-3">
       <div>
         <label className="block text-sm font-medium mb-1">Name</label>
         <input
@@ -203,10 +202,10 @@ export function McpServerForm({ initial, onSave, onCancel, skipCatalog }: McpSer
         <button type="button" onClick={onCancel} className="text-sm px-3 py-1.5 border rounded dark:border-gray-600 hover:bg-gray-50 dark:hover:bg-gray-800">
           Cancel
         </button>
-        <button type="submit" className="text-sm px-3 py-1.5 bg-blue-600 text-white rounded hover:bg-blue-700">
+        <button type="button" onClick={submit} className="text-sm px-3 py-1.5 bg-blue-600 text-white rounded hover:bg-blue-700">
           {initial ? 'Save' : 'Add server'}
         </button>
       </div>
-    </form>
+    </div>
   );
 }
