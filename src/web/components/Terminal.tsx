@@ -39,6 +39,7 @@ export function Terminal({ runId, interactive }: Props) {
   const hostRef = useRef<HTMLDivElement>(null);
   const loadFullRef = useRef<() => void>(() => {});
   const [historyMode, setHistoryMode] = useState(false);
+  const [loaded, setLoaded] = useState(false);
 
   useEffect(() => {
     const host = hostRef.current;
@@ -102,8 +103,12 @@ export function Terminal({ runId, interactive }: Props) {
     const applySnapshot = (ansi: string) => {
       clearQueue();
       term.reset();
-      enqueueWrite(new TextEncoder().encode(ansi));
+      // Snapshots are bounded by viewport size (scrollback:0 server-side),
+      // so write synchronously — going through the rAF queue makes the
+      // user see the snapshot drawn line-by-line on tab switch.
+      term.write(new TextEncoder().encode(ansi));
       ready = true;
+      if (!disposed) setLoaded(true);
     };
 
     // If another component has already acquired the shell and cached a
@@ -192,6 +197,7 @@ export function Terminal({ runId, interactive }: Props) {
     loadFullRef.current = async () => {
       if (disposed) return;
       setHistoryMode(true);
+      setLoaded(true); // history view is content; suppress the loading overlay
       if (unsubBytes) { unsubBytes(); unsubBytes = null; }
       if (unsubSnapshot) { unsubSnapshot(); unsubSnapshot = null; }
       clearQueue();
@@ -215,6 +221,7 @@ export function Terminal({ runId, interactive }: Props) {
       clearQueue();
       term.reset();
       ready = false;
+      setLoaded(false); // show loading until the resync snapshot lands
       unsubSnapshot = shell.onSnapshot((snap) => applySnapshot(snap.ansi));
       unsubBytes = shell.onBytes((data) => { if (ready) enqueueWrite(data); });
       requestResync(runId);
@@ -247,6 +254,11 @@ export function Terminal({ runId, interactive }: Props) {
 
   return (
     <div className="relative h-full w-full bg-surface-sunken">
+      {!loaded && (
+        <div className="absolute inset-0 z-20 flex items-center justify-center bg-surface-sunken text-text-dim text-[12px]">
+          <span>Loading terminal…</span>
+        </div>
+      )}
       {!historyMode && (
         <div className="absolute top-1 right-2 z-10">
           <button

@@ -121,7 +121,20 @@ export function registerWsRoute(app: FastifyInstance, deps: Deps): void {
         try {
           const msg = JSON.parse(data.toString('utf8')) as ControlFrame;
           if (msg.type === 'resize') {
-            void deps.orchestrator.resize(runId, msg.cols, msg.rows);
+            // Await the resize so the ScreenState has the new dims before we
+            // re-snapshot. Without this, the client's first snapshot is at
+            // the server's stale default dims and renders mis-wrapped until
+            // a later resize forces a re-render.
+            await deps.orchestrator.resize(runId, msg.cols, msg.rows);
+            const screen = deps.streams.getScreen(runId);
+            if (screen && socket.readyState === socket.OPEN) {
+              socket.send(JSON.stringify({
+                type: 'snapshot',
+                ansi: screen.serialize(),
+                cols: screen.cols,
+                rows: screen.rows,
+              }));
+            }
             return;
           }
           if (msg.type === 'resync') {
