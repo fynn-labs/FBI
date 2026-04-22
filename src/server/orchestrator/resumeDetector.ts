@@ -25,12 +25,23 @@ const RE_HUMAN = /Claude usage limit reached\. Your limit will reset at ([^.]+)\
 const RE_HUMAN_NEW = /hit your limit[^A-Za-z\n]+resets?\s+(\d{1,2}(?::\d{2})?\s*[ap]m(?:\s*\([^)\n]+\))?)/i;
 const RE_LENIENT = /(?:usage limit|rate limit|hit your limit)/i;
 
+// The run log is a raw PTY byte stream (Tty:true on the container), so it
+// contains ANSI escape sequences from Claude Code's Ink TUI. Strip them before
+// regex matching — otherwise SGR terminators like "\x1b[0m" land between words
+// and break the `[^A-Za-z\n]+` gap in RE_HUMAN_NEW (the `m` is a letter).
+// CSI:  ESC [ <params> <intermediates> <final 0x40–0x7E>
+// OSC:  ESC ] ... (BEL | ESC \)
+const ANSI_RE =
+  // eslint-disable-next-line no-control-regex
+  /\x1b\[[\x30-\x3F]*[\x20-\x2F]*[\x40-\x7E]|\x1b\][^\x07\x1b]*(?:\x07|\x1b\\)/g;
+
 export function classify(
   logTail: string,
   state: RateLimitStateInput | null,
   now: number,
 ): ResumeVerdict {
-  const tail = logTail.length > TAIL_BYTES ? logTail.slice(-TAIL_BYTES) : logTail;
+  const raw = logTail.length > TAIL_BYTES ? logTail.slice(-TAIL_BYTES) : logTail;
+  const tail = raw.replace(ANSI_RE, '');
 
   // 1. Pipe-delimited epoch.
   const mEpoch = tail.match(RE_PIPE_EPOCH);

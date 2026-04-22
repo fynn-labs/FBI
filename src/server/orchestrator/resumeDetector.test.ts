@@ -38,6 +38,21 @@ describe('resumeDetector.classify', () => {
     expect(v.reset_at).toBe(Date.UTC(2026, 3, 22, 14, 0, 0));
   });
 
+  it('parses the new wording when Ink wraps segments in SGR escapes', () => {
+    // Real logs are raw PTY bytes: Claude Code's Ink TUI wraps styled segments
+    // in ANSI escape sequences. The middle dot is typically dimmed separately,
+    // which lands "\x1b[0m \x1b[2m·\x1b[0m" between "limit" and "resets" — the
+    // `m` terminators break `[^A-Za-z\n]+` unless we strip ANSI first.
+    const styled =
+      '\x1b[90m  ⎿  \x1b[0m\x1b[33mYou’ve hit your limit\x1b[0m ' +
+      '\x1b[2m·\x1b[0m \x1b[33mresets 2pm (UTC)\x1b[0m\n' +
+      '\x1b[33m     /upgrade or /extra-usage to finish what you’re working on.\x1b[0m\n';
+    const v = classify(styled, null, NOW);
+    expect(v.kind).toBe('rate_limit');
+    expect(v.source).toBe('log_text');
+    expect(v.reset_at).toBe(Date.UTC(2026, 3, 22, 14, 0, 0));
+  });
+
   it('parses the human reset form without zone (uses host tz)', () => {
     // Source and reset_at depend on the host timezone; only assert that we
     // get a rate_limit result with a numeric timestamp (not 'other').
