@@ -77,6 +77,16 @@ export function Terminal({ runId, interactive }: Props) {
     };
     const enqueueWrite = (data: Uint8Array): void => {
       if (data.byteLength === 0) return;
+      // Small writes (e.g. keystroke echoes from the PTY) bypass the rAF
+      // queue and write directly so input round-trip stays snappy.
+      // Otherwise every echo waits up to ~16ms for the next frame, which
+      // adds visible per-keystroke lag on top of network RTT. Only fall
+      // through to the queue if it's already pumping (preserves order)
+      // or the chunk is large (worth pacing across frames).
+      if (data.byteLength <= WRITE_CHUNK && writeQueue.length === 0 && !pumping) {
+        term.write(data);
+        return;
+      }
       if (data.byteLength <= WRITE_CHUNK) {
         writeQueue.push(data);
       } else {

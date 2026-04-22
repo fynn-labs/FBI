@@ -121,11 +121,32 @@ export function registerWsRoute(app: FastifyInstance, deps: Deps): void {
         try {
           const msg = JSON.parse(data.toString('utf8')) as ControlFrame;
           if (msg.type === 'resize') {
-            // Await the resize so the ScreenState has the new dims before we
-            // re-snapshot. Without this, the client's first snapshot is at
-            // the server's stale default dims and renders mis-wrapped until
-            // a later resize forces a re-render.
+            // Resize the PTY (sends SIGWINCH to the TUI) and the
+            // ScreenState. xterm's reflow on resize is best-effort and
+            // doesn't perfectly fix wrapping baked in at the old dims —
+            // the TUI (Claude Code) responds to SIGWINCH by emitting a
+            // fresh full-screen redraw at the new dims; once those bytes
+            // are parsed, the ScreenState reflects the correct layout.
+            //
+            // We deliberately do NOT suspend live forwarding during the
+            // wait below: keystroke echoes and other live updates need to
+            // keep flowing so input feels responsive. Brief visual
+            // overlap during the 200 ms is acceptable; the snapshot then
+            // clears and replaces.
+            const screenBefore = deps.streams.getScreen(runId);
+            const dimsChanged =
+              !screenBefore ||
+              screenBefore.cols !== msg.cols ||
+              screenBefore.rows !== msg.rows;
             await deps.orchestrator.resize(runId, msg.cols, msg.rows);
+            if (dimsChanged) {
+              // Wait for the redraw to land before serializing. Without
+              // this wait, the snapshot captures pre-redraw content
+              // (still wrapped at old dims) and the client renders it
+              // mis-wrapped. Skip the wait for no-op resizes so refocus/
+              // idle resizes don't add visible latency.
+              await new Promise((r) => setTimeout(r, 200));
+            }
             const screen = deps.streams.getScreen(runId);
             if (screen && socket.readyState === socket.OPEN) {
               socket.send(JSON.stringify({
