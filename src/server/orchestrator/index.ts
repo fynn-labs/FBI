@@ -94,7 +94,7 @@ export class Orchestrator {
           Binds: [
             `${SUPERVISOR}:/usr/local/bin/supervisor.sh:ro`,
             `${this.deps.config.hostClaudeDir}:/home/agent/.claude:ro`,
-            `${runTmpDir}:/run/fbi:ro`,
+            `${runTmpDir}:/fbi:ro`,
             ...auth.mounts().map((m) =>
               `${m.source}:${m.target}${m.readOnly ? ':ro' : ''}`
             ),

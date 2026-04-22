@@ -37,6 +37,11 @@ fi
 # Install Claude Code CLI.
 if ! command -v claude >/dev/null 2>&1; then
   curl -fsSL https://claude.ai/install.sh | bash
+  # Installer drops the binary in ~/. Symlink so non-root users can find it.
+  CLAUDE_BIN="$(find /root -maxdepth 6 -name 'claude' -type f 2>/dev/null | head -1)"
+  if [ -n "$CLAUDE_BIN" ]; then
+    ln -sf "$CLAUDE_BIN" /usr/local/bin/claude
+  fi
 fi
 
 # Create agent user.

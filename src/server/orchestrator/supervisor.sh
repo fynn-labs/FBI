@@ -8,11 +8,11 @@
 # Required mounts:
 #   /ssh-agent              (host ssh-agent socket, RW)
 #   /home/agent/.claude     (host ~/.claude, RO)
-#   /run/fbi                (tmpfs with instructions.txt + prompt.txt)
+#   /fbi                    (host tmpdir with instructions.txt + prompt.txt)
 #
 # Contract: at end, write /tmp/result.json with exit_code, push_exit, head_sha.
 
-set -uo pipefail
+set -euo pipefail
 
 export SSH_AUTH_SOCK=/ssh-agent
 
@@ -25,15 +25,18 @@ git config user.email "$GIT_AUTHOR_EMAIL"
 
 # Compose the final prompt: project instructions + run prompt.
 : > /tmp/prompt.txt
-if [ -s /run/fbi/instructions.txt ]; then
-    cat /run/fbi/instructions.txt >> /tmp/prompt.txt
+if [ -s /fbi/instructions.txt ]; then
+    cat /fbi/instructions.txt >> /tmp/prompt.txt
     printf '\n\n---\n\n' >> /tmp/prompt.txt
 fi
-cat /run/fbi/prompt.txt >> /tmp/prompt.txt
+[ -f /fbi/prompt.txt ] || { echo "prompt.txt not found in /fbi"; exit 12; }
+cat /fbi/prompt.txt >> /tmp/prompt.txt
 
 # Run the agent. TTY-attached; Claude may emit its OAuth login flow if needed.
+set +e
 claude --dangerously-skip-permissions -p "$(cat /tmp/prompt.txt)"
 CLAUDE_EXIT=$?
+set -e
 
 # Capture anything Claude didn't commit, then push.
 git add -A
