@@ -3,6 +3,7 @@ import type { SettingsRepo } from '../db/settings.js';
 
 interface Deps {
   settings: SettingsRepo;
+  runGc: () => Promise<{ deletedCount: number; deletedBytes: number }>;
 }
 
 export function registerSettingsRoutes(app: FastifyInstance, deps: Deps): void {
@@ -16,5 +17,9 @@ export function registerSettingsRoutes(app: FastifyInstance, deps: Deps): void {
       image_gc_enabled?: boolean;
     };
     return deps.settings.update(body);
+  });
+
+  app.post('/api/settings/run-gc', async () => {
+    return await deps.runGc();
   });
 }

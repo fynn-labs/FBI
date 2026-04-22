@@ -52,7 +52,10 @@ async function main() {
     launch: (id) => orchestrator.launch(id),
     cancel: (id) => orchestrator.cancel(id),
   });
-  registerSettingsRoutes(app, { settings });
+  registerSettingsRoutes(app, {
+    settings,
+    runGc: () => orchestrator.runGcOnce(),
+  });
   registerConfigRoutes(app, { config });
   registerWsRoute(app, { runs, streams, orchestrator });
 
@@ -63,6 +66,7 @@ async function main() {
   });
 
   await orchestrator.recover();
+  await orchestrator.startGcScheduler();
   await app.listen({ port: config.port, host: '0.0.0.0' });
 }
 

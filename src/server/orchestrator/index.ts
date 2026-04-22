@@ -11,7 +11,8 @@ import type { SettingsRepo } from '../db/settings.js';
 import type { Config } from '../config.js';
 import type { RunStreamRegistry } from '../logs/registry.js';
 import { LogStore } from '../logs/store.js';
-import { ImageBuilder } from './image.js';
+import { ImageBuilder, ALWAYS, POSTBUILD } from './image.js';
+import { ImageGc } from './imageGc.js';
 import { parseResultJson } from './result.js';
 import { SshAgentForwarding, type GitAuth } from './gitAuth.js';
 
@@ -30,9 +31,38 @@ export interface OrchestratorDeps {
 
 export class Orchestrator {
   private imageBuilder: ImageBuilder;
+  private gcTimer: NodeJS.Timeout | null = null;
+  private gc: ImageGc;
 
   constructor(private deps: OrchestratorDeps) {
     this.imageBuilder = new ImageBuilder(deps.docker);
+    this.gc = new ImageGc(this.deps.docker, () => ({ always: ALWAYS, postbuild: POSTBUILD }));
+  }
+
+  async startGcScheduler(): Promise<void> {
+    const s = this.deps.settings.get();
+    if (s.image_gc_enabled) await this.runGcOnce();
+    this.scheduleNextGc();
+  }
+
+  private scheduleNextGc(): void {
+    if (this.gcTimer) clearTimeout(this.gcTimer);
+    this.gcTimer = setTimeout(() => {
+      void (async () => {
+        const s = this.deps.settings.get();
+        if (s.image_gc_enabled) await this.runGcOnce();
+        this.scheduleNextGc();
+      })();
+    }, 24 * 60 * 60 * 1000);
+  }
+
+  async runGcOnce(): Promise<{ deletedCount: number; deletedBytes: number }> {
+    const projects = this.deps.projects.list();
+    const res = await this.gc.sweep(projects, Date.now());
+    this.deps.settings.recordGc({
+      at: Date.now(), count: res.deletedCount, bytes: res.deletedBytes,
+    });
+    return res;
   }
 
   /** Kicks off a queued run. Fire-and-forget; state transitions go through DB. */
