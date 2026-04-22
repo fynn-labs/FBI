@@ -1,6 +1,7 @@
 export type RunState =
   | 'queued'
   | 'running'
+  | 'waiting'
   | 'awaiting_resume'
   | 'succeeded'
   | 'failed'
@@ -167,3 +168,13 @@ export interface RunUsageBreakdownRow {
 }
 
 export type RunWsUsageMessage = { type: 'usage'; snapshot: UsageSnapshot };
+
+export interface GlobalStateMessage {
+  type: 'state';
+  run_id: number;
+  project_id: number;
+  state: RunState;
+  next_resume_at: number | null;
+  resume_attempts: number;
+  last_limit_reset_at: number | null;
+}

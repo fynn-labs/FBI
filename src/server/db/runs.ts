@@ -114,7 +114,7 @@ export class RunsRepo {
                 next_resume_at=?,
                 last_limit_reset_at=?,
                 resume_attempts = resume_attempts + 1
-          WHERE id=?`,
+          WHERE id=? AND state IN ('running','waiting')`,
       )
       .run(p.next_resume_at, p.last_limit_reset_at, id);
   }
@@ -147,6 +147,18 @@ export class RunsRepo {
           WHERE id=? AND state IN ('failed','cancelled','succeeded')`,
       )
       .run(containerId, Date.now(), id);
+  }
+
+  markWaiting(id: number): void {
+    this.db
+      .prepare(`UPDATE runs SET state='waiting' WHERE id=? AND state='running'`)
+      .run(id);
+  }
+
+  markRunningFromWaiting(id: number): void {
+    this.db
+      .prepare(`UPDATE runs SET state='running' WHERE id=? AND state='waiting'`)
+      .run(id);
   }
 
   setClaudeSessionId(id: number, sessionId: string): void {

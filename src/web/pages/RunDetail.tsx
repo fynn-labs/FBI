@@ -105,7 +105,7 @@ export function RunDetailPage() {
 
   if (error) return <ErrorState message={error} />;
   if (!run) return <LoadingState label="Loading run…" />;
-  const interactive = run.state === 'running' || run.state === 'queued';
+  const interactive = run.state === 'running' || run.state === 'queued' || run.state === 'waiting';
 
   async function cancel() {
     if (!confirm('Cancel this run?')) return;

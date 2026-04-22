@@ -7,7 +7,7 @@ import type { Run } from '@shared/types.js';
 import { RunUsage } from './RunUsage.js';
 
 const TONE: Record<Run['state'], PillTone> = {
-  queued: 'wait', running: 'run', awaiting_resume: 'warn',
+  queued: 'wait', running: 'run', waiting: 'attn', awaiting_resume: 'warn',
   succeeded: 'ok', failed: 'fail', cancelled: 'warn',
 };
 

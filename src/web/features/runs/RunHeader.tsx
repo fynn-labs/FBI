@@ -4,7 +4,7 @@ import { CodeBlock } from '@ui/data/CodeBlock.js';
 import type { Run } from '@shared/types.js';
 
 const TONE: Record<Run['state'], PillTone> = {
-  queued: 'wait', running: 'run', awaiting_resume: 'warn',
+  queued: 'wait', running: 'run', waiting: 'attn', awaiting_resume: 'warn',
   succeeded: 'ok', failed: 'fail', cancelled: 'warn',
 };
 
@@ -17,7 +17,7 @@ export interface RunHeaderProps {
 
 export function RunHeader({ run, onCancel, onDelete, onContinue }: RunHeaderProps) {
   const nav = useNavigate();
-  const canFollowUp = run.state !== 'running' && run.state !== 'queued' && run.state !== 'awaiting_resume' && !!run.branch_name;
+  const canFollowUp = run.state !== 'running' && run.state !== 'waiting' && run.state !== 'queued' && run.state !== 'awaiting_resume' && !!run.branch_name;
   const canContinue = run.state === 'failed' || run.state === 'cancelled' || run.state === 'succeeded';
   const continueDisabled = !run.claude_session_id;
   return (
@@ -38,11 +38,11 @@ export function RunHeader({ run, onCancel, onDelete, onContinue }: RunHeaderProp
           </Button>
         )}
         {canFollowUp && <Button variant="ghost" size="sm" onClick={() => nav(`/projects/${run.project_id}/runs/new?branch=${encodeURIComponent(run.branch_name!)}`)}>Follow up</Button>}
-        {(run.state === 'running' || run.state === 'awaiting_resume') && <Button variant="danger" size="sm" onClick={onCancel}>Cancel</Button>}
+        {(run.state === 'running' || run.state === 'waiting' || run.state === 'awaiting_resume') && <Button variant="danger" size="sm" onClick={onCancel}>Cancel</Button>}
         <Menu
           trigger={<Button variant="ghost" size="sm">More ▾</Button>}
           items={[
-            { id: 'delete', label: 'Delete run', danger: true, onSelect: onDelete, disabled: run.state === 'running' || run.state === 'awaiting_resume' },
+            { id: 'delete', label: 'Delete run', danger: true, onSelect: onDelete, disabled: run.state === 'running' || run.state === 'waiting' || run.state === 'awaiting_resume' },
           ]}
         />
       </div>

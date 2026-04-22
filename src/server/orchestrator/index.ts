@@ -28,6 +28,7 @@ import type { RateLimitStateRepo } from '../db/rateLimitState.js';
 import type { UsageRepo } from '../db/usage.js';
 import { UsageTailer } from './usageTailer.js';
 import { LimitMonitor } from './limitMonitor.js';
+import { WaitingMonitor } from './waitingMonitor.js';
 import { nudgeClaudeToExit } from './nudgeClaude.js';
 import { checkContinueEligibility } from './continueEligibility.js';
 
@@ -114,12 +115,18 @@ export class Orchestrator {
   private publishState(runId: number): void {
     const run = this.deps.runs.get(runId);
     if (!run) return;
-    this.deps.streams.getOrCreateState(runId).publish({
-      type: 'state',
+    const frame = {
+      type: 'state' as const,
       state: run.state,
       next_resume_at: run.next_resume_at,
       resume_attempts: run.resume_attempts,
       last_limit_reset_at: run.last_limit_reset_at,
+    };
+    this.deps.streams.getOrCreateState(runId).publish(frame);
+    this.deps.streams.getGlobalStates().publish({
+      ...frame,
+      run_id: runId,
+      project_id: run.project_id,
     });
   }
 
@@ -228,6 +235,7 @@ export class Orchestrator {
 
     let tailer: UsageTailer | null = null;
     let limitMonitor: LimitMonitor | null = null;
+    let waitingMonitor: WaitingMonitor | null = null;
 
     try {
       const { container, projectSecrets } = await this.createContainerForRun(
@@ -255,9 +263,15 @@ export class Orchestrator {
         stream: true, stdin: true, stdout: true, stderr: true, hijack: true,
       });
       limitMonitor = this.makeLimitMonitor(runId, container, attach, onBytes);
-      attach.on('data', (c: Buffer) => { limitMonitor!.feedLog(c); onBytes(c); });
+      waitingMonitor = this.makeWaitingMonitor(runId, onBytes);
+      attach.on('data', (c: Buffer) => {
+        limitMonitor!.feedLog(c);
+        waitingMonitor!.feedLog(c);
+        onBytes(c);
+      });
       await container.start();
       limitMonitor.start();
+      waitingMonitor.start();
       this.active.set(runId, { container, attachStream: attach });
       this.deps.runs.markStarted(runId, container.id);
       this.publishState(runId);
@@ -295,6 +309,7 @@ export class Orchestrator {
     } finally {
       if (tailer) await tailer.stop();
       if (limitMonitor) limitMonitor.stop();
+      if (waitingMonitor) waitingMonitor.stop();
     }
   }
 
@@ -466,9 +481,11 @@ export class Orchestrator {
         stream: true, stdin: true, stdout: true, stderr: true, hijack: true,
       });
       const limitMonitor = this.makeLimitMonitor(runId, container, attach, onBytes);
-      attach.on('data', (c: Buffer) => { limitMonitor.feedLog(c); onBytes(c); });
+      const waitingMonitor = this.makeWaitingMonitor(runId, onBytes);
+      attach.on('data', (c: Buffer) => { limitMonitor.feedLog(c); waitingMonitor.feedLog(c); onBytes(c); });
       await container.start();
       limitMonitor.start();
+      waitingMonitor.start();
       this.active.set(runId, { container, attachStream: attach });
       this.deps.runs.markResuming(runId, container.id);
       this.publishState(runId);
@@ -477,6 +494,7 @@ export class Orchestrator {
         await this.awaitAndComplete(runId, container, onBytes, store, broadcaster);
       } finally {
         limitMonitor.stop();
+        waitingMonitor.stop();
       }
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
@@ -523,9 +541,11 @@ export class Orchestrator {
         stream: true, stdin: true, stdout: true, stderr: true, hijack: true,
       });
       const limitMonitor = this.makeLimitMonitor(runId, container, attach, onBytes);
-      attach.on('data', (c: Buffer) => { limitMonitor.feedLog(c); onBytes(c); });
+      const waitingMonitor = this.makeWaitingMonitor(runId, onBytes);
+      attach.on('data', (c: Buffer) => { limitMonitor.feedLog(c); waitingMonitor.feedLog(c); onBytes(c); });
       await container.start();
       limitMonitor.start();
+      waitingMonitor.start();
       this.active.set(runId, { container, attachStream: attach });
       this.deps.runs.markContinuing(runId, container.id);
       this.publishState(runId);
@@ -534,6 +554,7 @@ export class Orchestrator {
         await this.awaitAndComplete(runId, container, onBytes, store, broadcaster);
       } finally {
         limitMonitor.stop();
+        waitingMonitor.stop();
       }
     } catch (err) {
       if (err instanceof ContinueNotEligibleError) throw err;
@@ -571,6 +592,25 @@ export class Orchestrator {
           killContainer: () => container.kill().then(() => undefined),
           log: (msg) => onBytes(Buffer.from(msg)),
         });
+      },
+    });
+  }
+
+  private makeWaitingMonitor(
+    runId: number,
+    onBytes: (chunk: Uint8Array) => void,
+  ): WaitingMonitor {
+    return new WaitingMonitor({
+      mountDir: this.mountDirFor(runId),
+      onEnter: () => {
+        this.deps.runs.markWaiting(runId);
+        this.publishState(runId);
+        onBytes(Buffer.from('\n[fbi] waiting for user input\n'));
+      },
+      onExit: () => {
+        this.deps.runs.markRunningFromWaiting(runId);
+        this.publishState(runId);
+        onBytes(Buffer.from('\n[fbi] user responded; resuming\n'));
       },
     });
   }
@@ -638,8 +678,11 @@ export class Orchestrator {
    * the container is gone, mark the run failed.
    */
   async recover(): Promise<void> {
-    const running = this.deps.runs.listByState('running');
-    for (const run of running) {
+    const live = [
+      ...this.deps.runs.listByState('running'),
+      ...this.deps.runs.listByState('waiting'),
+    ];
+    for (const run of live) {
       if (!run.container_id) {
         this.deps.runs.markFinished(run.id, {
           state: 'failed',
@@ -698,6 +741,7 @@ export class Orchestrator {
     // same LimitMonitor used by fresh launches so a pre-existing container
     // stuck on the in-TUI rate-limit message also gets nudged out.
     const limitMonitor = this.makeLimitMonitor(runId, container, attachStream, onBytes);
+    const waitingMonitor = this.makeWaitingMonitor(runId, onBytes);
     const sinceSec = Math.floor((run.started_at ?? Date.now()) / 1000);
     const logsStream = (await container.logs({
       follow: true,
@@ -705,8 +749,9 @@ export class Orchestrator {
       stderr: true,
       since: sinceSec,
     })) as unknown as NodeJS.ReadableStream;
-    logsStream.on('data', (c: Buffer) => { limitMonitor.feedLog(c); onBytes(c); });
+    logsStream.on('data', (c: Buffer) => { limitMonitor.feedLog(c); waitingMonitor.feedLog(c); onBytes(c); });
     limitMonitor.start();
+    waitingMonitor.start();
     const events = this.deps.streams.getOrCreateEvents(runId);
     const tailer = new UsageTailer({
       dir: claudeProjectsDir,
@@ -776,6 +821,7 @@ export class Orchestrator {
     } finally {
       await tailer.stop();
       limitMonitor.stop();
+      waitingMonitor.stop();
       events.end();
       this.active.delete(runId);
       this.lastRateLimit.delete(runId);
