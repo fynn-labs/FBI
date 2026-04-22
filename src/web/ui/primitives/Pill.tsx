@@ -7,11 +7,15 @@ export interface PillProps extends HTMLAttributes<HTMLSpanElement> {
   tone: PillTone;
 }
 
+// NOTE: Tailwind's `/<opacity>` modifier (e.g. `border-ok/40`) doesn't work
+// with CSS-variable-backed colors when the variable holds a hex value rather
+// than space-separated RGB. Using full-tone borders instead — the tone text
+// colour matches so it reads as a coherent chip.
 const TONES: Record<PillTone, string> = {
-  ok: 'bg-ok-subtle text-ok border-ok/40',
-  run: 'bg-run-subtle text-run border-run/40 animate-pulse',
-  fail: 'bg-fail-subtle text-fail border-fail/40',
-  warn: 'bg-warn-subtle text-warn border-warn/40',
+  ok: 'bg-ok-subtle text-ok border-ok',
+  run: 'bg-run-subtle text-run border-run animate-pulse',
+  fail: 'bg-fail-subtle text-fail border-fail',
+  warn: 'bg-warn-subtle text-warn border-warn',
   wait: 'bg-surface-raised text-text-dim border-border-strong',
 };
 

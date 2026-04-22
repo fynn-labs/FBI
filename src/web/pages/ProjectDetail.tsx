@@ -23,8 +23,11 @@ export function ProjectDetailPage() {
 
   // Auto-redirect only on initial mount (fresh page load, not client-side back-nav).
   // Once the user clears a run (back to /projects/:id), respect it.
+  // React Router reuses this component across /projects/:pid changes, so
+  // reset the scope whenever pid changes.
   const autoRedirectAllowedRef = useRef(true);
   const prevRidRef = useRef<string | undefined>(rid);
+  const lastSeenPidRef = useRef<number | null>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -69,6 +72,14 @@ export function ProjectDetailPage() {
   // Remember the current run id whenever it changes.
   // If the user clears rid (back to /projects/:id), disable further auto-redirects.
   useEffect(() => {
+    if (lastSeenPidRef.current !== pid) {
+      // Project changed (or first mount) — fresh auto-redirect permission.
+      autoRedirectAllowedRef.current = true;
+      prevRidRef.current = rid;
+      lastSeenPidRef.current = pid;
+      if (rid) setLastRunForProject(pid, Number(rid));
+      return;
+    }
     if (rid) {
       setLastRunForProject(pid, Number(rid));
     } else if (prevRidRef.current) {

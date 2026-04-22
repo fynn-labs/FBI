@@ -13,10 +13,15 @@ interface Props {
 
 function readTheme() {
   const s = getComputedStyle(document.documentElement);
+  const bg = s.getPropertyValue('--surface-sunken').trim() || '#0b0f14';
   return {
-    background: s.getPropertyValue('--surface-sunken').trim() || '#0b0f14',
+    background: bg,
     foreground: s.getPropertyValue('--text').trim() || '#e2e8f0',
-    cursor: s.getPropertyValue('--accent').trim() || '#38bdf8',
+    // Paint xterm's cursor the same colour as the background so it never
+    // shows. Claude Code renders its own cursor inside the PTY output, and
+    // xterm's caret just duplicated / overlapped it.
+    cursor: bg,
+    cursorAccent: bg,
   };
 }
 
@@ -32,10 +37,7 @@ export function Terminal({ runId, interactive }: Props) {
         'ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace',
       fontSize: 13,
       theme: readTheme(),
-      cursorBlink: interactive,
-      // Hide the caret when the terminal isn't focused — kills the "floating
-      // blue cursor" that showed up for non-interactive read-only panes.
-      cursorInactiveStyle: 'none',
+      cursorBlink: false,
     });
     const fit = new FitAddon();
     term.loadAddon(fit);
@@ -86,9 +88,6 @@ export function Terminal({ runId, interactive }: Props) {
           for (const c of buf) { merged.set(c, offset); offset += c.byteLength; }
           writeChunked(merged);
         }
-        // For read-only panes, hide the cursor entirely (DECTCEM off) so
-        // there's no vestigial caret at the end of the captured log.
-        if (!interactive) term.write('\x1b[?25l');
         if (interactive) term.focus();
       });
       // Cache inside the outer closure so cleanup can cancel it.

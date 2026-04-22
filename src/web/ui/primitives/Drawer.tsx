@@ -27,18 +27,18 @@ function Chevron({ open }: { open: boolean }) {
 export function Drawer({ open, onToggle, header, children, className }: DrawerProps) {
   return (
     <div className={cn('border-t border-border-strong bg-surface', className)}>
-      <button
-        type="button"
-        aria-expanded={open}
-        aria-label={open ? 'Collapse drawer' : 'Expand drawer'}
-        onClick={() => onToggle(!open)}
-        className="w-full flex items-center px-3 py-1.5 text-left hover:bg-surface-raised transition-colors duration-fast ease-out"
-      >
+      <div className="flex items-center px-3 py-1.5">
         <div className="flex-1 min-w-0 font-mono text-[13px] text-text-dim">{header}</div>
-        <span className="text-text-faint ml-2">
+        <button
+          type="button"
+          aria-expanded={open}
+          aria-label={open ? 'Collapse drawer' : 'Expand drawer'}
+          onClick={() => onToggle(!open)}
+          className="ml-2 flex items-center justify-center w-7 h-7 rounded-md text-text-faint hover:text-text hover:bg-surface-raised transition-colors duration-fast ease-out"
+        >
           <Chevron open={open} />
-        </span>
-      </button>
+        </button>
+      </div>
       {open && <div>{children}</div>}
     </div>
   );
