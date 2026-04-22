@@ -21,7 +21,7 @@ export function openDb(dbPath: string): DB {
   return db;
 }
 
-function migrate(db: DB): void {
+export function migrate(db: DB): void {
   const cols = new Set(
     (db.prepare("PRAGMA table_info(projects)").all() as Array<{ name: string }>)
       .map((r) => r.name)
@@ -101,7 +101,70 @@ function migrate(db: DB): void {
       db.exec(`ALTER TABLE runs ADD COLUMN ${c} INTEGER NOT NULL DEFAULT 0`);
     }
   }
+  // --- TokenEater usage migration ---
+
+  // 1. Rebuild rate_limit_state if it still has the old per-bucket columns.
+  const rlsCols = new Set(
+    (db.prepare("PRAGMA table_info(rate_limit_state)").all() as Array<{ name: string }>)
+      .map(r => r.name)
+  );
+  if (rlsCols.has('requests_remaining')) {
+    db.exec(`BEGIN;
+      CREATE TABLE rate_limit_state_new (
+        id INTEGER PRIMARY KEY CHECK (id = 1),
+        plan TEXT,
+        observed_at INTEGER,
+        last_error TEXT,
+        last_error_at INTEGER
+      );
+      INSERT INTO rate_limit_state_new (id, observed_at)
+        SELECT id, observed_at FROM rate_limit_state;
+      DROP TABLE rate_limit_state;
+      ALTER TABLE rate_limit_state_new RENAME TO rate_limit_state;
+      COMMIT;`);
+  }
+
+  // 2. Make sure the thinned state table exists (fresh DB + post-rebuild).
+  db.exec(`CREATE TABLE IF NOT EXISTS rate_limit_state (
+    id INTEGER PRIMARY KEY CHECK (id = 1),
+    plan TEXT,
+    observed_at INTEGER,
+    last_error TEXT,
+    last_error_at INTEGER
+  )`);
+
+  // 3. Buckets table.
+  db.exec(`CREATE TABLE IF NOT EXISTS rate_limit_buckets (
+    bucket_id TEXT PRIMARY KEY,
+    utilization REAL NOT NULL,
+    reset_at INTEGER,
+    window_started_at INTEGER,
+    last_notified_threshold INTEGER,
+    last_notified_reset_at INTEGER,
+    observed_at INTEGER NOT NULL
+  )`);
+
+  // 4. New settings columns.
+  const settingsCols2 = new Set(
+    (db.prepare("PRAGMA table_info(settings)").all() as Array<{ name: string }>)
+      .map(r => r.name)
+  );
+  if (!settingsCols2.has('usage_notifications_enabled')) {
+    db.exec('ALTER TABLE settings ADD COLUMN usage_notifications_enabled INTEGER NOT NULL DEFAULT 0');
+  }
+  if (!settingsCols2.has('tokens_total_recomputed_at')) {
+    db.exec('ALTER TABLE settings ADD COLUMN tokens_total_recomputed_at INTEGER');
+  }
+
+  // 5. Seed settings row (MUST happen before the recompute reads the sentinel).
   db.prepare(
     "INSERT OR IGNORE INTO settings (id, global_prompt, notifications_enabled, concurrency_warn_at, image_gc_enabled, updated_at) VALUES (1, '', 1, 3, 0, ?)"
   ).run(Date.now());
+
+  // 6. One-shot recompute: tokens_total = input + output.
+  const sentinel = db.prepare('SELECT tokens_total_recomputed_at FROM settings WHERE id = 1').get() as { tokens_total_recomputed_at: number | null } | undefined;
+  if (!sentinel?.tokens_total_recomputed_at) {
+    db.exec('UPDATE runs SET tokens_total = tokens_input + tokens_output');
+    db.prepare('UPDATE settings SET tokens_total_recomputed_at = ? WHERE id = 1').run(Date.now());
+  }
 }

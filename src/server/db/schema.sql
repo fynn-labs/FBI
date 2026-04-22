@@ -100,13 +100,21 @@ CREATE INDEX IF NOT EXISTS idx_run_usage_events_ts  ON run_usage_events (ts);
 -- Auto-resume on rate-limit: extra columns on `runs` and `settings`
 -- are added via migrate() in index.ts.
 
+-- TokenEater usage: thinned state singleton + schema-driven buckets
 CREATE TABLE IF NOT EXISTS rate_limit_state (
   id INTEGER PRIMARY KEY CHECK (id = 1),
-  requests_remaining INTEGER,
-  requests_limit INTEGER,
-  tokens_remaining INTEGER,
-  tokens_limit INTEGER,
+  plan TEXT,
+  observed_at INTEGER,
+  last_error TEXT,
+  last_error_at INTEGER
+);
+
+CREATE TABLE IF NOT EXISTS rate_limit_buckets (
+  bucket_id TEXT PRIMARY KEY,
+  utilization REAL NOT NULL,
   reset_at INTEGER,
-  observed_at INTEGER NOT NULL,
-  observed_from_run_id INTEGER
+  window_started_at INTEGER,
+  last_notified_threshold INTEGER,
+  last_notified_reset_at INTEGER,
+  observed_at INTEGER NOT NULL
 );
