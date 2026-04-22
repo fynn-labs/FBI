@@ -2,6 +2,7 @@ import { useEffect, useState, type FormEvent } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import type { Project } from '@shared/types.js';
 import { api } from '../lib/api.js';
+import { JsonEditor } from '../components/JsonEditor.js';
 
 export function EditProjectPage() {
   const { id } = useParams();
@@ -47,9 +48,9 @@ export function EditProjectPage() {
       <Area label="Extra plugins (one per line, format: name@marketplace)"
             value={p.plugins.join('\n')}
             onChange={(v) => setP({ ...p, plugins: splitLines(v) })} />
-      <Area label="Devcontainer override JSON (used when repo has no .devcontainer/devcontainer.json)"
-            value={p.devcontainer_override_json ?? ''}
-            onChange={(v) => setP({ ...p, devcontainer_override_json: v || null })} />
+      <JsonEditor label="Devcontainer override JSON (used when repo has no .devcontainer/devcontainer.json)"
+                  value={p.devcontainer_override_json ?? ''}
+                  onChange={(v) => setP({ ...p, devcontainer_override_json: v || null })} />
       {error && <div className="text-red-600">{error}</div>}
       <button type="submit" className="bg-blue-600 text-white px-4 py-2 rounded">Save</button>
     </form>
