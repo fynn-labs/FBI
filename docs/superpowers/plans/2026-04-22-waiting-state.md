@@ -1014,11 +1014,12 @@ git commit -m "feat(ui): 'attn' tone on StatusDot, Pill, Design showcase"
 
 ---
 
-## Task 13: Run-level surfaces — RunRow, RunHeader
+## Task 13: Run-level surfaces — RunRow, RunHeader, RunSidePanel
 
 **Files:**
 - Modify: `src/web/features/runs/RunRow.tsx:12-19`
 - Modify: `src/web/features/runs/RunHeader.tsx:6-9, 20-21, 41-45`
+- Modify: `src/web/features/runs/RunSidePanel.tsx:9-12`
 
 - [ ] **Step 1: Update `RunRow` TONE map**
 
@@ -1033,6 +1034,17 @@ const TONE: Record<Run['state'], PillTone> = {
   succeeded: 'ok',
   failed: 'fail',
   cancelled: 'warn',
+};
+```
+
+- [ ] **Step 1b: Update `RunSidePanel` TONE map**
+
+In `src/web/features/runs/RunSidePanel.tsx:9-12`, add `waiting: 'attn'` to the map (same shape as RunRow / RunHeader):
+
+```ts
+const TONE: Record<Run['state'], PillTone> = {
+  queued: 'wait', running: 'run', waiting: 'attn', awaiting_resume: 'warn',
+  succeeded: 'ok', failed: 'fail', cancelled: 'warn',
 };
 ```
 
@@ -1069,8 +1081,8 @@ Expected: clean. (This closes the exhaustiveness holes opened in Task 1 step 2.)
 - [ ] **Step 4: Commit**
 
 ```bash
-git add src/web/features/runs/RunRow.tsx src/web/features/runs/RunHeader.tsx
-git commit -m "feat(ui): render 'waiting' in RunRow + RunHeader"
+git add src/web/features/runs/RunRow.tsx src/web/features/runs/RunHeader.tsx src/web/features/runs/RunSidePanel.tsx
+git commit -m "feat(ui): render 'waiting' in RunRow + RunHeader + RunSidePanel"
 ```
 
 ---
