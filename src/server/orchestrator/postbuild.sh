@@ -68,3 +68,9 @@ chown agent:agent /workspace
 # Create prompt injection directory (filled via putArchive before container start).
 mkdir -p /fbi
 chown agent:agent /fbi
+
+# Pre-create ~/.claude so it's owned by agent. Docker will bind-mount
+# .credentials.json into it at runtime; plugin install needs the rest
+# of the directory to be writable by agent.
+mkdir -p /home/agent/.claude
+chown agent:agent /home/agent/.claude

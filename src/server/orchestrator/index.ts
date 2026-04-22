@@ -98,9 +98,9 @@ export class Orchestrator {
           AutoRemove: false,
           Binds: [
             `${SUPERVISOR}:/usr/local/bin/supervisor.sh:ro`,
-            // OAuth credentials live in ~/.claude.json; ~/.claude itself is
-            // not mounted so each container gets a clean plugin state.
-            ...claudeJsonMount(this.deps.config.hostClaudeDir),
+            // Just the auth files — not the whole ~/.claude dir — so each
+            // container gets clean plugin/session state but stays logged in.
+            ...claudeAuthMounts(this.deps.config.hostClaudeDir),
             ...auth.mounts().map((m) =>
               `${m.source}:${m.target}${m.readOnly ? ':ro' : ''}`
             ),
@@ -306,13 +306,21 @@ export class Orchestrator {
   }
 }
 
-// Returns a bind-mount string for ~/.claude.json if it exists on the host
-// alongside the hostClaudeDir (e.g. /home/fbi/.claude → /home/fbi/.claude.json).
-function claudeJsonMount(hostClaudeDir: string): string[] {
+// Returns bind-mounts for Claude's auth files, so containers inherit the
+// host's login without sharing the plugin cache / session history.
+//   - ~/.claude.json           (user preferences, account metadata)
+//   - ~/.claude/.credentials.json (OAuth tokens on Linux; missing on macOS which uses Keychain)
+function claudeAuthMounts(hostClaudeDir: string): string[] {
+  const mounts: string[] = [];
   const hostJson = path.join(path.dirname(hostClaudeDir), '.claude.json');
-  return fs.existsSync(hostJson)
-    ? [`${hostJson}:/home/agent/.claude.json`]
-    : [];
+  if (fs.existsSync(hostJson)) {
+    mounts.push(`${hostJson}:/home/agent/.claude.json`);
+  }
+  const hostCreds = path.join(hostClaudeDir, '.credentials.json');
+  if (fs.existsSync(hostCreds)) {
+    mounts.push(`${hostCreds}:/home/agent/.claude/.credentials.json`);
+  }
+  return mounts;
 }
 
 function uniq(xs: string[]): string[] {
