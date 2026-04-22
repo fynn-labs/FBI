@@ -23,4 +23,12 @@ describe('parseProcNetTcp', () => {
       { port: 9229, proto: 'tcp' },
     ]);
   });
+
+  it('rejects ports outside 1-65535', () => {
+    const text = `  sl  local_address rem_address   st ...
+   0: 00000000:FFFFFF 00000000:0000 0A 00000000:00000000 00:00000000 00000000  1000        0 1 1 a 100 0 0 10 0
+   1: 00000000:0000   00000000:0000 0A 00000000:00000000 00:00000000 00000000  1000        0 1 1 a 100 0 0 10 0
+`;
+    expect(parseProcNetTcp(text)).toEqual([]);
+  });
 });
