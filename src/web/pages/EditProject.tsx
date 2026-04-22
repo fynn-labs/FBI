@@ -59,11 +59,7 @@ export function EditProjectPage() {
         onChange={(v) => setP({ ...p, plugins: v })}
         placeholder="name@marketplace"
       />
-      <div>
-        <span className="block text-sm font-medium mb-1">Additional MCP servers</span>
-        <p className="text-xs text-gray-500 dark:text-gray-400 mb-2">Added on top of global defaults for this project.</p>
-        <McpServerList projectId={pid} />
-      </div>
+      <McpServerList projectId={pid} label="Additional MCP servers" />
       <NumberField label="Memory cap (MB) — blank = global default"
                    value={p.mem_mb} onChange={(v) => setP({ ...p, mem_mb: v })} />
       <NumberField label="CPUs — blank = global default"
