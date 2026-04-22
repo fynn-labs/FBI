@@ -115,6 +115,14 @@ export class Orchestrator {
         'instructions.txt': project.instructions ?? '',
       });
 
+      // Inject a sanitized ~/.claude.json: strip the host-specific installMethod
+      // so Claude doesn't warn about missing /home/agent/.local/bin/claude
+      // (host installed via curl, container uses npm).
+      const claudeJson = sanitizedClaudeJson(this.deps.config.hostClaudeDir);
+      if (claudeJson) {
+        await injectFiles(container, '/home/agent', { '.claude.json': claudeJson }, 1000);
+      }
+
       const attach = await container.attach({
         stream: true,
         stdin: true,
@@ -306,21 +314,31 @@ export class Orchestrator {
   }
 }
 
-// Returns bind-mounts for Claude's auth files, so containers inherit the
-// host's login without sharing the plugin cache / session history.
-//   - ~/.claude.json           (user preferences, account metadata)
-//   - ~/.claude/.credentials.json (OAuth tokens on Linux; missing on macOS which uses Keychain)
+// Bind-mount OAuth tokens. On Linux they live in ~/.claude/.credentials.json;
+// macOS uses Keychain so nothing to mount. ~/.claude.json is injected separately
+// (see sanitizedClaudeJson) so we can strip host-specific fields.
 function claudeAuthMounts(hostClaudeDir: string): string[] {
-  const mounts: string[] = [];
-  const hostJson = path.join(path.dirname(hostClaudeDir), '.claude.json');
-  if (fs.existsSync(hostJson)) {
-    mounts.push(`${hostJson}:/home/agent/.claude.json`);
-  }
   const hostCreds = path.join(hostClaudeDir, '.credentials.json');
-  if (fs.existsSync(hostCreds)) {
-    mounts.push(`${hostCreds}:/home/agent/.claude/.credentials.json`);
+  return fs.existsSync(hostCreds)
+    ? [`${hostCreds}:/home/agent/.claude/.credentials.json`]
+    : [];
+}
+
+// Reads the host's ~/.claude.json, strips fields that would leak host install
+// details into the container, and returns the result as a string. Returns
+// undefined if the host file doesn't exist.
+function sanitizedClaudeJson(hostClaudeDir: string): string | undefined {
+  const hostJson = path.join(path.dirname(hostClaudeDir), '.claude.json');
+  if (!fs.existsSync(hostJson)) return undefined;
+  let obj: Record<string, unknown>;
+  try {
+    obj = JSON.parse(fs.readFileSync(hostJson, 'utf8')) as Record<string, unknown>;
+  } catch {
+    return undefined;
   }
-  return mounts;
+  delete obj.installMethod;
+  delete obj.autoUpdates;
+  return JSON.stringify(obj);
 }
 
 function uniq(xs: string[]): string[] {
@@ -330,12 +348,17 @@ function uniq(xs: string[]): string[] {
 async function injectFiles(
   container: Docker.Container,
   destDir: string,
-  files: Record<string, string>
+  files: Record<string, string>,
+  uid?: number
 ): Promise<void> {
   const tar = await import('tar-stream');
   const pack = tar.pack();
   for (const [name, contents] of Object.entries(files)) {
-    pack.entry({ name, mode: 0o644 }, contents);
+    const header: { name: string; mode: number; uid?: number; gid?: number } = {
+      name, mode: 0o644,
+    };
+    if (uid !== undefined) { header.uid = uid; header.gid = uid; }
+    pack.entry(header, contents);
   }
   pack.finalize();
   await container.putArchive(pack as unknown as NodeJS.ReadableStream, { path: destDir });
