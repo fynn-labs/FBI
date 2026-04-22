@@ -25,6 +25,7 @@ export default {
         run: { DEFAULT: 'var(--run)', subtle: 'var(--run-subtle)' },
         fail: { DEFAULT: 'var(--fail)', subtle: 'var(--fail-subtle)' },
         warn: { DEFAULT: 'var(--warn)', subtle: 'var(--warn-subtle)' },
+        attn: { DEFAULT: 'var(--attn)', subtle: 'var(--attn-subtle)' },
       },
       fontFamily: {
         sans: ['var(--font-sans)'],
