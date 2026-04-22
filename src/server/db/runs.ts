@@ -102,6 +102,54 @@ export class RunsRepo {
       .run(containerId, Date.now(), id);
   }
 
+  markAwaitingResume(
+    id: number,
+    p: { next_resume_at: number; last_limit_reset_at: number | null },
+  ): void {
+    this.db
+      .prepare(
+        `UPDATE runs
+            SET state='awaiting_resume',
+                container_id=NULL,
+                next_resume_at=?,
+                last_limit_reset_at=?,
+                resume_attempts = resume_attempts + 1
+          WHERE id=?`,
+      )
+      .run(p.next_resume_at, p.last_limit_reset_at, id);
+  }
+
+  markResuming(id: number, containerId: string): void {
+    this.db
+      .prepare(
+        `UPDATE runs
+            SET state='running',
+                container_id=?,
+                next_resume_at=NULL,
+                started_at=COALESCE(started_at, ?)
+          WHERE id=?`,
+      )
+      .run(containerId, Date.now(), id);
+  }
+
+  setClaudeSessionId(id: number, sessionId: string): void {
+    this.db
+      .prepare(
+        `UPDATE runs
+            SET claude_session_id=?
+          WHERE id=? AND claude_session_id IS NULL`,
+      )
+      .run(sessionId, id);
+  }
+
+  listAwaiting(): Array<Pick<Run, 'id' | 'next_resume_at'>> {
+    return this.db
+      .prepare(
+        `SELECT id, next_resume_at FROM runs WHERE state='awaiting_resume'`,
+      )
+      .all() as Array<Pick<Run, 'id' | 'next_resume_at'>>;
+  }
+
   markFinished(id: number, f: FinishInput): void {
     if (f.branch_name !== undefined && f.branch_name !== null && f.branch_name !== '') {
       this.db

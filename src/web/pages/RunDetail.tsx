@@ -11,6 +11,7 @@ import { FilesTab } from '../features/runs/FilesTab.js';
 import { PromptTab } from '../features/runs/PromptTab.js';
 import { GithubTab } from '../features/runs/GithubTab.js';
 import { useKeyBinding } from '@ui/shell/KeyMap.js';
+import { subscribeState } from '../features/runs/usageBus.js';
 
 export function RunDetailPage() {
   const params = useParams();
@@ -45,6 +46,19 @@ export function RunDetailPage() {
     void api.getProject(run.project_id).then(setProject).catch(() => {});
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [run?.id]);
+
+  useEffect(() => {
+    return subscribeState((id, frame) => {
+      if (id !== runId) return;
+      setRun((r) => r ? {
+        ...r,
+        state: frame.state,
+        next_resume_at: frame.next_resume_at,
+        resume_attempts: frame.resume_attempts,
+        last_limit_reset_at: frame.last_limit_reset_at,
+      } : r);
+    });
+  }, [runId]);
 
   useEffect(() => {
     if (!run || run.state !== 'succeeded') return;

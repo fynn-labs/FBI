@@ -75,6 +75,24 @@ function migrate(db: DB): void {
     (db.prepare("PRAGMA table_info(runs)").all() as Array<{ name: string }>)
       .map((r) => r.name)
   );
+  if (!runCols.has('resume_attempts')) {
+    db.exec('ALTER TABLE runs ADD COLUMN resume_attempts INTEGER NOT NULL DEFAULT 0');
+  }
+  if (!runCols.has('next_resume_at')) {
+    db.exec('ALTER TABLE runs ADD COLUMN next_resume_at INTEGER');
+  }
+  if (!runCols.has('claude_session_id')) {
+    db.exec('ALTER TABLE runs ADD COLUMN claude_session_id TEXT');
+  }
+  if (!runCols.has('last_limit_reset_at')) {
+    db.exec('ALTER TABLE runs ADD COLUMN last_limit_reset_at INTEGER');
+  }
+  if (!settingsCols.has('auto_resume_enabled')) {
+    db.exec('ALTER TABLE settings ADD COLUMN auto_resume_enabled INTEGER NOT NULL DEFAULT 1');
+  }
+  if (!settingsCols.has('auto_resume_max_attempts')) {
+    db.exec('ALTER TABLE settings ADD COLUMN auto_resume_max_attempts INTEGER NOT NULL DEFAULT 5');
+  }
   for (const c of [
     'tokens_input', 'tokens_output', 'tokens_cache_read',
     'tokens_cache_create', 'tokens_total', 'usage_parse_errors',

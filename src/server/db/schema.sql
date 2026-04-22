@@ -97,6 +97,9 @@ CREATE TABLE IF NOT EXISTS run_usage_events (
 CREATE INDEX IF NOT EXISTS idx_run_usage_events_run ON run_usage_events (run_id, ts);
 CREATE INDEX IF NOT EXISTS idx_run_usage_events_ts  ON run_usage_events (ts);
 
+-- Auto-resume on rate-limit: extra columns on `runs` and `settings`
+-- are added via migrate() in index.ts.
+
 CREATE TABLE IF NOT EXISTS rate_limit_state (
   id INTEGER PRIMARY KEY CHECK (id = 1),
   requests_remaining INTEGER,

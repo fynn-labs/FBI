@@ -1,6 +1,7 @@
 export type RunState =
   | 'queued'
   | 'running'
+  | 'awaiting_resume'
   | 'succeeded'
   | 'failed'
   | 'cancelled';
@@ -38,6 +39,10 @@ export interface Run {
   started_at: number | null;
   finished_at: number | null;
   created_at: number;
+  resume_attempts: number;
+  next_resume_at: number | null;
+  claude_session_id: string | null;
+  last_limit_reset_at: number | null;
   // Usage totals (see docs/superpowers/specs/2026-04-22-claude-usage-design.md)
   tokens_input: number;
   tokens_output: number;
@@ -62,6 +67,8 @@ export interface Settings {
   last_gc_bytes: number | null;
   global_marketplaces: string[];
   global_plugins: string[];
+  auto_resume_enabled: boolean;
+  auto_resume_max_attempts: number;
   updated_at: number;
 }
 
@@ -76,6 +83,14 @@ export interface McpServer {
   env: Record<string, string>;
   created_at: number;
 }
+
+export type RunWsStateMessage = {
+  type: 'state';
+  state: RunState;
+  next_resume_at: number | null;
+  resume_attempts: number;
+  last_limit_reset_at: number | null;
+};
 
 export interface UsageSnapshot {
   model: string;

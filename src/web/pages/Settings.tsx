@@ -14,6 +14,8 @@ export function SettingsPage() {
   const [runningGc, setRunningGc] = useState(false);
   const [marketplaces, setMarketplaces] = useState<string[]>([]);
   const [plugins, setPlugins] = useState<string[]>([]);
+  const [autoResumeEnabled, setAutoResumeEnabled] = useState<boolean>(true);
+  const [autoResumeMaxAttempts, setAutoResumeMaxAttempts] = useState<number>(3);
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -27,6 +29,8 @@ export function SettingsPage() {
       setLastGc({ at: s.last_gc_at, count: s.last_gc_count, bytes: s.last_gc_bytes });
       setMarketplaces(s.global_marketplaces);
       setPlugins(s.global_plugins);
+      setAutoResumeEnabled(s.auto_resume_enabled);
+      setAutoResumeMaxAttempts(s.auto_resume_max_attempts);
     });
   }, []);
 
@@ -42,6 +46,8 @@ export function SettingsPage() {
         image_gc_enabled: gcEnabled,
         global_marketplaces: marketplaces,
         global_plugins: plugins,
+        auto_resume_enabled: autoResumeEnabled,
+        auto_resume_max_attempts: autoResumeMaxAttempts,
       });
       setSaved(true);
     } catch (err) { setError(String(err)); }
@@ -65,6 +71,23 @@ export function SettingsPage() {
           <Toggle checked={enabled} onChange={setEnabled} aria-label="Enable run-completion notifications" />
           <span className="text-[12px] text-text-dim">Enable run-completion notifications</span>
         </div>
+      </Section>
+
+      <Section title="Auto-resume">
+        <div className="flex items-center gap-3 mb-3">
+          <Toggle checked={autoResumeEnabled} onChange={setAutoResumeEnabled} aria-label="Enable auto-resume on Claude rate-limit" />
+          <span className="text-[12px] text-text-dim">Auto-resume runs that hit the Claude 5-hour rate-limit</span>
+        </div>
+        <FormRow label="Max attempts" hint="Give up after this many consecutive rate-limit waits.">
+          <Input
+            type="number"
+            min={0}
+            max={20}
+            value={autoResumeMaxAttempts}
+            onChange={(e) => setAutoResumeMaxAttempts(Number(e.target.value))}
+            className="w-32"
+          />
+        </FormRow>
       </Section>
 
       <Section title="Concurrency">

@@ -10,6 +10,7 @@ import { RunsRepo } from './db/runs.js';
 import { SecretsRepo } from './db/secrets.js';
 import { SettingsRepo } from './db/settings.js';
 import { McpServersRepo } from './db/mcpServers.js';
+import { RateLimitStateRepo } from './db/rateLimitState.js';
 import { UsageRepo } from './db/usage.js';
 import { loadKey } from './crypto.js';
 import { RunStreamRegistry } from './logs/registry.js';
@@ -35,6 +36,7 @@ async function main() {
   const secrets = new SecretsRepo(db, key);
   const settings = new SettingsRepo(db);
   const mcpServers = new McpServersRepo(db);
+  const rateLimitState = new RateLimitStateRepo(db);
   const usage = new UsageRepo(db);
 
   // One-time migration: if FBI_DEFAULT_* env vars are set and the DB still has empty
@@ -52,7 +54,7 @@ async function main() {
   const docker = new Docker();
 
   const orchestrator = new Orchestrator({
-    docker, config, projects, runs, secrets, settings, mcpServers, streams, usage,
+    docker, config, projects, runs, secrets, settings, mcpServers, streams, rateLimitState, usage,
   });
   const gh = new GhClient();
 
@@ -71,6 +73,7 @@ async function main() {
     runsDir: config.runsDir,
     launch: (id) => orchestrator.launch(id),
     cancel: (id) => orchestrator.cancel(id),
+    fireResumeNow: (id) => orchestrator.fireResumeNow(id),
   });
   registerSettingsRoutes(app, {
     settings,
@@ -88,6 +91,7 @@ async function main() {
   });
 
   await orchestrator.recover();
+  await orchestrator.rehydrateSchedules();
   await orchestrator.startGcScheduler();
   await app.listen({ port: config.port, host: '0.0.0.0' });
 }

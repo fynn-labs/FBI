@@ -22,6 +22,7 @@ interface Deps {
   runsDir: string;
   launch: (runId: number) => Promise<void>;
   cancel: (runId: number) => Promise<void>;
+  fireResumeNow: (runId: number) => void;
 }
 
 const GH_STATUS_TTL_MS = 10_000;
@@ -55,7 +56,8 @@ export function registerRunsRoutes(app: FastifyInstance, deps: Deps): void {
     };
     const paged = q.limit !== undefined || q.offset !== undefined;
     const state = (q.state === 'running' || q.state === 'queued' ||
-      q.state === 'succeeded' || q.state === 'failed' || q.state === 'cancelled')
+      q.state === 'succeeded' || q.state === 'failed' || q.state === 'cancelled' ||
+      q.state === 'awaiting_resume')
       ? q.state : undefined;
 
     if (!paged) {
@@ -100,13 +102,22 @@ export function registerRunsRoutes(app: FastifyInstance, deps: Deps): void {
     const { id } = req.params as { id: string };
     const run = deps.runs.get(Number(id));
     if (!run) return reply.code(404).send({ error: 'not found' });
-    if (run.state === 'running') {
+    if (run.state === 'running' || run.state === 'awaiting_resume') {
       await deps.cancel(run.id);
     } else {
       deps.runs.delete(run.id);
       try { fs.unlinkSync(run.log_path); } catch { /* noop */ }
     }
-    reply.code(204);
+    return reply.code(204).send();
+  });
+
+  app.post('/api/runs/:id/resume-now', async (req, reply) => {
+    const { id } = req.params as { id: string };
+    const run = deps.runs.get(Number(id));
+    if (!run) return reply.code(404).send({ error: 'not found' });
+    if (run.state !== 'awaiting_resume') return reply.code(409).send({ error: 'not awaiting resume' });
+    deps.fireResumeNow(run.id);
+    return reply.code(204).send();
   });
 
   app.get('/api/runs/:id/transcript', async (req, reply) => {

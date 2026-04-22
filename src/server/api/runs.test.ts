@@ -38,6 +38,7 @@ function setup() {
     cancel: async (id: number) => {
       cancelled.push(id);
     },
+    fireResumeNow: (_id: number) => {},
   });
   return { app, projectId: p.id, launched, cancelled };
 }
@@ -53,6 +54,7 @@ function makeApp() {
     runsDir: dir,
     launch: async (_id: number) => {},
     cancel: async (_id: number) => {},
+    fireResumeNow: (_id: number) => {},
   });
   return { app, projects, runs };
 }
@@ -120,5 +122,47 @@ describe('runs routes', () => {
     const body = res.json() as { items: Array<{ prompt: string }>; total: number };
     expect(body.total).toBe(1);
     expect(body.items[0].prompt).toBe('fix login');
+  });
+
+  it('POST /api/runs/:id/resume-now returns 404 for unknown run', async () => {
+    const { app } = setup();
+    const res = await app.inject({ method: 'POST', url: '/api/runs/9999/resume-now' });
+    expect(res.statusCode).toBe(404);
+  });
+
+  it('POST /api/runs/:id/resume-now returns 409 when run is not awaiting_resume', async () => {
+    const { app, projectId } = setup();
+    const r = (await app.inject({
+      method: 'POST', url: `/api/projects/${projectId}/runs`, payload: { prompt: 'x' },
+    })).json() as { id: number };
+    // run is 'queued', not 'awaiting_resume'
+    const res = await app.inject({ method: 'POST', url: `/api/runs/${r.id}/resume-now` });
+    expect(res.statusCode).toBe(409);
+  });
+
+  it('POST /api/runs/:id/resume-now returns 204 and fires for awaiting_resume run', async () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'fbi-'));
+    const db = openDb(path.join(dir, 'db.sqlite'));
+    const projects = new ProjectsRepo(db);
+    const runs = new RunsRepo(db);
+    const p = projects.create({ name: 'p', repo_url: 'r', default_branch: 'main',
+      devcontainer_override_json: null, instructions: null,
+      git_author_name: null, git_author_email: null });
+    const r = runs.create({ project_id: p.id, prompt: 'x',
+      log_path_tmpl: (id) => `/tmp/${id}.log` });
+    runs.markStarted(r.id, 'c1');
+    runs.markAwaitingResume(r.id, { next_resume_at: Date.now() + 60_000, last_limit_reset_at: null });
+    const fired: number[] = [];
+    const app2 = Fastify();
+    registerRunsRoutes(app2, {
+      runs, projects, gh: stubGh,
+      runsDir: dir,
+      launch: async (_id: number) => {},
+      cancel: async (_id: number) => {},
+      fireResumeNow: (id: number) => { fired.push(id); },
+    });
+    const res = await app2.inject({ method: 'POST', url: `/api/runs/${r.id}/resume-now` });
+    expect(res.statusCode).toBe(204);
+    expect(fired).toEqual([r.id]);
   });
 });

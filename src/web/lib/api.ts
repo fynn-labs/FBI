@@ -50,10 +50,10 @@ export const api = {
   removeSecret: (projectId: number, name: string) =>
     request<void>(`/api/projects/${projectId}/secrets/${name}`, { method: 'DELETE' }),
 
-  listRuns: (state?: 'queued' | 'running' | 'succeeded' | 'failed' | 'cancelled') =>
+  listRuns: (state?: 'queued' | 'running' | 'awaiting_resume' | 'succeeded' | 'failed' | 'cancelled') =>
     request<Run[]>(state ? `/api/runs?state=${state}` : '/api/runs'),
   listRunsPaged: (params: {
-    state?: 'queued' | 'running' | 'succeeded' | 'failed' | 'cancelled';
+    state?: 'queued' | 'running' | 'awaiting_resume' | 'succeeded' | 'failed' | 'cancelled';
     project_id?: number;
     q?: string;
     limit: number;
@@ -92,6 +92,8 @@ export const api = {
     image_gc_enabled?: boolean;
     global_marketplaces?: string[];
     global_plugins?: string[];
+    auto_resume_enabled?: boolean;
+    auto_resume_max_attempts?: number;
   }) => request<Settings>('/api/settings', { method: 'PATCH', body: JSON.stringify(patch) }),
   runGc: () => request<{ deletedCount: number; deletedBytes: number }>(
     '/api/settings/run-gc', { method: 'POST', body: JSON.stringify({}) }),

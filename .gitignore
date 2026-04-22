@@ -1,6 +1,7 @@
 node_modules
 dist
 *.log
+!src/**/__fixtures__/**/*.log
 .DS_Store
 .env
 .env.local

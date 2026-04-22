@@ -7,8 +7,21 @@ import type { Run } from '@shared/types.js';
 import { RunUsage } from './RunUsage.js';
 
 const TONE: Record<Run['state'], PillTone> = {
-  queued: 'wait', running: 'run', succeeded: 'ok', failed: 'fail', cancelled: 'warn',
+  queued: 'wait', running: 'run', awaiting_resume: 'warn',
+  succeeded: 'ok', failed: 'fail', cancelled: 'warn',
 };
+
+function formatReset(ms: number | null): string | null {
+  if (ms == null) return null;
+  const s = Math.round((ms - Date.now()) / 1000);
+  if (s <= 0) return 'any moment';
+  if (s < 60) return `${s}s`;
+  const m = Math.round(s / 60);
+  if (m < 60) return `${m}m`;
+  const h = Math.floor(m / 60);
+  const rem = m % 60;
+  return rem === 0 ? `${h}h` : `${h}h ${rem}m`;
+}
 
 export interface RunSidePanelProps {
   run: Run;
@@ -26,6 +39,15 @@ export function RunSidePanel({ run, siblings, github, onCreatePr, creatingPr }: 
         <Row label="started"><TimestampRelative iso={new Date(run.created_at).toISOString()} /></Row>
         {run.branch_name && <Row label="branch"><CodeBlock>{run.branch_name}</CodeBlock></Row>}
       </Group>
+
+      {run.state === 'awaiting_resume' && (
+        <Group label="Auto-resume">
+          {run.next_resume_at != null && (
+            <Row label="resumes in"><span className="font-mono text-warn">{formatReset(run.next_resume_at)}</span></Row>
+          )}
+          <Row label="attempts"><span className="font-mono">{run.resume_attempts}</span></Row>
+        </Group>
+      )}
 
       <RunUsage run={run} />
 

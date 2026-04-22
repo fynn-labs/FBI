@@ -12,6 +12,7 @@ function fmt(n: number): string {
 const TONE: Record<Run['state'], PillTone> = {
   queued: 'wait',
   running: 'run',
+  awaiting_resume: 'warn',
   succeeded: 'ok',
   failed: 'fail',
   cancelled: 'warn',

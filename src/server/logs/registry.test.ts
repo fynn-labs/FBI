@@ -17,4 +17,18 @@ describe('RunStreamRegistry', () => {
     const fresh = r.getOrCreate(7);
     expect(fresh).not.toBe(bc);
   });
+
+  it('getOrCreateState reuses the same broadcaster for the same run id', () => {
+    const r = new RunStreamRegistry();
+    const a = r.getOrCreateState(5);
+    const b = r.getOrCreateState(5);
+    expect(a).toBe(b);
+  });
+
+  it('getState returns undefined after release', () => {
+    const r = new RunStreamRegistry();
+    r.getOrCreateState(8);
+    r.release(8);
+    expect(r.getState(8)).toBeUndefined();
+  });
 });

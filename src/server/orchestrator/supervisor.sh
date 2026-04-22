@@ -10,8 +10,9 @@
 #   RUN_ID, REPO_URL, DEFAULT_BRANCH,
 #   GIT_AUTHOR_NAME, GIT_AUTHOR_EMAIL
 # Optional:
-#   FBI_MARKETPLACES  newline-separated plugin marketplace sources
-#   FBI_PLUGINS       newline-separated plugin specs (name@marketplace)
+#   FBI_MARKETPLACES        newline-separated plugin marketplace sources
+#   FBI_PLUGINS             newline-separated plugin specs (name@marketplace)
+#   FBI_RESUME_SESSION_ID   when set, uses claude --resume instead of fresh start
 #   Any project secret, injected as env var.
 # Required mounts:
 #   /ssh-agent              (host ssh-agent socket, RW)
@@ -59,10 +60,18 @@ done
 [ -f /fbi/prompt.txt ] || { echo "prompt.txt not found in /fbi"; exit 12; }
 cat /fbi/prompt.txt >> /tmp/prompt.txt
 
-# Run the agent.
+# Run the agent. Two modes:
+#   fresh: read composed prompt from /tmp/prompt.txt and stdin-pipe into claude.
+#   resume: use $FBI_RESUME_SESSION_ID to continue an existing session.
 set +e
-claude --dangerously-skip-permissions < /tmp/prompt.txt
-CLAUDE_EXIT=$?
+if [ -n "${FBI_RESUME_SESSION_ID:-}" ]; then
+    echo "[fbi] resuming claude session $FBI_RESUME_SESSION_ID"
+    claude --resume "$FBI_RESUME_SESSION_ID" --dangerously-skip-permissions
+    CLAUDE_EXIT=$?
+else
+    claude --dangerously-skip-permissions < /tmp/prompt.txt
+    CLAUDE_EXIT=$?
+fi
 set -e
 
 # Capture uncommitted work.
