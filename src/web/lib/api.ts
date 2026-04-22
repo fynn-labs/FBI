@@ -103,4 +103,6 @@ export const api = {
     files: Array<{ filename: string; additions: number; deletions: number; status: string }>;
     github_available: boolean;
   }>(`/api/runs/${id}/diff`),
+
+  getRunSiblings: (id: number) => request<Run[]>(`/api/runs/${id}/siblings`),
 };

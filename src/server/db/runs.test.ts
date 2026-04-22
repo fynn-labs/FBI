@@ -159,4 +159,16 @@ describe('RunsRepo', () => {
     const res = runs.listFiltered({ project_id: projectId, limit: 50, offset: 0 });
     expect(res.total).toBe(1);
   });
+
+  it('listSiblings returns other runs with the same prompt in the same project', () => {
+    const a = runs.create({ project_id: projectId, prompt: 'X',
+      log_path_tmpl: (id) => `/tmp/${id}.log` });
+    const b = runs.create({ project_id: projectId, prompt: 'X',
+      log_path_tmpl: (id) => `/tmp/${id}.log` });
+    runs.create({ project_id: projectId, prompt: 'different',
+      log_path_tmpl: (id) => `/tmp/${id}.log` });
+
+    const siblings = runs.listSiblings(a.id, 10);
+    expect(siblings.map((r) => r.id)).toEqual([b.id]);
+  });
 });

@@ -145,6 +145,18 @@ export class RunsRepo {
     return { items, total };
   }
 
+  listSiblings(runId: number, limit = 10): Run[] {
+    const self = this.get(runId);
+    if (!self) return [];
+    return this.db
+      .prepare(
+        `SELECT * FROM runs
+          WHERE project_id = ? AND prompt = ? AND id != ?
+          ORDER BY id DESC LIMIT ?`
+      )
+      .all(self.project_id, self.prompt, self.id, limit) as Run[];
+  }
+
   delete(id: number): void {
     this.db.prepare('DELETE FROM runs WHERE id = ?').run(id);
   }

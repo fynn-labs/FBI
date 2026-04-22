@@ -190,6 +190,14 @@ export function registerRunsRoutes(app: FastifyInstance, deps: Deps): void {
     return payload;
   });
 
+  app.get('/api/runs/:id/siblings', async (req, reply) => {
+    const { id } = req.params as { id: string };
+    const runId = Number(id);
+    const run = deps.runs.get(runId);
+    if (!run) return reply.code(404).send({ error: 'not found' });
+    return deps.runs.listSiblings(runId, 10);
+  });
+
   app.post('/api/runs/:id/github/pr', async (req, reply) => {
     const { id } = req.params as { id: string };
     const runId = Number(id);

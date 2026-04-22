@@ -1,9 +1,11 @@
 import { useEffect, useState } from 'react';
-import { useNavigate, useParams } from 'react-router-dom';
+import { Link, useNavigate, useParams } from 'react-router-dom';
 import type { Run } from '@shared/types.js';
+import type { Project } from '@shared/types.js';
 import { api } from '../lib/api.js';
 import { StateBadge } from '../components/StateBadge.js';
 import { Terminal } from '../components/Terminal.js';
+import { parseGitHubRepo } from '@shared/parseGitHubRepo.js';
 
 export function RunDetailPage() {
   const { id } = useParams();
@@ -13,6 +15,8 @@ export function RunDetailPage() {
   const [gh, setGh] = useState<Awaited<ReturnType<typeof api.getRunGithub>> | null>(null);
   const [diff, setDiff] = useState<Awaited<ReturnType<typeof api.getRunDiff>> | null>(null);
   const [creatingPr, setCreatingPr] = useState(false);
+  const [siblings, setSiblings] = useState<Run[]>([]);
+  const [project, setProject] = useState<Project | null>(null);
 
   useEffect(() => {
     let alive = true;
@@ -45,6 +49,16 @@ export function RunDetailPage() {
     if (!run || run.state !== 'succeeded') return;
     void api.getRunDiff(run.id).then(setDiff).catch(() => {});
   }, [run?.id, run?.state]);
+
+  useEffect(() => {
+    if (!run) return;
+    void api.getRunSiblings(run.id).then(setSiblings).catch(() => setSiblings([]));
+  }, [run?.id]);
+
+  useEffect(() => {
+    if (!run) return;
+    void api.getProject(run.project_id).then(setProject).catch(() => {});
+  }, [run?.project_id]);
 
   if (!run) return <div>Loading…</div>;
 
@@ -174,6 +188,34 @@ export function RunDetailPage() {
               </tbody>
             </table>
           )}
+        </details>
+      )}
+      {siblings.length > 0 && (
+        <details className="border rounded dark:border-gray-600">
+          <summary className="cursor-pointer px-3 py-2 text-sm select-none">
+            Related runs ({siblings.length})
+          </summary>
+          <ul className="px-3 py-2 divide-y text-sm dark:divide-gray-700">
+            {siblings.map((s) => {
+              const repo = project ? parseGitHubRepo(project.repo_url) : null;
+              const compareUrl = repo && s.branch_name && run!.branch_name
+                ? `https://github.com/${repo}/compare/${run!.branch_name}...${s.branch_name}`
+                : null;
+              return (
+                <li key={s.id} className="py-1 flex items-center gap-2">
+                  <Link to={`/runs/${s.id}`} className="text-blue-600 dark:text-blue-300">Run #{s.id}</Link>
+                  <StateBadge state={s.state} />
+                  <span className="text-gray-500">{s.branch_name}</span>
+                  {compareUrl && (
+                    <a href={compareUrl} target="_blank" rel="noreferrer"
+                       className="ml-auto border rounded px-2 py-0.5 text-xs dark:border-gray-600">
+                      Diff vs this
+                    </a>
+                  )}
+                </li>
+              );
+            })}
+          </ul>
         </details>
       )}
     </div>
