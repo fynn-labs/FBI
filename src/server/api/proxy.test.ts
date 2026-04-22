@@ -3,6 +3,9 @@ import Fastify, { type FastifyInstance } from 'fastify';
 import fs from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
+import net from 'node:net';
+import WebSocket from 'ws';
+import fastifyWebsocket from '@fastify/websocket';
 import { openDb } from '../db/index.js';
 import { ProjectsRepo } from '../db/projects.js';
 import { RunsRepo } from '../db/runs.js';
@@ -89,5 +92,122 @@ describe('GET /api/runs/:id/listening-ports', () => {
     expect(res.statusCode).toBe(200);
     expect(res.json()).toEqual({ ports: [{ port: 5173, proto: 'tcp' }] });
     expect(procReader).toHaveBeenCalledWith(12345);
+  });
+});
+
+async function makeWsApp(opts: {
+  runsRepo: RunsRepo;
+  streams: RunStreamRegistry;
+  getLiveContainer: (runId: number) => Container | null;
+  procReader?: (pid: number) => string;
+}): Promise<{ app: FastifyInstance; port: number }> {
+  const app = Fastify();
+  await app.register(fastifyWebsocket);
+  registerProxyRoutes(app, {
+    runs: opts.runsRepo,
+    streams: opts.streams,
+    orchestrator: { getLiveContainer: opts.getLiveContainer as never },
+    procReader: opts.procReader,
+  });
+  await app.listen({ port: 0, host: '127.0.0.1' });
+  const addr = app.server.address();
+  if (!addr || typeof addr === 'string') throw new Error('no port');
+  return { app, port: addr.port };
+}
+
+describe('WS /api/runs/:id/proxy/:port', () => {
+  let app: FastifyInstance | null = null;
+  let upstream: net.Server | null = null;
+  afterEach(async () => {
+    await app?.close(); app = null;
+    if (upstream) { await new Promise<void>((r) => upstream!.close(() => r())); upstream = null; }
+  });
+
+  it('echoes bytes between WS and an upstream TCP socket', async () => {
+    // Upstream echo server bound to a free port on localhost.
+    const received = await new Promise<{ port: number }>((resolve) => {
+      upstream = net.createServer((s) => s.on('data', (d) => s.write(d)));
+      upstream.listen(0, '127.0.0.1', () => {
+        const a = upstream!.address();
+        if (!a || typeof a === 'string') throw new Error('no port');
+        resolve({ port: a.port });
+      });
+    });
+
+    const { runs, make } = setupRunsRepo();
+    const run = make(); runs.markStarted(run.id, 'cid');
+    const streams = new RunStreamRegistry();
+    streams.getOrCreateState(run.id).publish({ type: 'state', state: 'running', next_resume_at: null, resume_attempts: 0, last_limit_reset_at: null });
+    const container: Container = {
+      inspect: async () => ({
+        State: { Pid: 1 },
+        NetworkSettings: { IPAddress: '127.0.0.1' },
+      }),
+    };
+    const r = await makeWsApp({ runsRepo: runs, streams, getLiveContainer: () => container });
+    app = r.app;
+
+    const ws = new WebSocket(`ws://127.0.0.1:${r.port}/api/runs/${run.id}/proxy/${received.port}`);
+    await new Promise<void>((resolve, reject) => { ws.once('open', () => resolve()); ws.once('error', reject); });
+
+    const echoed = await new Promise<Buffer>((resolve) => {
+      const chunks: Buffer[] = [];
+      ws.on('message', (d, isBinary) => {
+        if (!isBinary) return;
+        chunks.push(d as Buffer);
+        if (Buffer.concat(chunks).toString() === 'hello') resolve(Buffer.concat(chunks));
+      });
+      ws.send(Buffer.from('hello'), { binary: true });
+    });
+    expect(echoed.toString()).toBe('hello');
+    ws.close();
+  });
+
+  it('closes WS with 1011 when upstream connect fails', async () => {
+    const { runs, make } = setupRunsRepo();
+    const run = make(); runs.markStarted(run.id, 'cid');
+    const streams = new RunStreamRegistry();
+    streams.getOrCreateState(run.id).publish({ type: 'state', state: 'running', next_resume_at: null, resume_attempts: 0, last_limit_reset_at: null });
+    const container: Container = {
+      inspect: async () => ({
+        State: { Pid: 1 },
+        NetworkSettings: { IPAddress: '127.0.0.1' },
+      }),
+    };
+    const r = await makeWsApp({ runsRepo: runs, streams, getLiveContainer: () => container });
+    app = r.app;
+
+    const ws = new WebSocket(`ws://127.0.0.1:${r.port}/api/runs/${run.id}/proxy/1`); // port 1: refused
+    const code = await new Promise<number>((resolve) => ws.on('close', (c) => resolve(c)));
+    expect(code).toBe(1011);
+  });
+
+  it('closes WS with 1001 when run leaves running state', async () => {
+    const received = await new Promise<{ port: number }>((resolve) => {
+      upstream = net.createServer((s) => s.on('data', () => { /* swallow */ }));
+      upstream.listen(0, '127.0.0.1', () => {
+        const a = upstream!.address();
+        if (!a || typeof a === 'string') throw new Error('no port');
+        resolve({ port: a.port });
+      });
+    });
+    const { runs, make } = setupRunsRepo();
+    const run = make(); runs.markStarted(run.id, 'cid');
+    const streams = new RunStreamRegistry();
+    streams.getOrCreateState(run.id).publish({ type: 'state', state: 'running', next_resume_at: null, resume_attempts: 0, last_limit_reset_at: null });
+    const container: Container = {
+      inspect: async () => ({
+        State: { Pid: 1 },
+        NetworkSettings: { IPAddress: '127.0.0.1' },
+      }),
+    };
+    const r = await makeWsApp({ runsRepo: runs, streams, getLiveContainer: () => container });
+    app = r.app;
+
+    const ws = new WebSocket(`ws://127.0.0.1:${r.port}/api/runs/${run.id}/proxy/${received.port}`);
+    await new Promise<void>((resolve, reject) => { ws.once('open', () => resolve()); ws.once('error', reject); });
+    streams.getOrCreateState(run.id).publish({ type: 'state', state: 'succeeded', next_resume_at: null, resume_attempts: 0, last_limit_reset_at: null });
+    const code = await new Promise<number>((resolve) => ws.on('close', (c) => resolve(c)));
+    expect(code).toBe(1001);
   });
 });
