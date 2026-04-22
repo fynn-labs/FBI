@@ -12,6 +12,7 @@ interface McpServerListProps {
 type FormState =
   | { mode: 'closed' }
   | { mode: 'catalog' }
+  | { mode: 'custom' }
   | { mode: 'edit'; server: McpServer };
 
 export function McpServerList({ projectId, label = 'MCP servers' }: McpServerListProps) {
@@ -24,11 +25,15 @@ export function McpServerList({ projectId, label = 'MCP servers' }: McpServerLis
   }, [projectId]);
 
   async function load() {
-    const list =
-      projectId === null
-        ? await api.listMcpServers()
-        : await api.listProjectMcpServers(projectId);
-    setServers(list);
+    try {
+      const list =
+        projectId === null
+          ? await api.listMcpServers()
+          : await api.listProjectMcpServers(projectId);
+      setServers(list);
+    } catch (err) {
+      setError(String(err));
+    }
   }
 
   async function handleSave(data: McpServerInput) {
@@ -82,7 +87,7 @@ export function McpServerList({ projectId, label = 'MCP servers' }: McpServerLis
             </button>
             <button
               type="button"
-              onClick={() => setForm({ mode: 'catalog' })}
+              onClick={() => setForm({ mode: 'custom' })}
               className="text-xs px-2.5 py-1 bg-blue-600 text-white rounded hover:bg-blue-700"
             >
               + Add custom
@@ -135,9 +140,10 @@ export function McpServerList({ projectId, label = 'MCP servers' }: McpServerLis
         </div>
       )}
 
-      {(form.mode === 'catalog' || form.mode === 'edit') && (
+      {(form.mode === 'catalog' || form.mode === 'custom' || form.mode === 'edit') && (
         <McpServerForm
           initial={form.mode === 'edit' ? form.server : null}
+          skipCatalog={form.mode === 'custom'}
           onSave={handleSave}
           onCancel={() => setForm({ mode: 'closed' })}
         />

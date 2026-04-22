@@ -13,10 +13,11 @@ interface McpServerFormProps {
     env: Record<string, string>;
   }) => void;
   onCancel: () => void;
+  skipCatalog?: boolean;
 }
 
-export function McpServerForm({ initial, onSave, onCancel }: McpServerFormProps) {
-  const [showCatalog, setShowCatalog] = useState(initial === null);
+export function McpServerForm({ initial, onSave, onCancel, skipCatalog }: McpServerFormProps) {
+  const [showCatalog, setShowCatalog] = useState(initial === null && !skipCatalog);
   const [name, setName] = useState(initial?.name ?? '');
   const [type, setType] = useState<'stdio' | 'sse'>(initial?.type ?? 'stdio');
   const [command, setCommand] = useState(initial?.command ?? 'npx');
