@@ -1,24 +1,33 @@
 import type { Project, Run, SecretName } from '@shared/types.js';
 
 async function request<T>(url: string, init?: RequestInit): Promise<T> {
-  const res = await fetch(url, {
-    ...init,
-    headers: {
-      'content-type': 'application/json',
-      ...(init?.headers ?? {}),
-    },
-  });
+  let res: Response;
+  try {
+    res = await fetch(url, {
+      ...init,
+      headers: {
+        ...(init?.body != null ? { 'content-type': 'application/json' } : {}),
+        ...(init?.headers ?? {}),
+      },
+    });
+  } catch (err) {
+    throw new Error(`Network error: ${err instanceof Error ? err.message : String(err)}`);
+  }
   if (!res.ok) throw new Error(`HTTP ${res.status}: ${await res.text()}`);
-  if (res.status === 204) return undefined as T;
+  if (res.status === 204 || res.headers.get('content-length') === '0') return undefined as T;
+  const contentType = res.headers.get('content-type') ?? '';
+  if (!contentType.includes('application/json')) {
+    throw new Error(`Expected JSON but got ${contentType}: ${await res.text()}`);
+  }
   return res.json() as Promise<T>;
 }
 
 export const api = {
   listProjects: () => request<Project[]>('/api/projects'),
   getProject: (id: number) => request<Project>(`/api/projects/${id}`),
-  createProject: (body: Partial<Project>) =>
+  createProject: (body: Omit<Project, 'id'>) =>
     request<Project>('/api/projects', { method: 'POST', body: JSON.stringify(body) }),
-  updateProject: (id: number, patch: Partial<Project>) =>
+  updateProject: (id: number, patch: Partial<Omit<Project, 'id'>>) =>
     request<Project>(`/api/projects/${id}`, { method: 'PATCH', body: JSON.stringify(patch) }),
   deleteProject: (id: number) => request<void>(`/api/projects/${id}`, { method: 'DELETE' }),
 
