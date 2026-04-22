@@ -12,17 +12,31 @@ export interface RunHeaderProps {
   run: Run;
   onCancel: () => void;
   onDelete: () => void;
+  onContinue: () => void;
 }
 
-export function RunHeader({ run, onCancel, onDelete }: RunHeaderProps) {
+export function RunHeader({ run, onCancel, onDelete, onContinue }: RunHeaderProps) {
   const nav = useNavigate();
   const canFollowUp = run.state !== 'running' && run.state !== 'queued' && run.state !== 'awaiting_resume' && !!run.branch_name;
+  const canContinue = run.state === 'failed' || run.state === 'cancelled';
+  const continueDisabled = !run.claude_session_id;
   return (
     <header className="flex items-center gap-2 px-3 py-2 border-b border-border-strong bg-surface">
       <h1 className="text-[16px] font-semibold">Run #{run.id}</h1>
       <Pill tone={TONE[run.state]}>{run.state}</Pill>
       {run.branch_name && <CodeBlock>{run.branch_name}{run.head_commit ? `@${run.head_commit.slice(0,8)}` : ''}</CodeBlock>}
       <div className="ml-auto flex gap-1.5">
+        {canContinue && (
+          <Button
+            variant="primary"
+            size="sm"
+            onClick={onContinue}
+            disabled={continueDisabled}
+            title={continueDisabled ? 'No session captured — start a new run instead' : undefined}
+          >
+            Continue
+          </Button>
+        )}
         {canFollowUp && <Button variant="ghost" size="sm" onClick={() => nav(`/projects/${run.project_id}/runs/new?branch=${encodeURIComponent(run.branch_name!)}`)}>Follow up</Button>}
         {(run.state === 'running' || run.state === 'awaiting_resume') && <Button variant="danger" size="sm" onClick={onCancel}>Cancel</Button>}
         <Menu
