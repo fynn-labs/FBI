@@ -74,3 +74,36 @@ CREATE TABLE IF NOT EXISTS mcp_servers (
 );
 CREATE UNIQUE INDEX IF NOT EXISTS idx_mcp_servers_global_name
   ON mcp_servers(name) WHERE project_id IS NULL;
+
+-- Claude usage capture (see docs/superpowers/specs/2026-04-22-claude-usage-design.md)
+-- New columns on runs for denormalized token totals are added via migrate()
+-- in index.ts so upgraded DBs stay consistent with fresh ones.
+
+CREATE TABLE IF NOT EXISTS run_usage_events (
+  id INTEGER PRIMARY KEY,
+  run_id INTEGER NOT NULL REFERENCES runs(id) ON DELETE CASCADE,
+  ts INTEGER NOT NULL,
+  model TEXT NOT NULL,
+  input_tokens INTEGER NOT NULL,
+  output_tokens INTEGER NOT NULL,
+  cache_read_tokens INTEGER NOT NULL,
+  cache_create_tokens INTEGER NOT NULL,
+  rl_requests_remaining INTEGER,
+  rl_requests_limit INTEGER,
+  rl_tokens_remaining INTEGER,
+  rl_tokens_limit INTEGER,
+  rl_reset_at INTEGER
+);
+CREATE INDEX IF NOT EXISTS idx_run_usage_events_run ON run_usage_events (run_id, ts);
+CREATE INDEX IF NOT EXISTS idx_run_usage_events_ts  ON run_usage_events (ts);
+
+CREATE TABLE IF NOT EXISTS rate_limit_state (
+  id INTEGER PRIMARY KEY CHECK (id = 1),
+  requests_remaining INTEGER,
+  requests_limit INTEGER,
+  tokens_remaining INTEGER,
+  tokens_limit INTEGER,
+  reset_at INTEGER,
+  observed_at INTEGER NOT NULL,
+  observed_from_run_id INTEGER
+);

@@ -71,6 +71,18 @@ function migrate(db: DB): void {
   if (!settingsCols.has('global_plugins_json')) {
     db.exec("ALTER TABLE settings ADD COLUMN global_plugins_json TEXT NOT NULL DEFAULT '[]'");
   }
+  const runCols = new Set(
+    (db.prepare("PRAGMA table_info(runs)").all() as Array<{ name: string }>)
+      .map((r) => r.name)
+  );
+  for (const c of [
+    'tokens_input', 'tokens_output', 'tokens_cache_read',
+    'tokens_cache_create', 'tokens_total', 'usage_parse_errors',
+  ]) {
+    if (!runCols.has(c)) {
+      db.exec(`ALTER TABLE runs ADD COLUMN ${c} INTEGER NOT NULL DEFAULT 0`);
+    }
+  }
   db.prepare(
     "INSERT OR IGNORE INTO settings (id, global_prompt, notifications_enabled, concurrency_warn_at, image_gc_enabled, updated_at) VALUES (1, '', 1, 3, 0, ?)"
   ).run(Date.now());
