@@ -15,15 +15,16 @@ export function EditProjectPage() {
 
   async function submit(e: FormEvent) {
     e.preventDefault();
+    if (!p) return;
     try {
       await api.updateProject(pid, {
-        name: p!.name,
-        repo_url: p!.repo_url,
-        default_branch: p!.default_branch,
-        instructions: p!.instructions,
-        devcontainer_override_json: p!.devcontainer_override_json,
-        git_author_name: p!.git_author_name,
-        git_author_email: p!.git_author_email,
+        name: p.name,
+        repo_url: p.repo_url,
+        default_branch: p.default_branch,
+        instructions: p.instructions,
+        devcontainer_override_json: p.devcontainer_override_json,
+        git_author_name: p.git_author_name,
+        git_author_email: p.git_author_email,
       });
       nav(`/projects/${pid}`);
     } catch (err) { setError(String(err)); }

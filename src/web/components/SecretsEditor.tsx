@@ -6,6 +6,7 @@ export function SecretsEditor({ projectId }: { projectId: number }) {
   const [names, setNames] = useState<SecretName[]>([]);
   const [name, setName] = useState('');
   const [value, setValue] = useState('');
+  const [error, setError] = useState<string | null>(null);
 
   async function refresh() {
     setNames(await api.listSecrets(projectId));
@@ -14,13 +15,19 @@ export function SecretsEditor({ projectId }: { projectId: number }) {
 
   async function add() {
     if (!name) return;
-    await api.upsertSecret(projectId, name, value);
-    setName(''); setValue('');
-    await refresh();
+    try {
+      await api.upsertSecret(projectId, name, value);
+      setName(''); setValue('');
+      await refresh();
+      setError(null);
+    } catch (e) { setError(String(e)); }
   }
   async function remove(n: string) {
-    await api.removeSecret(projectId, n);
-    await refresh();
+    try {
+      await api.removeSecret(projectId, n);
+      await refresh();
+      setError(null);
+    } catch (e) { setError(String(e)); }
   }
   return (
     <section className="bg-white border rounded p-4">
@@ -50,6 +57,7 @@ export function SecretsEditor({ projectId }: { projectId: number }) {
           Add
         </button>
       </div>
+      {error && <p className="text-red-600 text-sm mt-2">{error}</p>}
     </section>
   );
 }
