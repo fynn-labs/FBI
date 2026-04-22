@@ -6,15 +6,17 @@ import { StateBadge } from '../components/StateBadge.js';
 
 export function RunsPage() {
   const [runs, setRuns] = useState<Run[] | null>(null);
+  const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
     let cancelled = false;
     api.listRuns()
       .then((data) => { if (!cancelled) setRuns(data); })
-      .catch(() => { if (!cancelled) setRuns([]); });
+      .catch((e) => { if (!cancelled) setError(String(e)); });
     return () => { cancelled = true; };
   }, []);
 
+  if (error) return <div className="text-red-600">{error}</div>;
   if (!runs) return <div>Loading…</div>;
   return (
     <div>

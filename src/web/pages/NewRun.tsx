@@ -10,6 +10,10 @@ export function NewRunPage() {
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
+  if (!Number.isFinite(pid)) {
+    return <div className="text-red-600">Invalid project ID.</div>;
+  }
+
   async function submit(e: FormEvent) {
     e.preventDefault();
     if (!prompt.trim()) return;

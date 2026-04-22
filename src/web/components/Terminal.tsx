@@ -27,14 +27,19 @@ export function Terminal({ runId, interactive }: Props) {
     fit.fit();
 
     const shell = openShell(runId);
-    shell.onBytes((data) => term.write(data));
+    const unsubBytes = shell.onBytes((data) => term.write(data));
 
     const onResize = () => {
       fit.fit();
       if (interactive) shell.resize(term.cols, term.rows);
     };
     window.addEventListener('resize', onResize);
-    onResize();
+
+    // Send initial size once socket opens.
+    shell.onOpen(() => {
+      fit.fit();
+      if (interactive) shell.resize(term.cols, term.rows);
+    });
 
     if (interactive) {
       term.onData((d) => shell.send(new TextEncoder().encode(d)));
@@ -42,6 +47,7 @@ export function Terminal({ runId, interactive }: Props) {
 
     return () => {
       window.removeEventListener('resize', onResize);
+      unsubBytes();
       shell.close();
       term.dispose();
     };

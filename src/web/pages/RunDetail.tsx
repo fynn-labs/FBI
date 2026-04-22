@@ -30,8 +30,7 @@ export function RunDetailPage() {
     if (!confirm('Cancel this run?')) return;
     try {
       await api.deleteRun(runId);
-      const r = await api.getRun(runId);
-      setRun(r);
+      // polling loop will refresh the state within 3s
     } catch { /* ignore */ }
   }
 

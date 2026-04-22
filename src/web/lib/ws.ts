@@ -1,5 +1,6 @@
 export interface ShellHandle {
-  onBytes(cb: (data: Uint8Array) => void): void;
+  onBytes(cb: (data: Uint8Array) => void): () => void;
+  onOpen(cb: () => void): void;
   send(data: Uint8Array): void;
   resize(cols: number, rows: number): void;
   close(): void;
@@ -18,7 +19,11 @@ export function openShell(runId: number): ShellHandle {
     for (const cb of cbs) cb(data);
   };
   return {
-    onBytes: (cb) => cbs.push(cb),
+    onBytes: (cb) => {
+      cbs.push(cb);
+      return () => { const i = cbs.indexOf(cb); if (i !== -1) cbs.splice(i, 1); };
+    },
+    onOpen: (cb) => { ws.addEventListener('open', cb, { once: true }); },
     send: (data) => {
       if (ws.readyState === WebSocket.OPEN) ws.send(data);
     },
