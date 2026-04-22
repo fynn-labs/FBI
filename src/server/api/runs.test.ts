@@ -253,6 +253,40 @@ describe('runs routes', () => {
     resolveContinue();
   });
 
+  describe('PATCH /api/runs/:id', () => {
+    function setupWithRun() {
+      const { app, projects, runs } = makeApp();
+      const p = projects.create({ name: 'p', repo_url: 'r', default_branch: 'main',
+        devcontainer_override_json: null, instructions: null, git_author_name: null, git_author_email: null });
+      const run = runs.create({ project_id: p.id, prompt: 'hi',
+        log_path_tmpl: (id) => `/tmp/${id}.log` });
+      return { app, runs, run };
+    }
+    it('updates title and sets the lock', async () => {
+      const { app, run } = setupWithRun();
+      const res = await app.inject({ method: 'PATCH', url: `/api/runs/${run.id}`, payload: { title: '  New name  ' } });
+      expect(res.statusCode).toBe(200);
+      const body = res.json();
+      expect(body.title).toBe('New name');
+      expect(body.title_locked).toBe(1);
+    });
+    it('returns 404 for unknown run', async () => {
+      const { app } = setupWithRun();
+      const res = await app.inject({ method: 'PATCH', url: '/api/runs/99999', payload: { title: 'x' } });
+      expect(res.statusCode).toBe(404);
+    });
+    it('rejects empty title after trim', async () => {
+      const { app, run } = setupWithRun();
+      const res = await app.inject({ method: 'PATCH', url: `/api/runs/${run.id}`, payload: { title: '   ' } });
+      expect(res.statusCode).toBe(400);
+    });
+    it('rejects titles longer than 120 chars', async () => {
+      const { app, run } = setupWithRun();
+      const res = await app.inject({ method: 'PATCH', url: `/api/runs/${run.id}`, payload: { title: 'x'.repeat(121) } });
+      expect(res.statusCode).toBe(400);
+    });
+  });
+
   it('POST /api/runs/:id/continue returns 409 with code when ineligible', async () => {
     const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'fbi-'));
     const db = openDb(path.join(dir, 'db.sqlite'));

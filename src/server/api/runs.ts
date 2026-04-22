@@ -113,6 +113,21 @@ export function registerRunsRoutes(app: FastifyInstance, deps: Deps): void {
     return reply.code(204).send();
   });
 
+  app.patch('/api/runs/:id', async (req, reply) => {
+    const { id } = req.params as { id: string };
+    const body = req.body as { title?: unknown };
+    const raw = typeof body?.title === 'string' ? body.title : '';
+    const trimmed = raw.trim();
+    if (trimmed.length === 0 || trimmed.length > 120) {
+      return reply.code(400).send({ error: 'invalid title' });
+    }
+    const runId = Number(id);
+    const run = deps.runs.get(runId);
+    if (!run) return reply.code(404).send({ error: 'not found' });
+    deps.runs.updateTitle(runId, trimmed, { lock: true, respectLock: false });
+    return deps.runs.get(runId)!;
+  });
+
   app.post('/api/runs/:id/resume-now', async (req, reply) => {
     const { id } = req.params as { id: string };
     const run = deps.runs.get(Number(id));
