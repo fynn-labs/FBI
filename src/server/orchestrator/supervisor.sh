@@ -59,10 +59,18 @@ done
 [ -f /fbi/prompt.txt ] || { echo "prompt.txt not found in /fbi"; exit 12; }
 cat /fbi/prompt.txt >> /tmp/prompt.txt
 
-# Run the agent.
+# Run the agent. Two modes:
+#   fresh: read composed prompt from /tmp/prompt.txt and stdin-pipe into claude.
+#   resume: use $FBI_RESUME_SESSION_ID to continue an existing session.
 set +e
-claude --dangerously-skip-permissions < /tmp/prompt.txt
-CLAUDE_EXIT=$?
+if [ -n "${FBI_RESUME_SESSION_ID:-}" ]; then
+    echo "[fbi] resuming claude session $FBI_RESUME_SESSION_ID"
+    claude --resume "$FBI_RESUME_SESSION_ID" --dangerously-skip-permissions
+    CLAUDE_EXIT=$?
+else
+    claude --dangerously-skip-permissions < /tmp/prompt.txt
+    CLAUDE_EXIT=$?
+fi
 set -e
 
 # Capture uncommitted work.
