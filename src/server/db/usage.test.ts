@@ -45,7 +45,7 @@ describe('UsageRepo.insertUsageEvent', () => {
     expect(after.tokens_output).toBe(50);
     expect(after.tokens_cache_read).toBe(200);
     expect(after.tokens_cache_create).toBe(10);
-    expect(after.tokens_total).toBe(360);
+    expect(after.tokens_total).toBe(150);
     expect(after.usage_parse_errors).toBe(0);
   });
 
@@ -89,71 +89,6 @@ describe('UsageRepo.insertUsageEvent', () => {
   });
 });
 
-describe('UsageRepo rate-limit singleton', () => {
-  it('getRateLimitState returns fully-null shape when nothing observed', () => {
-    const { usage } = setup();
-    const s = usage.getRateLimitState(Date.now());
-    expect(s.observed_at).toBeNull();
-    expect(s.percent_used).toBeNull();
-    expect(s.reset_in_seconds).toBeNull();
-    expect(s.observed_seconds_ago).toBeNull();
-  });
-
-  it('upsertRateLimitState writes a row and the derived fields compute correctly', () => {
-    const { usage, runId } = setup();
-    const now = 10_000_000;
-    usage.upsertRateLimitState({
-      observed_at: now,
-      observed_from_run_id: runId,
-      snapshot: {
-        requests_remaining: 50, requests_limit: 200,
-        tokens_remaining: null, tokens_limit: null,
-        reset_at: now + 3600_000,
-      },
-    });
-    const s = usage.getRateLimitState(now + 1000);
-    expect(s.requests_remaining).toBe(50);
-    expect(s.percent_used).toBeCloseTo((200 - 50) / 200);
-    expect(s.reset_in_seconds).toBe(3599);
-    expect(s.observed_seconds_ago).toBe(1);
-  });
-
-  it('falls back to tokens_remaining/limit when requests fields are missing', () => {
-    const { usage, runId } = setup();
-    const now = 20_000_000;
-    usage.upsertRateLimitState({
-      observed_at: now, observed_from_run_id: runId,
-      snapshot: {
-        requests_remaining: null, requests_limit: null,
-        tokens_remaining: 250_000, tokens_limit: 1_000_000,
-        reset_at: null,
-      },
-    });
-    const s = usage.getRateLimitState(now);
-    expect(s.percent_used).toBeCloseTo(0.75);
-    expect(s.reset_in_seconds).toBeNull();
-  });
-
-  it('drops an older snapshot (last-write-wins by observed_at)', () => {
-    const { usage, runId } = setup();
-    usage.upsertRateLimitState({
-      observed_at: 2000, observed_from_run_id: runId,
-      snapshot: {
-        requests_remaining: 10, requests_limit: 100,
-        tokens_remaining: null, tokens_limit: null, reset_at: null,
-      },
-    });
-    usage.upsertRateLimitState({
-      observed_at: 1000, observed_from_run_id: runId,
-      snapshot: {
-        requests_remaining: 99, requests_limit: 100,
-        tokens_remaining: null, tokens_limit: null, reset_at: null,
-      },
-    });
-    expect(usage.getRateLimitState(3000).requests_remaining).toBe(10);
-  });
-});
-
 describe('UsageRepo aggregations', () => {
   it('listDailyUsage groups by local date', () => {
     const { usage, runId } = setup();
@@ -181,6 +116,25 @@ describe('UsageRepo aggregations', () => {
     const { usage } = setup();
     expect(usage.listDailyUsage({ days: 0, now: Date.now() }).length).toBeGreaterThanOrEqual(0);
     expect(() => usage.listDailyUsage({ days: 1000, now: Date.now() })).not.toThrow();
+  });
+
+  it('listDailyUsage tokens_total is input + output only (not cache)', () => {
+    const now = Date.now();
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'fbi-usage-billable-'));
+    const db = openDb(path.join(dir, 'db.sqlite'));
+    const repo = new UsageRepo(db);
+    db.prepare(`INSERT INTO projects (id, name, repo_url, default_branch, created_at, updated_at)
+                VALUES (1, 'p', 'g', 'main', ?, ?)`).run(now, now);
+    db.prepare(`INSERT INTO runs (id, project_id, prompt, branch_name, state, log_path, created_at)
+                VALUES (1, 1, 'p', 'b', 'succeeded', '/l', ?)`).run(now);
+    repo.insertUsageEvent({
+      run_id: 1, ts: now,
+      snapshot: { model: 'claude-opus-4-7', input_tokens: 100, output_tokens: 200, cache_read_tokens: 5000, cache_create_tokens: 1000 },
+      rate_limit: null,
+    });
+    const rows = repo.listDailyUsage({ days: 14, now });
+    expect(rows[0].tokens_total).toBe(300);
+    expect(rows[0].tokens_cache_read).toBe(5000);
   });
 
   it('getRunBreakdown groups by model', () => {

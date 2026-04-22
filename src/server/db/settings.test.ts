@@ -97,6 +97,18 @@ describe('startup migration pattern', () => {
   });
 });
 
+describe('SettingsRepo usage_notifications_enabled', () => {
+  it('persists usage_notifications_enabled', () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'fbi-'));
+    const db = openDb(path.join(dir, 'db.sqlite'));
+    const repo = new SettingsRepo(db);
+    repo.update({ usage_notifications_enabled: true });
+    expect(repo.get().usage_notifications_enabled).toBe(true);
+    repo.update({ usage_notifications_enabled: false });
+    expect(repo.get().usage_notifications_enabled).toBe(false);
+  });
+});
+
 describe('SettingsRepo auto-resume', () => {
   it('returns defaults on fresh DB', () => {
     const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'fbi-'));

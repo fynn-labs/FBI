@@ -70,6 +70,7 @@ export interface Settings {
   global_plugins: string[];
   auto_resume_enabled: boolean;
   auto_resume_max_attempts: number;
+  usage_notifications_enabled: boolean;
   updated_at: number;
 }
 
@@ -109,18 +110,44 @@ export interface RateLimitSnapshot {
   reset_at: number | null;
 }
 
-export interface RateLimitState {
-  requests_remaining: number | null;
-  requests_limit: number | null;
-  tokens_remaining: number | null;
-  tokens_limit: number | null;
+export interface UsageBucket {
+  id: string;
+  utilization: number;                 // 0..1
   reset_at: number | null;
-  observed_at: number | null;
-  observed_from_run_id: number | null;
-  percent_used: number | null;
-  reset_in_seconds: number | null;
-  observed_seconds_ago: number | null;
+  window_started_at: number | null;
 }
+
+export type PacingZone = 'chill' | 'on_track' | 'hot' | 'none';
+
+export interface PacingVerdict {
+  delta: number;                       // signed; > 0 = over budget
+  zone: PacingZone;
+}
+
+export type UsageError =
+  | 'missing_credentials'
+  | 'expired'
+  | 'rate_limited'
+  | 'network'
+  | null;
+
+export interface UsageState {
+  plan: 'pro' | 'max' | 'team' | null;
+  observed_at: number | null;
+  last_error: UsageError;
+  last_error_at: number | null;
+  buckets: UsageBucket[];
+  pacing: Record<string, PacingVerdict>;
+}
+
+export type UsageWsSnapshotMessage = { type: 'snapshot'; state: UsageState };
+export type UsageWsThresholdMessage = {
+  type: 'threshold_crossed';
+  bucket_id: string;
+  threshold: 75 | 90;
+  reset_at: number | null;
+};
+export type UsageWsMessage = UsageWsSnapshotMessage | UsageWsThresholdMessage;
 
 export interface DailyUsage {
   date: string;
@@ -141,7 +168,6 @@ export interface RunUsageBreakdownRow {
 }
 
 export type RunWsUsageMessage = { type: 'usage'; snapshot: UsageSnapshot };
-export type RunWsRateLimitMessage = { type: 'rate_limit'; snapshot: RateLimitState };
 
 export interface GlobalStateMessage {
   type: 'state';

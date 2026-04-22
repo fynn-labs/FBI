@@ -9,7 +9,6 @@ import { toggleTheme } from '@ui/theme.js';
 import { api } from './lib/api.js';
 import { useRunWatcher } from './hooks/useRunWatcher.js';
 import type { Project, Run } from '@shared/types.js';
-import { RateLimitPill } from './features/usage/RateLimitPill.js';
 import { ProjectsPage } from './pages/Projects.js';
 import { NewProjectPage } from './pages/NewProject.js';
 import { ProjectDetailPage } from './pages/ProjectDetail.js';
@@ -19,6 +18,8 @@ import { RunsPage } from './pages/Runs.js';
 import { RunDetailPage } from './pages/RunDetail.js';
 import { SettingsPage } from './pages/Settings.js';
 import { DesignPage } from './pages/Design.js';
+import { UsagePage } from './features/usage/UsagePage.js';
+import { UsageNotifier } from './features/usage/UsageNotifier.js';
 
 function Shell({ projects, runs, children }: { projects: Project[]; runs: Run[]; children: ReactNode }) {
   const location = useLocation();
@@ -49,8 +50,7 @@ function StatusRegistrations({ active, waiting, today }: { active: number; waiti
     const off1 = statusRegistry.register({ id: 'conn', side: 'left', order: 0, render: () => <>● <span className="text-ok">connected</span></> });
     const off2 = statusRegistry.register({ id: 'active', side: 'left', order: 1, render: () => <>{active} <span className="text-run">running</span></> });
     const off3 = statusRegistry.register({ id: 'today', side: 'left', order: 3, render: () => <>{today} today</> });
-    const offRL = statusRegistry.register({ id: 'ratelimit', side: 'right', order: 0, render: () => <RateLimitPill /> });
-    return () => { off1(); off2(); off3(); offRL(); };
+    return () => { off1(); off2(); off3(); };
   }, [active, today]);
 
   // Waiting item is mounted only when > 0 so the bar collapses its gap.
@@ -144,6 +144,7 @@ export function App() {
   return (
     <>
       <Shell projects={projects} runs={runs}>
+        <UsageNotifier />
         <Routes>
           <Route path="/" element={<Navigate to="/runs" replace />} />
           <Route path="/projects" element={<ProjectsPage />}>
@@ -158,6 +159,7 @@ export function App() {
             <Route path=":id" element={<RunDetailPage />} />
           </Route>
           <Route path="/settings" element={<SettingsPage />} />
+          <Route path="/usage" element={<UsagePage />} />
           <Route path="/design" element={<DesignPage />} />
           <Route path="*" element={<Navigate to="/" replace />} />
         </Routes>

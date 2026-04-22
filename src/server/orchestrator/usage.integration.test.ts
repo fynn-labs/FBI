@@ -8,6 +8,9 @@ import { ProjectsRepo } from '../db/projects.js';
 import { RunsRepo } from '../db/runs.js';
 import { UsageRepo } from '../db/usage.js';
 import { UsageTailer } from './usageTailer.js';
+import { OAuthUsagePoller } from '../oauthUsagePoller.js';
+import { RateLimitStateRepo } from '../db/rateLimitState.js';
+import { RateLimitBucketsRepo } from '../db/rateLimitBuckets.js';
 
 async function dockerAvailable(): Promise<boolean> {
   try { await new Docker().ping(); return true; }
@@ -80,4 +83,44 @@ describe('usage integration (Docker-gated)', () => {
     expect(after.tokens_output).toBe(45);
     expect(after.tokens_total).toBe(168);
   }, 30_000);
+});
+
+// --- OAuth poller integration (no Docker) ---
+describe('OAuthUsagePoller integration: happy → 429', () => {
+  it('transitions last_error across polls', async () => {
+    const db = openDb(':memory:');
+    const state = new RateLimitStateRepo(db);
+    const buckets = new RateLimitBucketsRepo(db);
+
+    let step = 0;
+    const fetchFn = (async (url: string) => {
+      if (String(url).endsWith('/profile')) {
+        return new Response(JSON.stringify({ plan: 'max' }), { status: 200 });
+      }
+      step++;
+      if (step === 1) {
+        const now = Date.now();
+        return new Response(
+          JSON.stringify({ buckets: [{ id: 'five_hour', utilization: 10, resets_at: now + 3600_000 }] }),
+          { status: 200 },
+        );
+      }
+      return new Response('{}', { status: 429 });
+    }) as unknown as typeof fetch;
+
+    const lastErrors: Array<string | null> = [];
+    const poller = new OAuthUsagePoller({
+      fetch: fetchFn,
+      readToken: () => 'tok',
+      state, buckets,
+      onEvent: (e) => {
+        if (e.type === 'snapshot') lastErrors.push(e.state.last_error);
+      },
+    });
+    await poller.pollOnce();
+    await poller.pollOnce();
+    expect(lastErrors).toContain(null);
+    expect(lastErrors).toContain('rate_limited');
+    expect(buckets.list()).toHaveLength(1); // preserved across 429
+  });
 });
