@@ -32,9 +32,10 @@ fi
 [ -f /fbi/prompt.txt ] || { echo "prompt.txt not found in /fbi"; exit 12; }
 cat /fbi/prompt.txt >> /tmp/prompt.txt
 
-# Run the agent. TTY-attached; Claude may emit its OAuth login flow if needed.
+# Run the agent. Stdin is the prompt file; stdout/stderr go to the TTY so
+# Claude streams output live instead of buffering until exit (-p mode buffers).
 set +e
-claude --dangerously-skip-permissions -p "$(cat /tmp/prompt.txt)"
+claude --dangerously-skip-permissions < /tmp/prompt.txt
 CLAUDE_EXIT=$?
 set -e
 
