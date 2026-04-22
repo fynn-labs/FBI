@@ -8,10 +8,11 @@ import { RunsList } from '../features/runs/RunsList.js';
 import { ProjectHeader } from '../features/projects/ProjectHeader.js';
 
 export function ProjectDetailPage() {
-  const { id } = useParams();
+  const { id, rid } = useParams();
   const pid = Number(id);
   const location = useLocation();
   const hasChildRoute = location.pathname.replace(/\/$/, '') !== `/projects/${pid}`;
+  const currentRunId = rid ? Number(rid) : null;
   const [project, setProject] = useState<Project | null>(null);
   const [runs, setRuns] = useState<Run[] | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -65,7 +66,7 @@ export function ProjectDetailPage() {
       left={
         <div className="h-full flex flex-col min-h-0">
           <ProjectHeader project={project} />
-          <div className="flex-1 min-h-0"><RunsList runs={runs} toHref={(r) => `/projects/${pid}/runs/${r.id}`} /></div>
+          <div className="flex-1 min-h-0"><RunsList runs={runs} toHref={(r) => `/projects/${pid}/runs/${r.id}`} currentId={currentRunId} /></div>
         </div>
       }
       right={

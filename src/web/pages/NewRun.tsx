@@ -1,4 +1,4 @@
-import { useState, type FormEvent } from 'react';
+import { useRef, useState, type FormEvent } from 'react';
 import { useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import { api } from '../lib/api.js';
 import { RecentPromptsDropdown } from '../components/RecentPromptsDropdown.js';
@@ -32,7 +32,9 @@ export function NewRunPage() {
     }
   }
 
-  useKeyBinding({ chord: 'mod+enter', handler: () => void submit(), description: 'Submit run' }, []);
+  const submitRef = useRef(submit);
+  submitRef.current = submit;
+  useKeyBinding({ chord: 'mod+enter', handler: () => void submitRef.current(), description: 'Submit run' }, []);
 
   if (!Number.isFinite(pid)) return <ErrorState message="Invalid project ID." />;
 

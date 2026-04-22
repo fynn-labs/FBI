@@ -28,7 +28,7 @@ export function RunsPage() {
   return (
     <SplitPane
       leftWidth="360px"
-      left={<RunsList runs={runs} toHref={(r) => `/runs/${r.id}`} />}
+      left={<RunsList runs={runs} toHref={(r) => `/runs/${r.id}`} currentId={params.id ? Number(params.id) : null} />}
       right={
         params.id ? <Outlet /> : (
           <div className="h-full flex items-center justify-center">
