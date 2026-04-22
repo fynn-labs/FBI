@@ -78,9 +78,19 @@ export function registerWsRoute(app: FastifyInstance, deps: Deps): void {
       }
     }
 
+    // Typed-event channel (usage + rate_limit) sent as JSON text frames,
+    // multiplexed over the same socket as the binary TTY stream.
+    const ev = deps.streams.getOrCreateEvents(runId);
+    const unsubEvents = ev.subscribe((msg) => {
+      if (socket.readyState === socket.OPEN) {
+        socket.send(JSON.stringify(msg));
+      }
+    });
+
     // Fix 3: If broadcaster already ended, close now.
     if (bc.isEnded()) {
       unsub();
+      unsubEvents();
       socket.close(1000, 'ended');
       return;
     }
@@ -99,6 +109,6 @@ export function registerWsRoute(app: FastifyInstance, deps: Deps): void {
       deps.orchestrator.writeStdin(runId, data);
     });
 
-    socket.on('close', () => unsub());
+    socket.on('close', () => { unsub(); unsubEvents(); });
   });
 }
