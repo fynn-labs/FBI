@@ -15,9 +15,9 @@ interface Props {
 // stalls the main thread and produces a "borked" initial render. On first
 // mount we write only the most recent slice; full history is loadable on
 // demand via the banner button.
-const REPLAY_CAP = 200 * 1024;
+const REPLAY_CAP = 100 * 1024;
 const TRIM_SEARCH_WINDOW = 4096; // look this far past the cut for a newline
-const WRITE_CHUNK = 32 * 1024;
+const WRITE_CHUNK = 16 * 1024;
 
 function readTheme() {
   const s = getComputedStyle(document.documentElement);
@@ -81,19 +81,40 @@ export function Terminal({ runId, interactive }: Props) {
 
     let disposed = false;
 
-    const writeChunked = (data: Uint8Array): void => {
+    // All writes go through a serial queue. Any chunk larger than WRITE_CHUNK
+    // is split into <=WRITE_CHUNK pieces and enqueued in order. The queue is
+    // drained one piece per animation frame so a big incoming chunk — even
+    // the server's flush-after-handshake that arrives right after the main
+    // replay — never stalls the main thread for more than a frame.
+    //
+    // xterm's parser is stateful: splitting an ANSI escape sequence across
+    // writes is safe because it holds partial sequences internally and
+    // reassembles them on the next write.
+    const writeQueue: Uint8Array[] = [];
+    let pumping = false;
+    const pump = () => {
+      if (disposed) { pumping = false; return; }
+      const chunk = writeQueue.shift();
+      if (!chunk) { pumping = false; return; }
+      term.write(chunk);
+      requestAnimationFrame(pump);
+    };
+    const enqueueWrite = (data: Uint8Array): void => {
       if (data.byteLength === 0) return;
-      if (data.byteLength <= WRITE_CHUNK) { term.write(data); return; }
-      let offset = 0;
-      const pump = () => {
-        if (disposed || offset >= data.byteLength) return;
-        const end = Math.min(offset + WRITE_CHUNK, data.byteLength);
-        term.write(data.subarray(offset, end), () => {
+      if (data.byteLength <= WRITE_CHUNK) {
+        writeQueue.push(data);
+      } else {
+        let offset = 0;
+        while (offset < data.byteLength) {
+          const end = Math.min(offset + WRITE_CHUNK, data.byteLength);
+          writeQueue.push(data.subarray(offset, end));
           offset = end;
-          if (offset < data.byteLength) pump();
-        });
-      };
-      pump();
+        }
+      }
+      if (!pumping) {
+        pumping = true;
+        requestAnimationFrame(pump);
+      }
     };
 
     // writeReplay is the ONLY path for "this is a captured log being played
@@ -105,7 +126,7 @@ export function Terminal({ runId, interactive }: Props) {
       initialWritten = true;
       const { tail, trimmedBytes: tb } = trimToTail(data);
       if (!disposed) setTrimmedBytes(tb);
-      writeChunked(tail);
+      enqueueWrite(tail);
     };
 
     const shell = acquireShell(runId);
@@ -123,10 +144,13 @@ export function Terminal({ runId, interactive }: Props) {
     loadFullRef.current = () => {
       if (disposed) return;
       if (unsubBytes) { unsubBytes(); unsubBytes = null; }
+      // Drop any pending queued writes — the term.reset() below nukes
+      // them anyway.
+      writeQueue.length = 0;
       const merged = mergeBuffer(getBuffer(runId));
       const beforeBytes = merged.byteLength;
       term.reset();
-      writeChunked(merged);
+      enqueueWrite(merged);
       setTrimmedBytes(0);
       // Re-subscribe; catch-up for any bytes the registry accumulated
       // between our getBuffer read and this moment is handled by reading
@@ -135,9 +159,9 @@ export function Terminal({ runId, interactive }: Props) {
         if (disposed) return;
         const after = mergeBuffer(getBuffer(runId));
         if (after.byteLength > beforeBytes) {
-          writeChunked(after.subarray(beforeBytes));
+          enqueueWrite(after.subarray(beforeBytes));
         }
-        unsubBytes = shell.onBytes((data) => writeChunked(data));
+        unsubBytes = shell.onBytes((data) => enqueueWrite(data));
       });
     };
 
@@ -155,8 +179,12 @@ export function Terminal({ runId, interactive }: Props) {
         // (WS hasn't sent the replay yet), the first large onBytes call
         // is itself the replay — treat it as such.
         unsubBytes = shell.onBytes((data) => {
+          // Only the very first chunk is trimmed (it's the full log replay).
+          // Everything after is live data — enqueue all of it; the serial
+          // frame-paced queue keeps xterm responsive even on a big post-
+          // replay flush.
           if (!initialWritten) writeReplay(data);
-          else writeChunked(data);
+          else enqueueWrite(data);
         });
         if (interactive) term.focus();
       });
