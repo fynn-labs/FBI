@@ -122,12 +122,15 @@ describe('waiting flow (stubbed Docker)', () => {
     await new Promise((r) => setTimeout(r, 20));
 
     const after = runs.get(run.id)!;
-    // If the container lookup succeeded, reattach was spawned. We don't drive
-    // it to completion, so the run may still be in waiting OR markFinished
-    // may have fired if reattach raced to finish through the empty streams.
-    // Either way, it must NOT be the 'orchestrator lost container' failure.
+    // The essential invariant: recover() found the waiting run and looked up
+    // its container (i.e. Task 8's listByState('waiting') inclusion fired).
+    // Downstream reattach behavior is race-y with empty stub streams, so we
+    // don't assert a terminal state — only that the lookup happened.
+    expect(mockDocker.getContainer).toHaveBeenCalledWith('stub-container-id');
+    // As a soft secondary check: if the run was marked failed during the race,
+    // the reason must not be the pre-lookup "container gone" path.
     if (after.state === 'failed') {
-      expect(after.error).not.toMatch(/orchestrator lost container/);
+      expect(after.error ?? '').not.toMatch(/orchestrator lost container/);
     }
   });
 });
