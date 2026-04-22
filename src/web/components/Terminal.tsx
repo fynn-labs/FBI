@@ -9,6 +9,15 @@ interface Props {
   interactive: boolean;
 }
 
+function readTheme() {
+  const s = getComputedStyle(document.documentElement);
+  return {
+    background: s.getPropertyValue('--surface-sunken').trim() || '#0b0f14',
+    foreground: s.getPropertyValue('--text').trim() || '#e2e8f0',
+    cursor: s.getPropertyValue('--accent').trim() || '#38bdf8',
+  };
+}
+
 export function Terminal({ runId, interactive }: Props) {
   const hostRef = useRef<HTMLDivElement>(null);
 
@@ -19,12 +28,17 @@ export function Terminal({ runId, interactive }: Props) {
       fontFamily:
         'ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace',
       fontSize: 13,
-      theme: { background: '#111827' },
+      theme: readTheme(),
     });
     const fit = new FitAddon();
     term.loadAddon(fit);
     term.open(hostRef.current);
     fit.fit();
+
+    const observer = new MutationObserver(() => {
+      term.options.theme = readTheme();
+    });
+    observer.observe(document.documentElement, { attributes: true, attributeFilter: ['class'] });
 
     const shell = openShell(runId);
     const unsubBytes = shell.onBytes((data) => term.write(data));
@@ -46,6 +60,7 @@ export function Terminal({ runId, interactive }: Props) {
     }
 
     return () => {
+      observer.disconnect();
       window.removeEventListener('resize', onResize);
       unsubBytes();
       shell.close();
@@ -53,5 +68,5 @@ export function Terminal({ runId, interactive }: Props) {
     };
   }, [runId, interactive]);
 
-  return <div ref={hostRef} className="h-[70vh] bg-[#111827] rounded border" />;
+  return <div ref={hostRef} className="h-full w-full bg-surface-sunken" />;
 }
