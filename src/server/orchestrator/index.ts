@@ -64,10 +64,14 @@ export class Orchestrator {
       const authorEmail = project.git_author_email ?? this.deps.config.gitAuthorEmail;
 
       const runTmpDir = fs.mkdtempSync(path.join('/tmp', 'fbi-run-'));
-      fs.writeFileSync(path.join(runTmpDir, 'prompt.txt'), run.prompt);
+      // mkdtempSync creates with 0700; container agent user has a different UID
+      // and needs read+execute on the directory, and read on the files.
+      fs.chmodSync(runTmpDir, 0o755);
+      fs.writeFileSync(path.join(runTmpDir, 'prompt.txt'), run.prompt ?? '', { mode: 0o644 });
       fs.writeFileSync(
         path.join(runTmpDir, 'instructions.txt'),
-        project.instructions ?? ''
+        project.instructions ?? '',
+        { mode: 0o644 }
       );
 
       onBytes(Buffer.from(`[fbi] starting container\n`));
