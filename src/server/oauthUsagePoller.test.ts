@@ -127,3 +127,29 @@ describe('OAuthUsagePoller', () => {
     expect(ids).toEqual(['five_hour']);
   });
 });
+
+describe('OAuthUsagePoller cadence', () => {
+  it('nudge within 60s of last poll is suppressed', async () => {
+    const db = openDb(':memory:');
+    const state = new RateLimitStateRepo(db);
+    const buckets = new RateLimitBucketsRepo(db);
+    let nowMs = 1_700_000_000_000;
+    const fetchSpy = vi.fn(async (url: string) => {
+      if (String(url).endsWith('/profile')) return jsonResponse({ plan: 'max' });
+      return jsonResponse({ buckets: [{ id: 'five_hour', utilization: 10, resets_at: nowMs + 3600_000 }] });
+    });
+    const poller = new OAuthUsagePoller({
+      fetch: fetchSpy as unknown as typeof fetch,
+      readToken: () => 'tok', state, buckets,
+      now: () => nowMs, onEvent: () => {},
+    });
+    await poller.pollOnce();
+    const before = fetchSpy.mock.calls.length;
+    nowMs += 30_000;
+    await poller.nudge();
+    expect(fetchSpy.mock.calls.length).toBe(before);          // suppressed
+    nowMs += 35_000; // >60s after the original poll
+    await poller.nudge();
+    expect(fetchSpy.mock.calls.length).toBeGreaterThan(before);
+  });
+});

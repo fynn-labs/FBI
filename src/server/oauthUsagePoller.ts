@@ -26,14 +26,37 @@ interface RawBucket {
 export class OAuthUsagePoller {
   private opts: Required<OAuthUsagePollerOptions>;
   private planFetched = false;
+  private timer: NodeJS.Timeout | null = null;
+  private lastPollAt = 0;
+  private readonly intervalMs = 5 * 60 * 1000;
+  private readonly minNudgeGapMs = 60 * 1000;
 
   constructor(opts: OAuthUsagePollerOptions) {
     this.opts = { now: () => Date.now(), ...opts };
   }
 
+  start(): void {
+    if (this.timer) return;
+    const tick = async () => {
+      await this.pollOnce();
+      if (this.timer) this.timer = setTimeout(tick, this.intervalMs);
+    };
+    this.timer = setTimeout(tick, 0);
+  }
+
+  stop(): void {
+    if (this.timer) { clearTimeout(this.timer); this.timer = null; }
+  }
+
+  async nudge(): Promise<void> {
+    if (this.opts.now() - this.lastPollAt < this.minNudgeGapMs) return;
+    await this.pollOnce();
+  }
+
   async pollOnce(): Promise<void> {
     const token = this.opts.readToken();
     const now = this.opts.now();
+    this.lastPollAt = now;
     if (!token) { this.markError('missing_credentials', now); return; }
 
     try {
