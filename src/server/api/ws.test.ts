@@ -94,8 +94,13 @@ describe('WS typed frames', () => {
 
     const ws = new WebSocket(`ws://127.0.0.1:${address.port}/api/runs/${run.id}/shell`);
     const messages: string[] = [];
+    let resolve2!: () => void;
+    const got2 = new Promise<void>((r) => { resolve2 = r; });
+    let count = 0;
     ws.on('message', (d, isBinary) => {
-      if (!isBinary) messages.push(d.toString());
+      if (isBinary) return;
+      messages.push(d.toString());
+      if (++count >= 2) resolve2();
     });
     await new Promise((r) => ws.on('open', r));
 
@@ -115,8 +120,11 @@ describe('WS typed frames', () => {
       ev.publish({ type: 'rate_limit', snapshot: state });
     }, 50);
 
-    // Give it time to arrive.
-    await new Promise((r) => setTimeout(r, 200));
+    // Wait until both frames arrive (or timeout on slow CI runners).
+    await Promise.race([
+      got2,
+      new Promise<void>((_, rej) => setTimeout(() => rej(new Error('timeout waiting for frames')), 2000)),
+    ]);
     const decoded = messages.map((m) => JSON.parse(m) as { type: string });
     expect(decoded.some((m) => m.type === 'usage')).toBe(true);
     expect(decoded.some((m) => m.type === 'rate_limit')).toBe(true);
