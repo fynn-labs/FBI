@@ -21,11 +21,11 @@ export function RunsPage() {
   return (
     <div>
       <h1 className="text-2xl font-semibold mb-4">All Runs</h1>
-      <ul className="divide-y bg-white border rounded">
-        {runs.length === 0 && <li className="p-4 text-gray-500">No runs yet</li>}
+      <ul className="divide-y bg-white border rounded dark:bg-gray-800 dark:border-gray-700 dark:divide-gray-700">
+        {runs.length === 0 && <li className="p-4 text-gray-500 dark:text-gray-400">No runs yet</li>}
         {runs.map((r) => (
           <li key={r.id} className="p-3 flex justify-between items-center">
-            <Link to={`/runs/${r.id}`} className="text-blue-700">
+            <Link to={`/runs/${r.id}`} className="text-blue-700 dark:text-blue-400">
               Run #{r.id} (project {r.project_id}) — {new Date(r.created_at).toLocaleString()}
             </Link>
             <StateBadge state={r.state} />

@@ -30,10 +30,10 @@ export function SecretsEditor({ projectId }: { projectId: number }) {
     } catch (e) { setError(String(e)); }
   }
   return (
-    <section className="bg-white border rounded p-4">
+    <section className="bg-white border rounded p-4 dark:bg-gray-800 dark:border-gray-700">
       <h2 className="font-semibold mb-2">Secrets</h2>
       <ul className="mb-3 space-y-1">
-        {names.length === 0 && <li className="text-gray-500">None</li>}
+        {names.length === 0 && <li className="text-gray-500 dark:text-gray-400">None</li>}
         {names.map((s) => (
           <li key={s.name} className="flex justify-between items-center">
             <code>{s.name}</code>
@@ -46,12 +46,12 @@ export function SecretsEditor({ projectId }: { projectId: number }) {
       <div className="flex gap-2">
         <input
           placeholder="NAME" value={name} onChange={(e) => setName(e.target.value)}
-          className="border rounded px-2 py-1 font-mono"
+          className="border rounded px-2 py-1 font-mono dark:bg-gray-800 dark:border-gray-600 dark:text-gray-100"
         />
         <input
           placeholder="value" value={value} onChange={(e) => setValue(e.target.value)}
           type="password"
-          className="border rounded px-2 py-1 flex-1"
+          className="border rounded px-2 py-1 flex-1 dark:bg-gray-800 dark:border-gray-600 dark:text-gray-100"
         />
         <button onClick={add} className="bg-gray-800 text-white px-3 py-1 rounded">
           Add

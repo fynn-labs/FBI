@@ -21,7 +21,7 @@ export function ProjectsPage() {
     return (
       <div>
         <p className="mb-4">No projects yet.</p>
-        <Link to="/projects/new" className="text-blue-600 underline">
+        <Link to="/projects/new" className="text-blue-600 underline dark:text-blue-400">
           Create one
         </Link>
       </div>
@@ -33,19 +33,19 @@ export function ProjectsPage() {
         <h1 className="text-2xl font-semibold">Projects</h1>
         <Link
           to="/projects/new"
-          className="bg-blue-600 text-white px-3 py-1 rounded hover:bg-blue-700"
+          className="bg-blue-600 text-white px-3 py-1 rounded hover:bg-blue-700 dark:bg-blue-500 dark:hover:bg-blue-600"
         >
           New Project
         </Link>
       </div>
       <ul className="space-y-2">
         {projects.map((p) => (
-          <li key={p.id} className="bg-white border rounded p-4 flex justify-between">
+          <li key={p.id} className="bg-white border rounded p-4 flex justify-between dark:bg-gray-800 dark:border-gray-700">
             <div>
-              <Link to={`/projects/${p.id}`} className="text-lg font-medium text-blue-700">
+              <Link to={`/projects/${p.id}`} className="text-lg font-medium text-blue-700 dark:text-blue-400">
                 {p.name}
               </Link>
-              <p className="text-sm text-gray-500">{p.repo_url}</p>
+              <p className="text-sm text-gray-500 dark:text-gray-400">{p.repo_url}</p>
             </div>
             <Link
               to={`/projects/${p.id}/runs/new`}

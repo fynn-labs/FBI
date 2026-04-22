@@ -23,18 +23,18 @@ export function ProjectDetailPage() {
       <div className="flex justify-between items-center">
         <div>
           <h1 className="text-2xl font-semibold">{project.name}</h1>
-          <p className="text-sm text-gray-500 font-mono">{project.repo_url}</p>
+          <p className="text-sm text-gray-500 dark:text-gray-400 font-mono">{project.repo_url}</p>
         </div>
         <div className="flex gap-2">
           <Link
             to={`/projects/${pid}/edit`}
-            className="border px-3 py-1 rounded"
+            className="border px-3 py-1 rounded dark:border-gray-600 dark:text-gray-200"
           >
             Edit
           </Link>
           <Link
             to={`/projects/${pid}/runs/new`}
-            className="bg-blue-600 text-white px-3 py-1 rounded"
+            className="bg-blue-600 text-white px-3 py-1 rounded dark:bg-blue-500"
           >
             New Run
           </Link>
@@ -43,13 +43,13 @@ export function ProjectDetailPage() {
 
       <SecretsEditor projectId={pid} />
 
-      <section className="bg-white border rounded p-4">
+      <section className="bg-white border rounded p-4 dark:bg-gray-800 dark:border-gray-700">
         <h2 className="font-semibold mb-2">Runs</h2>
-        <ul className="divide-y">
-          {runs.length === 0 && <li className="text-gray-500">No runs yet</li>}
+        <ul className="divide-y dark:divide-gray-700">
+          {runs.length === 0 && <li className="text-gray-500 dark:text-gray-400">No runs yet</li>}
           {runs.map((r) => (
             <li key={r.id} className="py-2 flex items-center justify-between">
-              <Link to={`/runs/${r.id}`} className="text-blue-700">
+              <Link to={`/runs/${r.id}`} className="text-blue-700 dark:text-blue-400">
                 Run #{r.id} · {new Date(r.created_at).toLocaleString()}
               </Link>
               <StateBadge state={r.state} />
