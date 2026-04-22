@@ -141,3 +141,8 @@ export interface RunUsageBreakdownRow {
 
 export type RunWsUsageMessage = { type: 'usage'; snapshot: UsageSnapshot };
 export type RunWsRateLimitMessage = { type: 'rate_limit'; snapshot: RateLimitState };
+
+export interface ListeningPort {
+  port: number;
+  proto: 'tcp';
+}
