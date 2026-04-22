@@ -112,18 +112,21 @@ export class Orchestrator {
       attach.on('data', (c: Buffer) => onBytes(c));
 
       await container.start();
+      this.active.set(runId, { container, attachStream: attach });
       this.deps.runs.markStarted(runId, container.id);
 
       // Wait for exit.
       const waitRes = await container.wait();
+      const wasCancelled = this.cancelled.delete(runId);
       const resultText = await readFileFromContainer(
         container,
         '/tmp/result.json'
       ).catch(() => '');
       const parsed = parseResultJson(resultText);
 
-      const state =
-        waitRes.StatusCode === 0 && parsed && parsed.push_exit === 0
+      const state: 'succeeded' | 'failed' | 'cancelled' = wasCancelled
+        ? 'cancelled'
+        : waitRes.StatusCode === 0 && parsed && parsed.push_exit === 0
           ? 'succeeded'
           : 'failed';
 
@@ -151,11 +154,44 @@ export class Orchestrator {
         error: msg,
       });
     } finally {
+      this.active.delete(runId);
       store.close();
       broadcaster.end();
       this.deps.streams.release(runId);
     }
   }
+
+  // Active run bookkeeping.
+  private active = new Map<
+    number,
+    { container: Docker.Container; attachStream: NodeJS.ReadWriteStream }
+  >();
+
+  /** Forward stdin bytes from the UI to the container. */
+  writeStdin(runId: number, bytes: Uint8Array): void {
+    const a = this.active.get(runId);
+    if (!a) return;
+    a.attachStream.write(Buffer.from(bytes));
+  }
+
+  /** Resize the container's TTY. */
+  async resize(runId: number, cols: number, rows: number): Promise<void> {
+    const a = this.active.get(runId);
+    if (!a) return;
+    await a.container.resize({ w: cols, h: rows }).catch(() => {});
+  }
+
+  /** Cancel a running run. Safe to call on non-running runs (no-op). */
+  async cancel(runId: number): Promise<void> {
+    const a = this.active.get(runId);
+    if (!a) return;
+    await a.container.stop({ t: 10 }).catch(() => {});
+    // the launch() loop observes wait() resolving and handles teardown;
+    // mark intent here so it classifies state correctly.
+    this.cancelled.add(runId);
+  }
+
+  private cancelled = new Set<number>();
 }
 
 async function readFileFromContainer(
