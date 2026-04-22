@@ -9,6 +9,7 @@ export interface SidebarProject {
   name: string;
   runs: number;
   hasRunning: boolean;
+  hasWaiting: boolean;
 }
 
 export interface SidebarProps {
@@ -45,7 +46,9 @@ export function Sidebar({ projects, collapsed }: SidebarProps) {
             </span>
           ) : (
             <>
-              {p.hasRunning && <StatusDot tone="run" aria-label="running" />}
+              {p.hasWaiting ? <StatusDot tone="attn" aria-label="waiting for input" />
+               : p.hasRunning ? <StatusDot tone="run" aria-label="running" />
+               : null}
               <span className="truncate">{p.name}</span>
               <span className="ml-auto font-mono text-[12px] text-text-faint">{p.runs}</span>
             </>

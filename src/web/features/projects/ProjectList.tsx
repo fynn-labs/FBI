@@ -14,6 +14,7 @@ export function ProjectList({ projects, runs }: ProjectListProps) {
       <h2 className="px-3 pt-2 pb-1 text-[12px] font-semibold uppercase tracking-[0.08em] text-text-faint">Projects</h2>
       {projects.map((p) => {
         const hasRunning = runs.some((r) => r.project_id === p.id && r.state === 'running');
+        const hasWaiting = runs.some((r) => r.project_id === p.id && r.state === 'waiting');
         const count = runs.filter((r) => r.project_id === p.id).length;
         return (
           <NavLink
@@ -25,7 +26,9 @@ export function ProjectList({ projects, runs }: ProjectListProps) {
               }`
             }
           >
-            {hasRunning && <StatusDot tone="run" aria-label="running" />}
+            {hasWaiting ? <StatusDot tone="attn" aria-label="waiting for input" />
+             : hasRunning ? <StatusDot tone="run" aria-label="running" />
+             : null}
             <div className="min-w-0">
               <div className="truncate">{p.name}</div>
               <div className="text-[12px] text-text-faint truncate"><CodeBlock>{p.repo_url}</CodeBlock></div>

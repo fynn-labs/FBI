@@ -32,6 +32,7 @@ function Shell({ projects, runs, children }: { projects: Project[]; runs: Run[];
     name: p.name,
     runs: runs.filter((r) => r.project_id === p.id).length,
     hasRunning: runs.some((r) => r.project_id === p.id && r.state === 'running'),
+    hasWaiting: runs.some((r) => r.project_id === p.id && r.state === 'waiting'),
   }));
 
   return (
