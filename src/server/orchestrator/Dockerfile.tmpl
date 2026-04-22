@@ -1,0 +1,14 @@
+# FBI fallback Dockerfile.
+# Template variables (substituted at build-context time):
+#   __BASE_IMAGE__     — base image (e.g., ubuntu:24.04)
+#   __APT_PACKAGES__   — space-separated apt packages ("" when none)
+#   __ENV_EXPORTS__    — newline-separated ENV lines ("" when none)
+
+FROM __BASE_IMAGE__
+
+ENV DEBIAN_FRONTEND=noninteractive
+RUN apt-get update && \
+    apt-get install -y --no-install-recommends ca-certificates curl gnupg __APT_PACKAGES__ && \
+    rm -rf /var/lib/apt/lists/*
+
+__ENV_EXPORTS__
