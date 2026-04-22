@@ -55,6 +55,14 @@ sudo systemctl restart fbi
 
 Open the service URL over Tailscale (port 3000 by default).
 
+## Design system
+
+The UI is built on a reusable primitive library at `src/web/ui/`. See:
+- `src/web/ui/CLAUDE.md` — rules for contributors (use tokens, not hex; use primitives, not raw Tailwind).
+- `/design` (dev server `http://localhost:5173/design`) — live showcase of every primitive.
+
+Design spec: `docs/superpowers/specs/2026-04-22-fbi-ui-redesign-design.md`
+
 ## Local development
 
 ```bash
