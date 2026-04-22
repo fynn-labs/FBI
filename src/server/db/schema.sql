@@ -50,4 +50,4 @@ CREATE TABLE IF NOT EXISTS settings (
   notifications_enabled INTEGER NOT NULL DEFAULT 1,
   updated_at INTEGER NOT NULL
 );
-INSERT OR IGNORE INTO settings (id, global_prompt, notifications_enabled, updated_at) VALUES (1, '', 1, 0);
+INSERT OR IGNORE INTO settings (id, global_prompt, updated_at) VALUES (1, '', 0);
