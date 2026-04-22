@@ -6,6 +6,7 @@ import os from 'node:os';
 import { openDb } from '../db/index.js';
 import { ProjectsRepo } from '../db/projects.js';
 import { RunsRepo } from '../db/runs.js';
+import { RunStreamRegistry } from '../logs/registry.js';
 import { registerRunsRoutes } from './runs.js';
 
 const stubGh = {
@@ -29,8 +30,10 @@ function setup() {
   const launched: number[] = [];
   const cancelled: number[] = [];
   const app = Fastify();
+  const streams = new RunStreamRegistry();
   registerRunsRoutes(app, {
     runs, projects, gh: stubGh,
+    streams,
     runsDir: dir,
     launch: async (id: number) => {
       launched.push(id);
@@ -41,7 +44,7 @@ function setup() {
     fireResumeNow: (_id: number) => {},
     continueRun: async (_id: number) => {},
   });
-  return { app, projectId: p.id, launched, cancelled };
+  return { app, projectId: p.id, launched, cancelled, streams, runs };
 }
 
 function makeApp() {
@@ -50,15 +53,17 @@ function makeApp() {
   const projects = new ProjectsRepo(db);
   const runs = new RunsRepo(db);
   const app = Fastify();
+  const streams = new RunStreamRegistry();
   registerRunsRoutes(app, {
     runs, projects, gh: stubGh,
+    streams,
     runsDir: dir,
     launch: async (_id: number) => {},
     cancel: async (_id: number) => {},
     fireResumeNow: (_id: number) => {},
     continueRun: async (_id: number) => {},
   });
-  return { app, projects, runs };
+  return { app, projects, runs, streams };
 }
 
 describe('runs routes', () => {
@@ -158,6 +163,7 @@ describe('runs routes', () => {
     const app2 = Fastify();
     registerRunsRoutes(app2, {
       runs, projects, gh: stubGh,
+      streams: new RunStreamRegistry(),
       runsDir: dir,
       launch: async (_id: number) => {},
       cancel: async (_id: number) => {},
@@ -200,7 +206,7 @@ describe('runs routes', () => {
     const continued: number[] = [];
     const app = Fastify();
     registerRunsRoutes(app, {
-      runs, projects, gh: stubGh, runsDir: dir,
+      runs, projects, gh: stubGh, streams: new RunStreamRegistry(), runsDir: dir,
       launch: async () => {}, cancel: async () => {},
       fireResumeNow: () => {},
       continueRun: async (id: number) => { continued.push(id); },
@@ -239,7 +245,7 @@ describe('runs routes', () => {
     const longContinue = new Promise<void>((r) => { resolveContinue = r; });
     const app = Fastify();
     registerRunsRoutes(app, {
-      runs, projects, gh: stubGh, runsDir: dir,
+      runs, projects, gh: stubGh, streams: new RunStreamRegistry(), runsDir: dir,
       launch: async () => {}, cancel: async () => {},
       fireResumeNow: () => {},
       continueRun: () => longContinue,
@@ -255,12 +261,12 @@ describe('runs routes', () => {
 
   describe('PATCH /api/runs/:id', () => {
     function setupWithRun() {
-      const { app, projects, runs } = makeApp();
+      const { app, projects, runs, streams } = makeApp();
       const p = projects.create({ name: 'p', repo_url: 'r', default_branch: 'main',
         devcontainer_override_json: null, instructions: null, git_author_name: null, git_author_email: null });
       const run = runs.create({ project_id: p.id, prompt: 'hi',
         log_path_tmpl: (id) => `/tmp/${id}.log` });
-      return { app, runs, run };
+      return { app, runs, run, streams };
     }
     it('updates title and sets the lock', async () => {
       const { app, run } = setupWithRun();
@@ -269,6 +275,14 @@ describe('runs routes', () => {
       const body = res.json();
       expect(body.title).toBe('New name');
       expect(body.title_locked).toBe(1);
+    });
+    it('publishes a title frame on rename', async () => {
+      const { app, run, streams } = setupWithRun();
+      const received: unknown[] = [];
+      streams.getOrCreateEvents(run.id).subscribe((msg) => received.push(msg));
+      const res = await app.inject({ method: 'PATCH', url: `/api/runs/${run.id}`, payload: { title: 'Renamed' } });
+      expect(res.statusCode).toBe(200);
+      expect(received).toEqual([{ type: 'title', title: 'Renamed', title_locked: 1 }]);
     });
     it('returns 404 for unknown run', async () => {
       const { app } = setupWithRun();
@@ -306,7 +320,7 @@ describe('runs routes', () => {
     runs.markFinished(run.id, { state: 'failed' });
     const app = Fastify();
     registerRunsRoutes(app, {
-      runs, projects, gh: stubGh, runsDir: dir,
+      runs, projects, gh: stubGh, streams: new RunStreamRegistry(), runsDir: dir,
       launch: async () => {}, cancel: async () => {},
       fireResumeNow: () => {},
       continueRun: async () => { throw new Error('should not be called'); },

@@ -6,6 +6,7 @@ import type { Check } from '../github/gh.js';
 import type { ProjectsRepo } from '../db/projects.js';
 import { parseGitHubRepo } from '../../shared/parseGitHubRepo.js';
 import { LogStore } from '../logs/store.js';
+import type { RunStreamRegistry } from '../logs/registry.js';
 import { checkContinueEligibility } from '../orchestrator/continueEligibility.js';
 
 interface GhDeps {
@@ -20,6 +21,7 @@ interface Deps {
   runs: RunsRepo;
   projects: ProjectsRepo;
   gh: GhDeps;
+  streams: RunStreamRegistry;
   runsDir: string;
   launch: (runId: number) => Promise<void>;
   cancel: (runId: number) => Promise<void>;
@@ -125,7 +127,13 @@ export function registerRunsRoutes(app: FastifyInstance, deps: Deps): void {
     const run = deps.runs.get(runId);
     if (!run) return reply.code(404).send({ error: 'not found' });
     deps.runs.updateTitle(runId, trimmed, { lock: true, respectLock: false });
-    return deps.runs.get(runId)!;
+    const after = deps.runs.get(runId)!;
+    deps.streams.getOrCreateEvents(runId).publish({
+      type: 'title',
+      title: after.title,
+      title_locked: after.title_locked,
+    });
+    return after;
   });
 
   app.post('/api/runs/:id/resume-now', async (req, reply) => {

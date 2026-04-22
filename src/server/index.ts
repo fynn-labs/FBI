@@ -71,6 +71,7 @@ async function main() {
   registerSecretsRoutes(app, { secrets });
   registerRunsRoutes(app, {
     runs, projects, gh,
+    streams,
     runsDir: config.runsDir,
     launch: (id) => orchestrator.launch(id),
     cancel: (id) => orchestrator.cancel(id),

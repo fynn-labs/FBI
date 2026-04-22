@@ -152,7 +152,7 @@ export function RunDetailPage() {
 
   return (
     <div className="h-full flex flex-col min-h-0">
-      <RunHeader run={run} onCancel={cancel} onDelete={remove} onContinue={kontinue} />
+      <RunHeader run={run} onCancel={cancel} onDelete={remove} onContinue={kontinue} onRenamed={setRun} />
       <div className="flex-1 min-h-0 flex">
         <div className="flex-1 min-w-0 flex flex-col">
           <RunTerminal runId={run.id} interactive={interactive} />
