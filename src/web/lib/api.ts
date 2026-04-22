@@ -50,8 +50,19 @@ export const api = {
   removeSecret: (projectId: number, name: string) =>
     request<void>(`/api/projects/${projectId}/secrets/${name}`, { method: 'DELETE' }),
 
-  listRuns: (state?: 'queued' | 'running' | 'awaiting_resume' | 'succeeded' | 'failed' | 'cancelled') =>
-    request<Run[]>(state ? `/api/runs?state=${state}` : '/api/runs'),
+  listRuns: (
+    stateOrParams?: 'queued' | 'running' | 'awaiting_resume' | 'succeeded' | 'failed' | 'cancelled' | { limit?: number; offset?: number; state?: 'queued' | 'running' | 'awaiting_resume' | 'succeeded' | 'failed' | 'cancelled' }
+  ): Promise<Run[] | { runs: Run[]; total: number }> => {
+    if (stateOrParams == null || typeof stateOrParams === 'string') {
+      return request<Run[]>(stateOrParams ? `/api/runs?state=${stateOrParams}` : '/api/runs');
+    }
+    const qs = new URLSearchParams();
+    if (stateOrParams.state) qs.set('state', stateOrParams.state);
+    if (stateOrParams.limit != null) qs.set('limit', String(stateOrParams.limit));
+    qs.set('offset', String(stateOrParams.offset ?? 0));
+    return request<{ items: Run[]; total: number }>(`/api/runs?${qs.toString()}`)
+      .then(r => ({ runs: r.items, total: r.total }));
+  },
   listRunsPaged: (params: {
     state?: 'queued' | 'running' | 'awaiting_resume' | 'succeeded' | 'failed' | 'cancelled';
     project_id?: number;
@@ -124,6 +135,7 @@ export const api = {
   getUsage: () => request<UsageState>('/api/usage'),
   getRateLimit: () => request<RateLimitState>('/api/usage/rate-limit'),
   getDailyUsage: (days = 14) => request<DailyUsage[]>(`/api/usage/daily?days=${days}`),
+  listDailyUsage: (days = 14) => request<DailyUsage[]>(`/api/usage/daily?days=${days}`),
   getRunUsageBreakdown: (runId: number) => request<RunUsageBreakdownRow[]>(`/api/usage/runs/${runId}`),
 
   // Global MCP servers
