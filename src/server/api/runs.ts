@@ -23,6 +23,7 @@ interface Deps {
   launch: (runId: number) => Promise<void>;
   cancel: (runId: number) => Promise<void>;
   fireResumeNow: (runId: number) => void;
+  continueRun: (runId: number) => Promise<void>;
 }
 
 const GH_STATUS_TTL_MS = 10_000;
@@ -118,6 +119,23 @@ export function registerRunsRoutes(app: FastifyInstance, deps: Deps): void {
     if (run.state !== 'awaiting_resume') return reply.code(409).send({ error: 'not awaiting resume' });
     deps.fireResumeNow(run.id);
     return reply.code(204).send();
+  });
+
+  app.post('/api/runs/:id/continue', async (req, reply) => {
+    const { id } = req.params as { id: string };
+    const run = deps.runs.get(Number(id));
+    if (!run) return reply.code(404).send({ error: 'not found' });
+    try {
+      await deps.continueRun(run.id);
+      return reply.code(204).send();
+    } catch (err) {
+      const { ContinueNotEligibleError } = await import('../orchestrator/index.js');
+      if (err instanceof ContinueNotEligibleError) {
+        return reply.code(409).send({ code: err.code, message: err.message.replace(/^[^:]+:\s*/, '') });
+      }
+      app.log.error({ err }, 'continueRun failed');
+      return reply.code(500).send({ message: err instanceof Error ? err.message : String(err) });
+    }
   });
 
   app.get('/api/runs/:id/transcript', async (req, reply) => {

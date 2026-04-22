@@ -39,6 +39,7 @@ function setup() {
       cancelled.push(id);
     },
     fireResumeNow: (_id: number) => {},
+    continueRun: async (_id: number) => {},
   });
   return { app, projectId: p.id, launched, cancelled };
 }
@@ -55,6 +56,7 @@ function makeApp() {
     launch: async (_id: number) => {},
     cancel: async (_id: number) => {},
     fireResumeNow: (_id: number) => {},
+    continueRun: async (_id: number) => {},
   });
   return { app, projects, runs };
 }
@@ -160,9 +162,78 @@ describe('runs routes', () => {
       launch: async (_id: number) => {},
       cancel: async (_id: number) => {},
       fireResumeNow: (id: number) => { fired.push(id); },
+      continueRun: async (_id: number) => {},
     });
     const res = await app2.inject({ method: 'POST', url: `/api/runs/${r.id}/resume-now` });
     expect(res.statusCode).toBe(204);
     expect(fired).toEqual([r.id]);
+  });
+
+  it('POST /api/runs/:id/continue returns 404 for unknown run', async () => {
+    const { app } = makeApp();
+    const res = await app.inject({ method: 'POST', url: '/api/runs/9999/continue' });
+    expect(res.statusCode).toBe(404);
+  });
+
+  it('POST /api/runs/:id/continue forwards to the orchestrator and returns 204', async () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'fbi-'));
+    const db = openDb(path.join(dir, 'db.sqlite'));
+    const projects = new ProjectsRepo(db);
+    const runs = new RunsRepo(db);
+    const proj = projects.create({
+      name: 'p', repo_url: 'r', default_branch: 'main',
+      devcontainer_override_json: null, instructions: null,
+      git_author_name: null, git_author_email: null,
+    });
+    const run = runs.create({
+      project_id: proj.id, prompt: 'x',
+      log_path_tmpl: (id) => path.join(dir, `${id}.log`),
+    });
+    runs.markStarted(run.id, 'c1');
+    runs.setClaudeSessionId(run.id, 'sess');
+    runs.markFinished(run.id, { state: 'failed' });
+
+    const continued: number[] = [];
+    const app = Fastify();
+    registerRunsRoutes(app, {
+      runs, projects, gh: stubGh, runsDir: dir,
+      launch: async () => {}, cancel: async () => {},
+      fireResumeNow: () => {},
+      continueRun: async (id: number) => { continued.push(id); },
+    });
+    const res = await app.inject({ method: 'POST', url: `/api/runs/${run.id}/continue` });
+    expect(res.statusCode).toBe(204);
+    expect(continued).toEqual([run.id]);
+  });
+
+  it('POST /api/runs/:id/continue returns 409 with code when ineligible', async () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'fbi-'));
+    const db = openDb(path.join(dir, 'db.sqlite'));
+    const projects = new ProjectsRepo(db);
+    const runs = new RunsRepo(db);
+    const proj = projects.create({
+      name: 'p', repo_url: 'r', default_branch: 'main',
+      devcontainer_override_json: null, instructions: null,
+      git_author_name: null, git_author_email: null,
+    });
+    const run = runs.create({
+      project_id: proj.id, prompt: 'x',
+      log_path_tmpl: (id) => path.join(dir, `${id}.log`),
+    });
+    runs.markStarted(run.id, 'c1');
+    runs.markFinished(run.id, { state: 'failed' });
+    const app = Fastify();
+    registerRunsRoutes(app, {
+      runs, projects, gh: stubGh, runsDir: dir,
+      launch: async () => {}, cancel: async () => {},
+      fireResumeNow: () => {},
+      continueRun: async () => {
+        const { ContinueNotEligibleError } = await import('../orchestrator/index.js');
+        throw new ContinueNotEligibleError('no_session', 'no claude session');
+      },
+    });
+    const res = await app.inject({ method: 'POST', url: `/api/runs/${run.id}/continue` });
+    expect(res.statusCode).toBe(409);
+    expect(res.json()).toEqual({ code: 'no_session', message: 'no claude session' });
   });
 });

@@ -75,6 +75,7 @@ async function main() {
     launch: (id) => orchestrator.launch(id),
     cancel: (id) => orchestrator.cancel(id),
     fireResumeNow: (id) => orchestrator.fireResumeNow(id),
+    continueRun: (id) => orchestrator.continueRun(id),
   });
   registerSettingsRoutes(app, {
     settings,
