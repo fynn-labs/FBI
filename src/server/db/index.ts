@@ -101,6 +101,12 @@ function migrate(db: DB): void {
       db.exec(`ALTER TABLE runs ADD COLUMN ${c} INTEGER NOT NULL DEFAULT 0`);
     }
   }
+  if (!runCols.has('title')) {
+    db.exec('ALTER TABLE runs ADD COLUMN title TEXT');
+  }
+  if (!runCols.has('title_locked')) {
+    db.exec('ALTER TABLE runs ADD COLUMN title_locked INTEGER NOT NULL DEFAULT 0');
+  }
   db.prepare(
     "INSERT OR IGNORE INTO settings (id, global_prompt, notifications_enabled, concurrency_warn_at, image_gc_enabled, updated_at) VALUES (1, '', 1, 3, 0, ?)"
   ).run(Date.now());

@@ -159,6 +159,25 @@ export class RunsRepo {
       .run(sessionId, id);
   }
 
+  updateTitle(
+    id: number,
+    title: string,
+    opts: { lock?: boolean; respectLock: boolean },
+  ): void {
+    const trimmed = title.trim().slice(0, 80);
+    if (trimmed.length === 0) return;
+    if (opts.respectLock) {
+      this.db
+        .prepare(`UPDATE runs SET title = ? WHERE id = ? AND title_locked = 0`)
+        .run(trimmed, id);
+    } else {
+      const lockVal = opts.lock ? 1 : 0;
+      this.db
+        .prepare('UPDATE runs SET title = ?, title_locked = ? WHERE id = ?')
+        .run(trimmed, lockVal, id);
+    }
+  }
+
   listAwaiting(): Array<Pick<Run, 'id' | 'next_resume_at'>> {
     return this.db
       .prepare(

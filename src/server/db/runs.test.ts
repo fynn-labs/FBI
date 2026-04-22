@@ -316,3 +316,47 @@ describe('RunsRepo auto-resume', () => {
     expect(after.state).toBe('running');
   });
 });
+
+describe('updateTitle', () => {
+  function setup() {
+    const { runs, projectId } = makeRepos();
+    const run = runs.create({
+      project_id: projectId,
+      prompt: 'x',
+      log_path_tmpl: (id) => `/tmp/${id}.log`,
+    });
+    return { runs, run };
+  }
+
+  it('sets title when row is unlocked (respectLock=true)', () => {
+    const { runs, run } = setup();
+    runs.updateTitle(run.id, '  Fix auth race  ', { respectLock: true });
+    const after = runs.get(run.id)!;
+    expect((after as any).title).toBe('Fix auth race');
+    expect((after as any).title_locked).toBe(0);
+  });
+  it('is a no-op when locked and respectLock=true', () => {
+    const { runs, run } = setup();
+    runs.updateTitle(run.id, 'Original', { lock: true, respectLock: false });
+    runs.updateTitle(run.id, 'Should not overwrite', { respectLock: true });
+    expect((runs.get(run.id) as any).title).toBe('Original');
+    expect((runs.get(run.id) as any).title_locked).toBe(1);
+  });
+  it('overwrites when respectLock=false and sets lock when lock=true', () => {
+    const { runs, run } = setup();
+    runs.updateTitle(run.id, 'First', { respectLock: true });
+    runs.updateTitle(run.id, 'User pick', { lock: true, respectLock: false });
+    expect((runs.get(run.id) as any).title).toBe('User pick');
+    expect((runs.get(run.id) as any).title_locked).toBe(1);
+  });
+  it('truncates titles longer than 80 chars', () => {
+    const { runs, run } = setup();
+    runs.updateTitle(run.id, 'x'.repeat(200), { respectLock: true });
+    expect((runs.get(run.id) as any).title).toHaveLength(80);
+  });
+  it('ignores empty-after-trim input', () => {
+    const { runs, run } = setup();
+    runs.updateTitle(run.id, '   ', { respectLock: true });
+    expect((runs.get(run.id) as any).title).toBeNull();
+  });
+});
