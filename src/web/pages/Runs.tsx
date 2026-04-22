@@ -14,9 +14,13 @@ export function RunsPage() {
   const [error, setError] = useState<string | null>(null);
   const params = useParams();
   const nav = useNavigate();
-  const redirectedRef = useRef(false);
   const narrow = useIsNarrow();
   const hasChildRoute = Boolean(params.id);
+
+  // Auto-redirect only on initial mount (fresh page load, not client-side back-nav).
+  // Once the user clears a run (navigates from /runs/:id back to /runs), respect it.
+  const autoRedirectAllowedRef = useRef(true);
+  const prevIdRef = useRef<string | undefined>(params.id);
 
   useEffect(() => {
     let cancelled = false;
@@ -29,19 +33,26 @@ export function RunsPage() {
   }, []);
 
   // Remember the current run id whenever it changes.
+  // If the user clears the id (navigates to /runs), disable further auto-redirects this mount.
   useEffect(() => {
-    if (params.id) setLastRunGlobal(Number(params.id));
+    if (params.id) {
+      setLastRunGlobal(Number(params.id));
+    } else if (prevIdRef.current) {
+      // User navigated from /runs/:id back to /runs — respect that.
+      autoRedirectAllowedRef.current = false;
+    }
+    prevIdRef.current = params.id;
   }, [params.id]);
 
-  // Auto-redirect to the last-viewed run when no run is selected.
+  // Auto-redirect to the last-viewed run on fresh mount.
   useEffect(() => {
-    if (redirectedRef.current) return;
+    if (!autoRedirectAllowedRef.current) return;
     if (params.id) return;
     if (!runs || runs.length === 0) return;
     const lastId = getLastRunGlobal();
     if (lastId == null) return;
     if (!runs.some((r) => r.id === lastId)) return;
-    redirectedRef.current = true;
+    autoRedirectAllowedRef.current = false;
     nav(`/runs/${lastId}`, { replace: true });
   }, [runs, params.id, nav]);
 

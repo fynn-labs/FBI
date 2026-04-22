@@ -19,8 +19,12 @@ export function ProjectDetailPage() {
   const [runs, setRuns] = useState<Run[] | null>(null);
   const [error, setError] = useState<string | null>(null);
   const nav = useNavigate();
-  const redirectedRef = useRef(false);
   const narrow = useIsNarrow();
+
+  // Auto-redirect only on initial mount (fresh page load, not client-side back-nav).
+  // Once the user clears a run (back to /projects/:id), respect it.
+  const autoRedirectAllowedRef = useRef(true);
+  const prevRidRef = useRef<string | undefined>(rid);
 
   useEffect(() => {
     let cancelled = false;
@@ -63,19 +67,25 @@ export function ProjectDetailPage() {
   }, [pid]);
 
   // Remember the current run id whenever it changes.
+  // If the user clears rid (back to /projects/:id), disable further auto-redirects.
   useEffect(() => {
-    if (rid) setLastRunForProject(pid, Number(rid));
+    if (rid) {
+      setLastRunForProject(pid, Number(rid));
+    } else if (prevRidRef.current) {
+      autoRedirectAllowedRef.current = false;
+    }
+    prevRidRef.current = rid;
   }, [pid, rid]);
 
-  // Auto-redirect to the last-viewed run when no run is selected.
+  // Auto-redirect to the last-viewed run on fresh mount.
   useEffect(() => {
-    if (redirectedRef.current) return;
+    if (!autoRedirectAllowedRef.current) return;
     if (hasChildRoute) return;
     if (!runs || runs.length === 0) return;
     const lastId = getLastRunForProject(pid);
     if (lastId == null) return;
     if (!runs.some((r) => r.id === lastId)) return;
-    redirectedRef.current = true;
+    autoRedirectAllowedRef.current = false;
     nav(`/projects/${pid}/runs/${lastId}`, { replace: true });
   }, [runs, hasChildRoute, pid, nav]);
 
