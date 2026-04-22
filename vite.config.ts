@@ -11,6 +11,15 @@ export default defineConfig({
   build: {
     outDir: path.resolve(__dirname, 'dist/web'),
     emptyOutDir: true,
+    rollupOptions: {
+      output: {
+        manualChunks(id) {
+          if (id.includes('@xterm/')) return 'xterm';
+          if (id.includes('@codemirror/') || id.includes('@lezer/') || id.includes('@uiw/')) return 'codemirror';
+          if (id.includes('node_modules')) return 'vendor';
+        },
+      },
+    },
   },
   server: {
     port: 5173,
