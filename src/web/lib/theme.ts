@@ -32,11 +32,9 @@ export function useTheme(): { theme: Theme; toggle: () => void } {
   }, []);
 
   const toggle = () => {
-    setTheme((prev) => {
-      const next = prev === 'dark' ? 'light' : 'dark';
-      localStorage.setItem(STORAGE_KEY, next);
-      return next;
-    });
+    const next = theme === 'dark' ? 'light' : 'dark';
+    localStorage.setItem(STORAGE_KEY, next);
+    setTheme(next);
   };
 
   return { theme, toggle };

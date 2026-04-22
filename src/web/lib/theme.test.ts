@@ -95,4 +95,19 @@ describe('useTheme', () => {
     expect(localStorage.getItem('fbi-theme')).toBe('light');
     expect(document.documentElement.classList.contains('dark')).toBe(false);
   });
+
+  it('cleans up media query listener on unmount', () => {
+    const removeEventListener = vi.fn();
+    Object.defineProperty(window, 'matchMedia', {
+      writable: true,
+      value: vi.fn().mockReturnValue({
+        matches: false,
+        addEventListener: vi.fn(),
+        removeEventListener,
+      }),
+    });
+    const { unmount } = renderHook(() => useTheme());
+    unmount();
+    expect(removeEventListener).toHaveBeenCalledWith('change', expect.any(Function));
+  });
 });
