@@ -45,22 +45,22 @@ export function RunUsage({ run }: RunUsageProps) {
 
   return (
     <section className="mb-3">
-      <h3 className="text-[11px] font-semibold uppercase tracking-[0.08em] text-text-faint pb-1 border-b border-border mb-1">Usage</h3>
-      <div className="flex items-center gap-1 text-[12px] text-text-dim py-0.5">
+      <h3 className="text-[12px] font-semibold uppercase tracking-[0.08em] text-text-faint pb-1 border-b border-border mb-1">Usage</h3>
+      <div className="flex items-center gap-1 text-[13px] text-text-dim py-0.5">
         <span className="text-text-faint">total</span>
         <span className="ml-auto font-mono">{fmt(totalTokens)}</span>
       </div>
       {rows && rows.length > 0 && rows.map((r) => {
         const sum = r.input + r.output + r.cache_read + r.cache_create;
         return (
-          <div key={r.model} className="flex items-center gap-1 text-[12px] text-text-dim py-0.5">
+          <div key={r.model} className="flex items-center gap-1 text-[13px] text-text-dim py-0.5">
             <span className="text-text-faint truncate">{r.model}</span>
             <span className="ml-auto font-mono">{fmt(sum)}</span>
           </div>
         );
       })}
       {run.usage_parse_errors > 0 && (
-        <p className="text-[11px] text-warn mt-1">{run.usage_parse_errors} line(s) unparseable</p>
+        <p className="text-[12px] text-warn mt-1">{run.usage_parse_errors} line(s) unparseable</p>
       )}
     </section>
   );

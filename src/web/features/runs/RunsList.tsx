@@ -45,10 +45,10 @@ export function RunsList({ runs, toHref, currentId }: RunsListProps) {
   return (
     <div className="h-full flex flex-col min-h-0">
       <div className="flex items-center justify-between px-3 pt-2 pb-1">
-        <h2 className="text-[11px] font-semibold uppercase tracking-[0.08em] text-text-faint">
+        <h2 className="text-[12px] font-semibold uppercase tracking-[0.08em] text-text-faint">
           Runs
         </h2>
-        <span className="font-mono text-[11px] text-text-faint">
+        <span className="font-mono text-[12px] text-text-faint">
           {runs.length} · {running} running
         </span>
       </div>

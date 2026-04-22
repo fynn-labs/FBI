@@ -12,7 +12,7 @@ export function FormRow({ label, hint, htmlFor, children }: FormRowProps) {
   return (
     <div className="mb-4">
       <FieldLabel htmlFor={htmlFor}>{label}</FieldLabel>
-      {hint && <p className="text-[12px] text-text-dim mb-1.5">{hint}</p>}
+      {hint && <p className="text-[13px] text-text-dim mb-1.5">{hint}</p>}
       {children}
     </div>
   );

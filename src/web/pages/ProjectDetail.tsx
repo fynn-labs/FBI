@@ -98,7 +98,7 @@ export function ProjectDetailPage() {
       return (
         <div className="h-full flex flex-col min-h-0">
           <div className="px-3 py-2 border-b border-border bg-surface shrink-0">
-            <Link to={`/projects/${pid}`} className="text-[12px]">← Back to project</Link>
+            <Link to={`/projects/${pid}`} className="text-[13px]">← Back to project</Link>
           </div>
           <div className="flex-1 min-h-0 overflow-auto">
             <Outlet />

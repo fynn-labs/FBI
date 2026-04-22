@@ -65,7 +65,7 @@ export function EditProjectPage() {
 
   return (
     <form onSubmit={submit} className="max-w-2xl mx-auto p-6 space-y-6">
-      <h1 className="text-[24px] font-semibold tracking-[-0.02em]">Edit project</h1>
+      <h1 className="text-[26px] font-semibold tracking-[-0.02em]">Edit project</h1>
 
       <Section title="Identity">
         <FormRow label="Name"><Input className="w-full" value={name} onChange={(e) => setName(e.target.value)} required /></FormRow>

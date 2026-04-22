@@ -20,9 +20,9 @@ const TONE: Record<StatTone, string> = {
 export function StatCard({ label, value, delta, tone = 'default' }: StatCardProps) {
   return (
     <div className="bg-surface border border-border-strong rounded-lg px-4 py-2.5 min-w-[110px] flex flex-col gap-0.5">
-      <span className="text-[11px] font-semibold uppercase tracking-[0.08em] text-text-faint">{label}</span>
+      <span className="text-[12px] font-semibold uppercase tracking-[0.08em] text-text-faint">{label}</span>
       <span className={cn('font-mono text-[20px] font-semibold tracking-[-0.02em]', TONE[tone])}>{value}</span>
-      {delta && <span className="font-mono text-[11px] text-ok">{delta}</span>}
+      {delta && <span className="font-mono text-[12px] text-ok">{delta}</span>}
     </div>
   );
 }

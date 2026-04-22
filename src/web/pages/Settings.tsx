@@ -58,7 +58,7 @@ export function SettingsPage() {
 
   return (
     <form onSubmit={submit} className="max-w-2xl mx-auto p-6 space-y-6">
-      <h1 className="text-[24px] font-semibold tracking-[-0.02em]">Settings</h1>
+      <h1 className="text-[26px] font-semibold tracking-[-0.02em]">Settings</h1>
 
       <Section title="Global prompt">
         <FormRow label="Text" hint="Prepended to every run, across every project, before project instructions.">
@@ -69,14 +69,14 @@ export function SettingsPage() {
       <Section title="Notifications">
         <div className="flex items-center gap-3">
           <Toggle checked={enabled} onChange={setEnabled} aria-label="Enable run-completion notifications" />
-          <span className="text-[13px] text-text-dim">Enable run-completion notifications</span>
+          <span className="text-[14px] text-text-dim">Enable run-completion notifications</span>
         </div>
       </Section>
 
       <Section title="Auto-resume">
         <div className="flex items-center gap-3 mb-3">
           <Toggle checked={autoResumeEnabled} onChange={setAutoResumeEnabled} aria-label="Enable auto-resume on Claude rate-limit" />
-          <span className="text-[13px] text-text-dim">Auto-resume runs that hit the Claude 5-hour rate-limit</span>
+          <span className="text-[14px] text-text-dim">Auto-resume runs that hit the Claude 5-hour rate-limit</span>
         </div>
         <FormRow label="Max attempts" hint="Give up after this many consecutive rate-limit waits.">
           <Input
@@ -105,7 +105,7 @@ export function SettingsPage() {
       <Section title="Image GC">
         <div className="flex items-center gap-3 mb-3">
           <Toggle checked={gcEnabled} onChange={setGcEnabled} aria-label="Enable nightly image GC" />
-          <span className="text-[13px] text-text-dim">Enable nightly image GC (keeps images used in the last 30 days)</span>
+          <span className="text-[14px] text-text-dim">Enable nightly image GC (keeps images used in the last 30 days)</span>
         </div>
         <div className="flex items-center gap-3">
           <Button
@@ -124,7 +124,7 @@ export function SettingsPage() {
             {runningGc ? 'Running…' : 'Run GC now'}
           </Button>
           {lastGc.at && (
-            <span className="text-[12px] text-text-dim">
+            <span className="text-[13px] text-text-dim">
               Last: {new Date(lastGc.at).toLocaleString()} — {lastGc.count ?? 0} images, {Math.round((lastGc.bytes ?? 0) / 1e6)} MB
             </span>
           )}
@@ -132,7 +132,7 @@ export function SettingsPage() {
       </Section>
 
       <Section title="Tools">
-        <p className="text-[12px] text-text-dim mb-3">Available in every run across all projects.</p>
+        <p className="text-[13px] text-text-dim mb-3">Available in every run across all projects.</p>
         <ChipInput
           label="Plugin marketplaces"
           values={marketplaces}
@@ -153,7 +153,7 @@ export function SettingsPage() {
       </Section>
 
       {error && <ErrorState message={error} />}
-      {saved && <p className="text-[13px] text-ok">Saved.</p>}
+      {saved && <p className="text-[14px] text-ok">Saved.</p>}
       <Button type="submit" disabled={saving}>{saving ? 'Saving…' : 'Save'}</Button>
     </form>
   );

@@ -9,13 +9,13 @@ export interface GithubTabProps {
 export function GithubTab({ github, runState }: GithubTabProps) {
   if (!github) {
     if (runState !== 'succeeded') {
-      return <p className="p-3 text-[12px] text-text-faint">No GitHub info — run has not succeeded.</p>;
+      return <p className="p-3 text-[13px] text-text-faint">No GitHub info — run has not succeeded.</p>;
     }
-    return <p className="p-3 text-[12px] text-text-faint">Loading…</p>;
+    return <p className="p-3 text-[13px] text-text-faint">Loading…</p>;
   }
-  if (!github.github_available) return <p className="p-3 text-[12px] text-text-faint">GitHub CLI not available or non-GitHub remote.</p>;
+  if (!github.github_available) return <p className="p-3 text-[13px] text-text-faint">GitHub CLI not available or non-GitHub remote.</p>;
   return (
-    <div className="p-3 space-y-2 text-[13px]">
+    <div className="p-3 space-y-2 text-[14px]">
       {github.pr ? (
         <a href={github.pr.url} target="_blank" rel="noreferrer" className="text-accent">PR #{github.pr.number} — {github.pr.title}</a>
       ) : (

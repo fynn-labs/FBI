@@ -34,7 +34,7 @@ export function Drawer({ open, onToggle, header, children, className }: DrawerPr
         onClick={() => onToggle(!open)}
         className="w-full flex items-center px-3 py-1.5 text-left hover:bg-surface-raised transition-colors duration-fast ease-out"
       >
-        <div className="flex-1 min-w-0 font-mono text-[12px] text-text-dim">{header}</div>
+        <div className="flex-1 min-w-0 font-mono text-[13px] text-text-dim">{header}</div>
         <span className="text-text-faint ml-2">
           <Chevron open={open} />
         </span>

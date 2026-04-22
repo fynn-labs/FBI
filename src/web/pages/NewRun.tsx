@@ -41,7 +41,7 @@ export function NewRunPage() {
   return (
     <form onSubmit={submit} className="max-w-3xl mx-auto p-6 space-y-4">
       <UsageWarning />
-      <h1 className="text-[24px] font-semibold tracking-[-0.02em]">New run</h1>
+      <h1 className="text-[26px] font-semibold tracking-[-0.02em]">New run</h1>
       <RecentPromptsDropdown projectId={pid} onPick={setPrompt} />
       <FormRow label="Branch name" hint="Leave blank to let Claude choose.">
         <Input className="w-full" value={branch} onChange={(e) => setBranch(e.target.value)} placeholder="feat/branch-name" />
@@ -52,7 +52,7 @@ export function NewRunPage() {
       {error && <ErrorState message={error} />}
       <div className="flex items-center gap-3">
         <Button type="submit" disabled={submitting}>{submitting ? 'Starting…' : 'Start run'}</Button>
-        <span className="text-[12px] text-text-faint">⌘⏎ to submit</span>
+        <span className="text-[13px] text-text-faint">⌘⏎ to submit</span>
       </div>
     </form>
   );

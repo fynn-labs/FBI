@@ -28,7 +28,7 @@ export function ProjectsPage() {
       return (
         <div className="h-full flex flex-col min-h-0">
           <div className="px-3 py-2 border-b border-border bg-surface shrink-0">
-            <Link to="/projects" className="text-[12px]">← Back to projects</Link>
+            <Link to="/projects" className="text-[13px]">← Back to projects</Link>
           </div>
           <div className="flex-1 min-h-0 overflow-auto">
             <Outlet />

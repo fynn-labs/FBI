@@ -24,7 +24,7 @@ export function Cheatsheet({ open, onClose }: CheatsheetProps) {
     <Dialog open={open} onClose={onClose} title="Keyboard shortcuts">
       <ul className="space-y-1.5">
         {bindings.map((b, i) => (
-          <li key={i} className="flex items-center justify-between text-[13px]">
+          <li key={i} className="flex items-center justify-between text-[14px]">
             <span className="text-text-dim">{b.description}</span>
             <span className="flex gap-1">
               {b.chord.split(/\s+|\+/).map((k, j) => <Kbd key={j}>{displayKey(k)}</Kbd>)}

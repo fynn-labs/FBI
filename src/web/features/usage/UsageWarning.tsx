@@ -16,7 +16,7 @@ export function UsageWarning() {
   const pct = Math.round(rl.percent_used * 100);
   const reset = formatReset(rl.reset_in_seconds);
   return (
-    <div role="alert" className="p-3 border border-warn/40 bg-warn-subtle text-warn rounded-md text-[13px] font-mono">
+    <div role="alert" className="p-3 border border-warn/40 bg-warn-subtle text-warn rounded-md text-[14px] font-mono">
       ⚠ Claude usage {pct}% of the 5-hour window{reset ? ` · resets in ${reset}` : ''}. Starting a new run is allowed but may hit the limit.
     </div>
   );

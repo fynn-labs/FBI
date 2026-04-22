@@ -9,8 +9,8 @@ export function ProjectHeader({ project }: ProjectHeaderProps) {
   return (
     <div className="px-3 py-2 border-b border-border bg-surface flex items-center gap-2">
       <div className="min-w-0">
-        <h1 className="text-[15px] font-semibold truncate">{project.name}</h1>
-        <p className="text-[11px] text-text-faint truncate"><CodeBlock>{project.repo_url}</CodeBlock></p>
+        <h1 className="text-[16px] font-semibold truncate">{project.name}</h1>
+        <p className="text-[12px] text-text-faint truncate"><CodeBlock>{project.repo_url}</CodeBlock></p>
       </div>
       <div className="ml-auto flex gap-1.5">
         <Link to={`/projects/${project.id}/edit`}><Button variant="ghost" size="sm">Edit</Button></Link>

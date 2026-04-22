@@ -20,7 +20,7 @@ export function Pill({ tone, className, ...rest }: PillProps) {
     <span
       data-tone={tone}
       className={cn(
-        'inline-flex items-center gap-1 font-mono text-[11px] font-medium px-1.5 rounded-sm border',
+        'inline-flex items-center gap-1 font-mono text-[12px] font-medium px-1.5 rounded-sm border',
         TONES[tone],
         className,
       )}

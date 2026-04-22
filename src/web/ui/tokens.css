@@ -110,8 +110,8 @@ body {
   background: var(--bg);
   color: var(--text);
   font-family: var(--font-sans);
-  font-size: 14px;
-  line-height: 22px;
+  font-size: 15px;
+  line-height: 23px;
   -webkit-font-smoothing: antialiased;
   text-rendering: optimizeLegibility;
 }

@@ -6,7 +6,7 @@ export function Table({ className, ...rest }: TableHTMLAttributes<HTMLTableEleme
 }
 
 export function THead({ className, ...rest }: HTMLAttributes<HTMLTableSectionElement>) {
-  return <thead className={cn('text-text-faint text-[11px] uppercase tracking-[0.08em]', className)} {...rest} />;
+  return <thead className={cn('text-text-faint text-[12px] uppercase tracking-[0.08em]', className)} {...rest} />;
 }
 
 export function TR({ className, ...rest }: HTMLAttributes<HTMLTableRowElement>) {

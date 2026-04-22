@@ -34,7 +34,7 @@ export function Sidebar({ projects, collapsed }: SidebarProps) {
           to={`/projects/${p.id}`}
           title={collapsed ? p.name : undefined}
           className={({ isActive }) => cn(
-            'flex items-center gap-2 px-2 py-1 mx-1 rounded-md text-[13px] transition-colors duration-fast ease-out',
+            'flex items-center gap-2 px-2 py-1 mx-1 rounded-md text-[14px] transition-colors duration-fast ease-out',
             collapsed && 'justify-center',
             isActive ? 'bg-accent-subtle text-accent-strong' : 'text-text-dim hover:bg-surface-raised hover:text-text',
           )}
@@ -47,7 +47,7 @@ export function Sidebar({ projects, collapsed }: SidebarProps) {
             <>
               {p.hasRunning && <StatusDot tone="run" aria-label="running" />}
               <span className="truncate">{p.name}</span>
-              <span className="ml-auto font-mono text-[11px] text-text-faint">{p.runs}</span>
+              <span className="ml-auto font-mono text-[12px] text-text-faint">{p.runs}</span>
             </>
           )}
         </NavLink>
@@ -59,7 +59,7 @@ export function Sidebar({ projects, collapsed }: SidebarProps) {
           to={v.route}
           title={collapsed ? v.label : undefined}
           className={({ isActive }) => cn(
-            'flex items-center gap-2 px-2 py-1 mx-1 rounded-md text-[13px] transition-colors duration-fast ease-out',
+            'flex items-center gap-2 px-2 py-1 mx-1 rounded-md text-[14px] transition-colors duration-fast ease-out',
             collapsed && 'justify-center',
             isActive ? 'bg-accent-subtle text-accent-strong' : 'text-text-dim hover:bg-surface-raised hover:text-text',
           )}
@@ -78,5 +78,5 @@ export function Sidebar({ projects, collapsed }: SidebarProps) {
 }
 
 function Group({ label }: { label: string }) {
-  return <div className="px-3 pt-3 pb-1 text-[11px] font-semibold uppercase tracking-[0.08em] text-text-faint">{label}</div>;
+  return <div className="px-3 pt-3 pb-1 text-[12px] font-semibold uppercase tracking-[0.08em] text-text-faint">{label}</div>;
 }
