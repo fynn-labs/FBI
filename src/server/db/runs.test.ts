@@ -316,3 +316,68 @@ describe('RunsRepo auto-resume', () => {
     expect(after.state).toBe('running');
   });
 });
+
+describe('waiting-state transitions', () => {
+  function seedRunning() {
+    const { runs: repo, projectId } = makeRepos();
+    const run = repo.create({
+      project_id: projectId,
+      prompt: 'x',
+      log_path_tmpl: (id) => `/tmp/${id}.log`,
+    });
+    repo.markStarted(run.id, 'c');
+    return { repo, id: run.id };
+  }
+
+  function seedQueued() {
+    const { runs: repo, projectId } = makeRepos();
+    const run = repo.create({
+      project_id: projectId,
+      prompt: 'x',
+      log_path_tmpl: (id) => `/tmp/${id}.log`,
+    });
+    return { repo, id: run.id };
+  }
+
+  it('markWaiting flips running → waiting', () => {
+    const { repo, id } = seedRunning();
+    repo.markWaiting(id);
+    expect(repo.get(id)!.state).toBe('waiting');
+  });
+
+  it('markWaiting is a no-op from non-running states', () => {
+    const { repo, id } = seedQueued();
+    repo.markWaiting(id);
+    expect(repo.get(id)!.state).toBe('queued');
+  });
+
+  it('markRunningFromWaiting flips waiting → running', () => {
+    const { repo, id } = seedRunning();
+    repo.markWaiting(id);
+    repo.markRunningFromWaiting(id);
+    expect(repo.get(id)!.state).toBe('running');
+  });
+
+  it('markRunningFromWaiting is a no-op from non-waiting states', () => {
+    const { repo, id } = seedRunning();
+    repo.markRunningFromWaiting(id);
+    expect(repo.get(id)!.state).toBe('running');
+  });
+
+  it('markAwaitingResume wins from waiting (rate-limit supersedes)', () => {
+    const { repo, id } = seedRunning();
+    repo.markWaiting(id);
+    repo.markAwaitingResume(id, { next_resume_at: 42, last_limit_reset_at: 42 });
+    expect(repo.get(id)!.state).toBe('awaiting_resume');
+  });
+
+  it('markWaiting + markRunningFromWaiting are idempotent', () => {
+    const { repo, id } = seedRunning();
+    repo.markWaiting(id);
+    repo.markWaiting(id);
+    expect(repo.get(id)!.state).toBe('waiting');
+    repo.markRunningFromWaiting(id);
+    repo.markRunningFromWaiting(id);
+    expect(repo.get(id)!.state).toBe('running');
+  });
+});
