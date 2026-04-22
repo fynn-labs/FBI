@@ -12,7 +12,7 @@ import { FilesTab } from '../features/runs/FilesTab.js';
 import { PromptTab } from '../features/runs/PromptTab.js';
 import { GithubTab } from '../features/runs/GithubTab.js';
 import { useKeyBinding } from '@ui/shell/KeyMap.js';
-import { subscribeState } from '../features/runs/usageBus.js';
+import { subscribeState, subscribeTitle } from '../features/runs/usageBus.js';
 
 export function RunDetailPage() {
   const params = useParams();
@@ -82,6 +82,12 @@ export function RunDetailPage() {
       } : r);
     });
   }, [runId]);
+
+  useEffect(() => {
+    return subscribeTitle((id, frame) => {
+      setRun((r) => r && r.id === id ? { ...r, title: frame.title, title_locked: frame.title_locked } : r);
+    });
+  }, []);
 
   useEffect(() => {
     if (!run || run.state !== 'succeeded') return;
