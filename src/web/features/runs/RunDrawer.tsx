@@ -13,6 +13,10 @@ export interface RunDrawerProps {
 
 export function RunDrawer({ open, onToggle, filesCount, children }: RunDrawerProps) {
   const [tab, setTab] = useState<RunTab>('files');
+  const pickTab = (next: RunTab) => {
+    setTab(next);
+    if (!open) onToggle(true);
+  };
   return (
     <Drawer
       open={open}
@@ -20,7 +24,7 @@ export function RunDrawer({ open, onToggle, filesCount, children }: RunDrawerPro
       header={
         <Tabs
           value={tab}
-          onChange={setTab}
+          onChange={pickTab}
           tabs={[
             { value: 'files', label: 'files', count: filesCount },
             { value: 'prompt', label: 'prompt' },
