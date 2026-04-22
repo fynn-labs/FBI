@@ -1,4 +1,5 @@
 import Docker from 'dockerode';
+import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import type { RunsRepo } from '../db/runs.js';
@@ -86,6 +87,8 @@ export class Orchestrator {
           Binds: [
             `${SUPERVISOR}:/usr/local/bin/supervisor.sh:ro`,
             `${this.deps.config.hostClaudeDir}:/home/agent/.claude:ro`,
+            // Mount .claude.json (settings/config) if present alongside .claude/
+            ...claudeJsonMount(this.deps.config.hostClaudeDir),
             ...auth.mounts().map((m) =>
               `${m.source}:${m.target}${m.readOnly ? ':ro' : ''}`
             ),
@@ -289,6 +292,15 @@ export class Orchestrator {
     broadcaster.end();
     this.deps.streams.release(runId);
   }
+}
+
+// Returns a bind-mount string for ~/.claude.json if it exists on the host
+// alongside the hostClaudeDir (e.g. /home/fbi/.claude → /home/fbi/.claude.json).
+function claudeJsonMount(hostClaudeDir: string): string[] {
+  const hostJson = path.join(path.dirname(hostClaudeDir), '.claude.json');
+  return fs.existsSync(hostJson)
+    ? [`${hostJson}:/home/agent/.claude.json:ro`]
+    : [];
 }
 
 async function injectFiles(
