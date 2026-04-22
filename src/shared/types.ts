@@ -1,6 +1,7 @@
 export type RunState =
   | 'queued'
   | 'running'
+  | 'waiting'
   | 'awaiting_resume'
   | 'succeeded'
   | 'failed'
