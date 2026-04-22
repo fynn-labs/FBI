@@ -1,8 +1,13 @@
 #!/usr/bin/env bash
 # FBI run container entrypoint. Mounted at /usr/local/bin/supervisor.sh.
 #
+# Claude owns branching: supervisor does NOT pre-create a branch. It runs the
+# agent on the default branch checkout, captures HEAD afterwards, creates a
+# fallback branch if Claude never branched, and pushes whatever branch HEAD
+# points to.
+#
 # Required env vars (set by orchestrator):
-#   RUN_ID, REPO_URL, DEFAULT_BRANCH, BRANCH_NAME,
+#   RUN_ID, REPO_URL, DEFAULT_BRANCH,
 #   GIT_AUTHOR_NAME, GIT_AUTHOR_EMAIL
 # Optional:
 #   FBI_MARKETPLACES  newline-separated plugin marketplace sources
@@ -11,9 +16,9 @@
 # Required mounts:
 #   /ssh-agent              (host ssh-agent socket, RW)
 #   /home/agent/.claude.json (host ~/.claude.json, RW — OAuth)
-#   /fbi                    (injected via putArchive: instructions.txt + prompt.txt)
+#   /fbi                    (injected via putArchive: preamble/instructions/global/prompt)
 #
-# Contract: at end, write /tmp/result.json with exit_code, push_exit, head_sha.
+# Contract: at end, write /tmp/result.json with exit_code, push_exit, head_sha, branch.
 
 set -euo pipefail
 
@@ -39,13 +44,13 @@ fi
 cd /workspace
 
 git clone --recurse-submodules "$REPO_URL" . || { echo "clone failed"; exit 10; }
-git checkout -b "$BRANCH_NAME" "origin/$DEFAULT_BRANCH" || { echo "checkout failed"; exit 11; }
+git checkout "$DEFAULT_BRANCH" || { echo "checkout failed"; exit 11; }
 git config user.name  "$GIT_AUTHOR_NAME"
 git config user.email "$GIT_AUTHOR_EMAIL"
 
-# Compose the final prompt: global + project instructions + run prompt.
+# Compose the final prompt: preamble + global + project instructions + run prompt.
 : > /tmp/prompt.txt
-for section in global.txt instructions.txt; do
+for section in preamble.txt global.txt instructions.txt; do
     if [ -s "/fbi/$section" ]; then
         cat "/fbi/$section" >> /tmp/prompt.txt
         printf '\n\n---\n\n' >> /tmp/prompt.txt
@@ -54,22 +59,30 @@ done
 [ -f /fbi/prompt.txt ] || { echo "prompt.txt not found in /fbi"; exit 12; }
 cat /fbi/prompt.txt >> /tmp/prompt.txt
 
-# Run the agent. Stdin is the prompt file; stdout/stderr go to the TTY so
-# Claude streams output live instead of buffering until exit (-p mode buffers).
+# Run the agent.
 set +e
 claude --dangerously-skip-permissions < /tmp/prompt.txt
 CLAUDE_EXIT=$?
 set -e
 
-# Capture anything Claude didn't commit, then push.
+# Capture uncommitted work.
 git add -A
 git commit -m "wip: claude run $RUN_ID" 2>/dev/null || true
 
+# Detect current branch. If Claude never branched, create the fallback so we
+# never push to the default branch.
+CURRENT_BRANCH="$(git rev-parse --abbrev-ref HEAD)"
+if [ "$CURRENT_BRANCH" = "$DEFAULT_BRANCH" ]; then
+    CURRENT_BRANCH="claude/run-$RUN_ID"
+    git checkout -b "$CURRENT_BRANCH"
+    echo "[fbi] claude didn't branch; pushing to fallback $CURRENT_BRANCH"
+fi
+
 PUSH_EXIT=0
-git push -u origin "$BRANCH_NAME" || PUSH_EXIT=$?
+git push -u origin "$CURRENT_BRANCH" || PUSH_EXIT=$?
 
 HEAD_SHA="$(git rev-parse HEAD 2>/dev/null || echo '')"
-printf '{"exit_code":%d,"push_exit":%d,"head_sha":"%s"}\n' \
-    "$CLAUDE_EXIT" "$PUSH_EXIT" "$HEAD_SHA" > /tmp/result.json
+printf '{"exit_code":%d,"push_exit":%d,"head_sha":"%s","branch":"%s"}\n' \
+    "$CLAUDE_EXIT" "$PUSH_EXIT" "$HEAD_SHA" "$CURRENT_BRANCH" > /tmp/result.json
 
 exit $CLAUDE_EXIT
