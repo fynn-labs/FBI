@@ -20,6 +20,8 @@ import { ImageBuilder, ALWAYS, POSTBUILD } from './image.js';
 import { ImageGc } from './imageGc.js';
 import { parseResultJson } from './result.js';
 import { SshAgentForwarding, type GitAuth } from './gitAuth.js';
+import type { UsageRepo } from '../db/usage.js';
+import { UsageTailer } from './usageTailer.js';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const SUPERVISOR = path.join(HERE, 'supervisor.sh');
@@ -33,6 +35,7 @@ export interface OrchestratorDeps {
   settings: SettingsRepo;
   mcpServers: McpServersRepo;
   streams: RunStreamRegistry;
+  usage: UsageRepo;
 }
 
 export class Orchestrator {
@@ -97,6 +100,9 @@ export class Orchestrator {
       '',
     ].join('\n');
 
+    let tailer: UsageTailer | null = null;
+    let events: ReturnType<typeof this.deps.streams.getOrCreateEvents> | null = null;
+
     try {
       // Build or reuse image.
       onBytes(Buffer.from(`[fbi] resolving image\n`));
@@ -131,6 +137,8 @@ export class Orchestrator {
       ]);
 
       onBytes(Buffer.from(`[fbi] starting container\n`));
+      const claudeProjectsDir = path.join(this.deps.config.runsDir, String(runId), 'claude-projects');
+      fs.mkdirSync(claudeProjectsDir, { recursive: true, mode: 0o777 });
       const memMb = project.mem_mb ?? this.deps.config.containerMemMb;
       const cpus = project.cpus ?? this.deps.config.containerCpus;
       const pids = project.pids_limit ?? this.deps.config.containerPids;
@@ -169,6 +177,7 @@ export class Orchestrator {
             ...auth.mounts().map((m) =>
               `${m.source}:${m.target}${m.readOnly ? ':ro' : ''}`
             ),
+            `${claudeProjectsDir}:/home/agent/.claude/projects`,
           ],
         },
       });
@@ -217,6 +226,30 @@ export class Orchestrator {
       this.active.set(runId, { container, attachStream: attach });
       this.deps.runs.markStarted(runId, container.id);
 
+      events = this.deps.streams.getOrCreateEvents(runId);
+      tailer = new UsageTailer({
+        dir: claudeProjectsDir,
+        pollMs: 500,
+        onUsage: (snapshot) => {
+          const ts = Date.now();
+          this.deps.usage.insertUsageEvent({
+            run_id: runId, ts, snapshot, rate_limit: null,
+          });
+          events!.publish({ type: 'usage', snapshot });
+        },
+        onRateLimit: (snapshot) => {
+          this.deps.usage.upsertRateLimitState({
+            observed_at: Date.now(),
+            observed_from_run_id: runId,
+            snapshot,
+          });
+          const state = this.deps.usage.getRateLimitState(Date.now());
+          events!.publish({ type: 'rate_limit', snapshot: state });
+        },
+        onError: () => { this.deps.usage.bumpParseErrors(runId); },
+      });
+      tailer.start();
+
       // Wait for exit.
       const waitRes = await container.wait();
       const inspect = await container.inspect().catch(() => null);
@@ -263,6 +296,8 @@ export class Orchestrator {
         error: msg,
       });
     } finally {
+      if (tailer) await tailer.stop();
+      if (events) events.end();
       this.active.delete(runId);
       store.close();
       broadcaster.end();
@@ -370,47 +405,77 @@ export class Orchestrator {
     });
     this.active.set(runId, { container, attachStream });
 
-    const waitRes = await container.wait();
-    const inspect = await container.inspect().catch(() => null);
-    const oomKilled = Boolean(inspect?.State?.OOMKilled);
-    const wasCancelled = this.cancelled.delete(runId);
-    const resultText = await readFileFromContainer(
-      container,
-      '/tmp/result.json'
-    ).catch(() => '');
-    const parsed = parseResultJson(resultText);
-
-    const state: 'succeeded' | 'failed' | 'cancelled' = wasCancelled
-      ? 'cancelled'
-      : waitRes.StatusCode === 0 && parsed && parsed.push_exit === 0
-        ? 'succeeded'
-        : 'failed';
-
-    const branchFromResult =
-      parsed?.branch && parsed.branch.length > 0 ? parsed.branch : null;
-
-    this.deps.runs.markFinished(runId, {
-      state,
-      exit_code: parsed?.exit_code ?? waitRes.StatusCode,
-      head_commit: parsed?.head_sha ?? null,
-      branch_name: branchFromResult,
-      error:
-        state === 'failed'
-          ? oomKilled
-            ? `container OOM (memory cap ${memMb} MB)`
-            : parsed
-              ? parsed.push_exit !== 0
-                ? `git push failed (code ${parsed.push_exit})`
-                : `agent exit ${parsed.exit_code}`
-              : `container exit ${waitRes.StatusCode}`
-          : null,
+    const claudeProjectsDir = path.join(this.deps.config.runsDir, String(runId), 'claude-projects');
+    fs.mkdirSync(claudeProjectsDir, { recursive: true, mode: 0o777 });
+    const events = this.deps.streams.getOrCreateEvents(runId);
+    const tailer = new UsageTailer({
+      dir: claudeProjectsDir,
+      pollMs: 500,
+      onUsage: (snapshot) => {
+        this.deps.usage.insertUsageEvent({
+          run_id: runId, ts: Date.now(), snapshot, rate_limit: null,
+        });
+        events.publish({ type: 'usage', snapshot });
+      },
+      onRateLimit: (snapshot) => {
+        this.deps.usage.upsertRateLimitState({
+          observed_at: Date.now(),
+          observed_from_run_id: runId,
+          snapshot,
+        });
+        const state = this.deps.usage.getRateLimitState(Date.now());
+        events.publish({ type: 'rate_limit', snapshot: state });
+      },
+      onError: () => { this.deps.usage.bumpParseErrors(runId); },
     });
+    tailer.start();
 
-    await container.remove({ force: true, v: true }).catch(() => {});
-    this.active.delete(runId);
-    store.close();
-    broadcaster.end();
-    this.deps.streams.release(runId);
+    try {
+      const waitRes = await container.wait();
+      const inspect = await container.inspect().catch(() => null);
+      const oomKilled = Boolean(inspect?.State?.OOMKilled);
+      const wasCancelled = this.cancelled.delete(runId);
+      const resultText = await readFileFromContainer(
+        container,
+        '/tmp/result.json'
+      ).catch(() => '');
+      const parsed = parseResultJson(resultText);
+
+      const state: 'succeeded' | 'failed' | 'cancelled' = wasCancelled
+        ? 'cancelled'
+        : waitRes.StatusCode === 0 && parsed && parsed.push_exit === 0
+          ? 'succeeded'
+          : 'failed';
+
+      const branchFromResult =
+        parsed?.branch && parsed.branch.length > 0 ? parsed.branch : null;
+
+      this.deps.runs.markFinished(runId, {
+        state,
+        exit_code: parsed?.exit_code ?? waitRes.StatusCode,
+        head_commit: parsed?.head_sha ?? null,
+        branch_name: branchFromResult,
+        error:
+          state === 'failed'
+            ? oomKilled
+              ? `container OOM (memory cap ${memMb} MB)`
+              : parsed
+                ? parsed.push_exit !== 0
+                  ? `git push failed (code ${parsed.push_exit})`
+                  : `agent exit ${parsed.exit_code}`
+                : `container exit ${waitRes.StatusCode}`
+            : null,
+      });
+
+      await container.remove({ force: true, v: true }).catch(() => {});
+    } finally {
+      await tailer.stop();
+      events.end();
+      this.active.delete(runId);
+      store.close();
+      broadcaster.end();
+      this.deps.streams.release(runId);
+    }
   }
 }
 

@@ -68,6 +68,16 @@ export function registerWsRoute(app: FastifyInstance, deps: Deps): void {
       }
     );
 
+    // Typed-event channel (usage + rate_limit) sent as JSON text frames,
+    // multiplexed over the same socket as the binary TTY stream.
+    // Subscribe BEFORE log replay so no typed events are missed during replay.
+    const ev = deps.streams.getOrCreateEvents(runId);
+    const unsubEvents = ev.subscribe((msg) => {
+      if (socket.readyState === socket.OPEN) {
+        socket.send(JSON.stringify(msg));
+      }
+    });
+
     // Replay log, then flush any buffered live chunks.
     const existing = LogStore.readAll(run.log_path);
     if (existing.length > 0) socket.send(existing);
@@ -81,6 +91,7 @@ export function registerWsRoute(app: FastifyInstance, deps: Deps): void {
     // Fix 3: If broadcaster already ended, close now.
     if (bc.isEnded()) {
       unsub();
+      unsubEvents();
       socket.close(1000, 'ended');
       return;
     }
@@ -99,6 +110,6 @@ export function registerWsRoute(app: FastifyInstance, deps: Deps): void {
       deps.orchestrator.writeStdin(runId, data);
     });
 
-    socket.on('close', () => unsub());
+    socket.on('close', () => { unsub(); unsubEvents(); });
   });
 }

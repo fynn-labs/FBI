@@ -10,6 +10,7 @@ import { RunsRepo } from './db/runs.js';
 import { SecretsRepo } from './db/secrets.js';
 import { SettingsRepo } from './db/settings.js';
 import { McpServersRepo } from './db/mcpServers.js';
+import { UsageRepo } from './db/usage.js';
 import { loadKey } from './crypto.js';
 import { RunStreamRegistry } from './logs/registry.js';
 import { Orchestrator } from './orchestrator/index.js';
@@ -20,6 +21,7 @@ import { registerSettingsRoutes } from './api/settings.js';
 import { registerConfigRoutes } from './api/config.js';
 import { registerMcpServerRoutes } from './api/mcpServers.js';
 import { registerWsRoute } from './api/ws.js';
+import { registerUsageRoutes } from './api/usage.js';
 import { GhClient } from './github/gh.js';
 
 async function main() {
@@ -33,6 +35,7 @@ async function main() {
   const secrets = new SecretsRepo(db, key);
   const settings = new SettingsRepo(db);
   const mcpServers = new McpServersRepo(db);
+  const usage = new UsageRepo(db);
 
   // One-time migration: if FBI_DEFAULT_* env vars are set and the DB still has empty
   // global lists, migrate them in so existing deployments don't lose configuration.
@@ -49,7 +52,7 @@ async function main() {
   const docker = new Docker();
 
   const orchestrator = new Orchestrator({
-    docker, config, projects, runs, secrets, settings, mcpServers, streams,
+    docker, config, projects, runs, secrets, settings, mcpServers, streams, usage,
   });
   const gh = new GhClient();
 
@@ -76,6 +79,7 @@ async function main() {
   registerConfigRoutes(app, { config });
   registerMcpServerRoutes(app, { mcpServers });
   registerWsRoute(app, { runs, streams, orchestrator });
+  registerUsageRoutes(app, { usage });
 
   // SPA fallback: any non-/api route returns index.html.
   app.setNotFoundHandler((req, reply) => {
