@@ -1,7 +1,9 @@
 import Docker from 'dockerode';
 import fs from 'node:fs';
+import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { execFileSync } from 'node:child_process';
 import type { RunsRepo } from '../db/runs.js';
 import type { ProjectsRepo } from '../db/projects.js';
 import type { SecretsRepo } from '../db/secrets.js';
@@ -51,9 +53,14 @@ export class Orchestrator {
     try {
       // Build or reuse image.
       onBytes(Buffer.from(`[fbi] resolving image\n`));
+      const devcontainerFile = await fetchDevcontainerFile(
+        project.repo_url,
+        this.deps.config.hostSshAuthSock,
+        onBytes,
+      );
       const imageTag = await this.imageBuilder.resolve({
         projectId: project.id,
-        devcontainerFile: null, // resolved per-project at repo time; v1 uses override only
+        devcontainerFile,
         overrideJson: project.devcontainer_override_json,
         onLog: onBytes,
       });
@@ -396,6 +403,39 @@ async function injectFiles(
   }
   pack.finalize();
   await container.putArchive(pack as unknown as NodeJS.ReadableStream, { path: destDir });
+}
+
+// Sparse-shallow-clone the repo on the host to check for a repo-level
+// devcontainer.json before building the image. Returns the file contents, or
+// null if the file doesn't exist or the clone fails.
+async function fetchDevcontainerFile(
+  repoUrl: string,
+  sshAuthSock: string,
+  onLog: (chunk: Uint8Array) => void,
+): Promise<string | null> {
+  if (!sshAuthSock) return null;
+  const tmpParent = fs.mkdtempSync(path.join(os.tmpdir(), 'fbi-dc-'));
+  const tmp = path.join(tmpParent, 'r');
+  try {
+    const env = { ...process.env, SSH_AUTH_SOCK: sshAuthSock, GIT_TERMINAL_PROMPT: '0' };
+    execFileSync(
+      'git',
+      ['clone', '--depth=1', '--filter=blob:none', '--sparse', '--no-tags', repoUrl, tmp],
+      { env, stdio: 'pipe' }
+    );
+    execFileSync('git', ['-C', tmp, 'sparse-checkout', 'set', '.devcontainer'], { env, stdio: 'pipe' });
+    execFileSync('git', ['-C', tmp, 'checkout'], { env, stdio: 'pipe' });
+    const dcFile = path.join(tmp, '.devcontainer', 'devcontainer.json');
+    if (fs.existsSync(dcFile)) {
+      onLog(Buffer.from(`[fbi] using repo .devcontainer/devcontainer.json\n`));
+      return fs.readFileSync(dcFile, 'utf8');
+    }
+    return null;
+  } catch {
+    return null;
+  } finally {
+    fs.rmSync(tmpParent, { recursive: true, force: true });
+  }
 }
 
 async function readFileFromContainer(
