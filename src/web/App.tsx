@@ -1,4 +1,4 @@
-import { useEffect, useState, type ReactNode } from 'react';
+import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { Routes, Route, Navigate, useLocation, useNavigate } from 'react-router-dom';
 import { AppShell, Cheatsheet } from '@ui/shell/index.js';
 import { sidebarRegistry } from '@ui/shell/sidebarRegistry.js';
@@ -19,21 +19,9 @@ import { RunDetailPage } from './pages/RunDetail.js';
 import { SettingsPage } from './pages/Settings.js';
 import { DesignPage } from './pages/Design.js';
 
-function Shell({ children }: { children: ReactNode }) {
-  const [projects, setProjects] = useState<Project[]>([]);
-  const [runs, setRuns] = useState<Run[]>([]);
+function Shell({ projects, runs, children }: { projects: Project[]; runs: Run[]; children: ReactNode }) {
   const location = useLocation();
   const hideSidebar = location.pathname === '/settings' || location.pathname === '/design';
-
-  useEffect(() => {
-    void api.listProjects().then(setProjects).catch(() => {});
-  }, []);
-  useEffect(() => {
-    const reload = () => void api.listRuns().then(setRuns).catch(() => {});
-    reload();
-    const t = setInterval(reload, 5000);
-    return () => clearInterval(t);
-  }, []);
 
   const active = runs.filter((r) => r.state === 'running').length;
   const today = runs.filter((r) => Date.now() - new Date(r.created_at).getTime() < 86400_000).length;
@@ -64,14 +52,29 @@ function StatusRegistrations({ active, today }: { active: number; today: number 
 }
 
 export function App() {
+  const [projects, setProjects] = useState<Project[]>([]);
+  const [runs, setRuns] = useState<Run[]>([]);
   const [notif, setNotif] = useState(false);
   const [cheatsheet, setCheatsheet] = useState(false);
   const nav = useNavigate();
 
   useEffect(() => {
+    void api.listProjects().then(setProjects).catch(() => {});
+  }, []);
+  useEffect(() => {
+    const reload = () => void api.listRuns().then(setRuns).catch(() => {});
+    reload();
+    const t = setInterval(reload, 5000);
+    return () => clearInterval(t);
+  }, []);
+
+  useEffect(() => {
     void api.getSettings().then((s) => setNotif(s.notifications_enabled));
   }, []);
   useRunWatcher(notif);
+
+  const dataRef = useRef({ projects, runs });
+  dataRef.current = { projects, runs };
 
   useEffect(() => {
     const offRuns = sidebarRegistry.register({ id: 'runs', group: 'views', label: 'All runs', route: '/runs', order: 10 });
@@ -88,17 +91,45 @@ export function App() {
       ],
     });
 
+    const offRunsGroup = paletteRegistry.register({
+      id: 'runs',
+      label: 'Runs',
+      items: (q) => {
+        const query = q.toLowerCase().trim();
+        return dataRef.current.runs
+          .filter((r) => !query || String(r.id).includes(query) || (r.branch_name ?? '').toLowerCase().includes(query) || r.prompt.toLowerCase().includes(query))
+          .slice(0, 10)
+          .map((r) => ({
+            id: `run-${r.id}`,
+            label: `#${r.id} ${r.branch_name || r.prompt.split('\n')[0] || 'untitled'}`,
+            hint: r.state,
+            onSelect: () => nav(`/runs/${r.id}`),
+          }));
+      },
+    });
+
+    const offProjGroup = paletteRegistry.register({
+      id: 'projects',
+      label: 'Projects',
+      items: (q) => {
+        const query = q.toLowerCase().trim();
+        return dataRef.current.projects
+          .filter((p) => !query || p.name.toLowerCase().includes(query) || p.repo_url.toLowerCase().includes(query))
+          .map((p) => ({ id: `proj-${p.id}`, label: p.name, hint: p.repo_url, onSelect: () => nav(`/projects/${p.id}`) }));
+      },
+    });
+
     const offGR = keymap.register({ chord: 'g r', description: 'Go to runs', handler: () => nav('/runs') });
     const offGS = keymap.register({ chord: 'g s', description: 'Go to settings', handler: () => nav('/settings') });
     const offCP = keymap.register({ chord: 'c p', description: 'Create project', handler: () => nav('/projects/new') });
     const offHelp = keymap.register({ chord: '?', description: 'Show keyboard shortcuts', handler: () => setCheatsheet(true) });
 
-    return () => { offRuns(); offSet(); offActions(); offGR(); offGS(); offCP(); offHelp(); };
+    return () => { offRuns(); offSet(); offActions(); offRunsGroup(); offProjGroup(); offGR(); offGS(); offCP(); offHelp(); };
   }, [nav]);
 
   return (
     <>
-      <Shell>
+      <Shell projects={projects} runs={runs}>
         <Routes>
           <Route path="/" element={<Navigate to="/runs" replace />} />
           <Route path="/projects" element={<ProjectsPage />}>
