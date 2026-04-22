@@ -88,3 +88,68 @@ describe('UsageRepo.insertUsageEvent', () => {
     expect(n).toBe(0);
   });
 });
+
+describe('UsageRepo rate-limit singleton', () => {
+  it('getRateLimitState returns fully-null shape when nothing observed', () => {
+    const { usage } = setup();
+    const s = usage.getRateLimitState(Date.now());
+    expect(s.observed_at).toBeNull();
+    expect(s.percent_used).toBeNull();
+    expect(s.reset_in_seconds).toBeNull();
+    expect(s.observed_seconds_ago).toBeNull();
+  });
+
+  it('upsertRateLimitState writes a row and the derived fields compute correctly', () => {
+    const { usage, runId } = setup();
+    const now = 10_000_000;
+    usage.upsertRateLimitState({
+      observed_at: now,
+      observed_from_run_id: runId,
+      snapshot: {
+        requests_remaining: 50, requests_limit: 200,
+        tokens_remaining: null, tokens_limit: null,
+        reset_at: now + 3600_000,
+      },
+    });
+    const s = usage.getRateLimitState(now + 1000);
+    expect(s.requests_remaining).toBe(50);
+    expect(s.percent_used).toBeCloseTo((200 - 50) / 200);
+    expect(s.reset_in_seconds).toBe(3599);
+    expect(s.observed_seconds_ago).toBe(1);
+  });
+
+  it('falls back to tokens_remaining/limit when requests fields are missing', () => {
+    const { usage, runId } = setup();
+    const now = 20_000_000;
+    usage.upsertRateLimitState({
+      observed_at: now, observed_from_run_id: runId,
+      snapshot: {
+        requests_remaining: null, requests_limit: null,
+        tokens_remaining: 250_000, tokens_limit: 1_000_000,
+        reset_at: null,
+      },
+    });
+    const s = usage.getRateLimitState(now);
+    expect(s.percent_used).toBeCloseTo(0.75);
+    expect(s.reset_in_seconds).toBeNull();
+  });
+
+  it('drops an older snapshot (last-write-wins by observed_at)', () => {
+    const { usage, runId } = setup();
+    usage.upsertRateLimitState({
+      observed_at: 2000, observed_from_run_id: runId,
+      snapshot: {
+        requests_remaining: 10, requests_limit: 100,
+        tokens_remaining: null, tokens_limit: null, reset_at: null,
+      },
+    });
+    usage.upsertRateLimitState({
+      observed_at: 1000, observed_from_run_id: runId,
+      snapshot: {
+        requests_remaining: 99, requests_limit: 100,
+        tokens_remaining: null, tokens_limit: null, reset_at: null,
+      },
+    });
+    expect(usage.getRateLimitState(3000).requests_remaining).toBe(10);
+  });
+});
