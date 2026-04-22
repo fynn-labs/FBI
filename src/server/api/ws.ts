@@ -85,7 +85,7 @@ export function registerWsRoute(app: FastifyInstance, deps: Deps): void {
       if (socket.readyState !== socket.OPEN) return;
       socket.send(JSON.stringify({
         type: 'snapshot',
-        ansi: screen.serialize(),
+        ansi: screen.preambleAnsi() + screen.serialize(),
         cols: screen.cols,
         rows: screen.rows,
       }));
@@ -130,7 +130,7 @@ export function registerWsRoute(app: FastifyInstance, deps: Deps): void {
             if (screen && socket.readyState === socket.OPEN) {
               socket.send(JSON.stringify({
                 type: 'snapshot',
-                ansi: screen.serialize(),
+                ansi: screen.preambleAnsi() + screen.serialize(),
                 cols: screen.cols,
                 rows: screen.rows,
               }));
@@ -149,7 +149,7 @@ export function registerWsRoute(app: FastifyInstance, deps: Deps): void {
             if (screen && socket.readyState === socket.OPEN) {
               socket.send(JSON.stringify({
                 type: 'snapshot',
-                ansi: screen.serialize(),
+                ansi: screen.preambleAnsi() + screen.serialize(),
                 cols: screen.cols,
                 rows: screen.rows,
               }));

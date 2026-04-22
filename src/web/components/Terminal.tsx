@@ -102,7 +102,11 @@ export function Terminal({ runId, interactive }: Props) {
 
     const applySnapshot = (ansi: string) => {
       clearQueue();
-      term.reset();
+      // Don't full-reset (RIS clears mode state — DECSTBM scroll region,
+      // DECTCEM cursor visibility — that the live PTY's subsequent updates
+      // assume); just clear the visible screen. The snapshot's leading
+      // ?1049h gives a fresh alt-screen buffer either way.
+      term.write('\x1b[2J\x1b[H');
       // Snapshots are bounded by viewport size (scrollback:0 server-side),
       // so write synchronously — going through the rAF queue makes the
       // user see the snapshot drawn line-by-line on tab switch.
@@ -111,13 +115,23 @@ export function Terminal({ runId, interactive }: Props) {
       if (!disposed) setLoaded(true);
     };
 
+    // Only apply snapshots that match the client's current viewport dims.
+    // Mismatched ones (e.g. the server's first auto-snapshot before our
+    // resize lands) would render with wrong wrapping for a moment until
+    // the post-resize snapshot replaces them — visible flash. Drop them;
+    // the server re-sends a snapshot after every resize, and a matching
+    // one will arrive shortly. The loading overlay covers the gap.
+    const isMatchingDims = (snap: { cols: number; rows: number }): boolean =>
+      snap.cols === term.cols && snap.rows === term.rows;
+
     // If another component has already acquired the shell and cached a
-    // snapshot, apply it synchronously on mount — otherwise wait for one.
+    // snapshot for this run, apply it synchronously on mount — but only
+    // if its dims match what we just fit to.
     const cached = getLastSnapshot(runId);
-    if (cached) applySnapshot(cached.ansi);
+    if (cached && isMatchingDims(cached)) applySnapshot(cached.ansi);
 
     unsubSnapshot = shell.onSnapshot((snap) => {
-      // Every snapshot (initial OR resync response) resets the view.
+      if (!isMatchingDims(snap)) return;
       applySnapshot(snap.ansi);
     });
 
@@ -197,7 +211,7 @@ export function Terminal({ runId, interactive }: Props) {
     loadFullRef.current = async () => {
       if (disposed) return;
       setHistoryMode(true);
-      setLoaded(true); // history view is content; suppress the loading overlay
+      setLoaded(false); // show loading while we fetch + write the transcript
       if (unsubBytes) { unsubBytes(); unsubBytes = null; }
       if (unsubSnapshot) { unsubSnapshot(); unsubSnapshot = null; }
       clearQueue();
@@ -208,10 +222,21 @@ export function Terminal({ runId, interactive }: Props) {
         if (!res.ok) throw new Error(`status ${res.status}`);
         const buf = new Uint8Array(await res.arrayBuffer());
         if (disposed) return;
-        enqueueWrite(buf);
+        // Write atomically in 1 MB chunks chained via xterm's write callback.
+        // The rAF-paced queue would draw the transcript line-by-line, which is
+        // intensely jittery for big logs; xterm's internal parser handles
+        // large writes far faster than one rAF per 16 KB.
+        const HISTORY_CHUNK = 1024 * 1024;
+        for (let off = 0; off < buf.byteLength; off += HISTORY_CHUNK) {
+          if (disposed) return;
+          const end = Math.min(off + HISTORY_CHUNK, buf.byteLength);
+          await new Promise<void>((resolve) => term.write(buf.subarray(off, end), resolve));
+        }
+        if (!disposed) setLoaded(true);
       } catch {
         if (disposed) return;
-        enqueueWrite(new TextEncoder().encode('\r\n[failed to load history]\r\n'));
+        term.write(new TextEncoder().encode('\r\n[failed to load history]\r\n'));
+        setLoaded(true);
       }
     };
 
@@ -256,7 +281,7 @@ export function Terminal({ runId, interactive }: Props) {
     <div className="relative h-full w-full bg-surface-sunken">
       {!loaded && (
         <div className="absolute inset-0 z-20 flex items-center justify-center bg-surface-sunken text-text-dim text-[12px]">
-          <span>Loading terminal…</span>
+          <span>{historyMode ? 'Loading history…' : 'Loading terminal…'}</span>
         </div>
       )}
       {!historyMode && (
