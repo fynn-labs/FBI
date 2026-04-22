@@ -17,6 +17,7 @@ describe('openDb', () => {
       { name: 'mcp_servers' },
       { name: 'project_secrets' },
       { name: 'projects' },
+      { name: 'rate_limit_state' },
       { name: 'runs' },
       { name: 'settings' },
     ]);

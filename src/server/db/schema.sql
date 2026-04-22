@@ -74,3 +74,17 @@ CREATE TABLE IF NOT EXISTS mcp_servers (
 );
 CREATE UNIQUE INDEX IF NOT EXISTS idx_mcp_servers_global_name
   ON mcp_servers(name) WHERE project_id IS NULL;
+
+-- Auto-resume on rate-limit (see docs/superpowers/specs/2026-04-22-auto-resume-design.md).
+-- Shared subset with the claude-usage spec; whoever merges first creates it.
+-- Extra columns on `runs` and `settings` are added via migrate() in index.ts.
+CREATE TABLE IF NOT EXISTS rate_limit_state (
+  id INTEGER PRIMARY KEY CHECK (id = 1),
+  requests_remaining INTEGER,
+  requests_limit INTEGER,
+  tokens_remaining INTEGER,
+  tokens_limit INTEGER,
+  reset_at INTEGER,
+  observed_at INTEGER NOT NULL,
+  observed_from_run_id INTEGER
+);
