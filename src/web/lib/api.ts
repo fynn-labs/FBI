@@ -41,7 +41,8 @@ export const api = {
   removeSecret: (projectId: number, name: string) =>
     request<void>(`/api/projects/${projectId}/secrets/${name}`, { method: 'DELETE' }),
 
-  listRuns: () => request<Run[]>('/api/runs'),
+  listRuns: (state?: 'queued' | 'running' | 'succeeded' | 'failed' | 'cancelled') =>
+    request<Run[]>(state ? `/api/runs?state=${state}` : '/api/runs'),
   listProjectRuns: (projectId: number) =>
     request<Run[]>(`/api/projects/${projectId}/runs`),
   getRun: (id: number) => request<Run>(`/api/runs/${id}`),

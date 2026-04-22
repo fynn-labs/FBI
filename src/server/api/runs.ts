@@ -12,7 +12,13 @@ interface Deps {
 }
 
 export function registerRunsRoutes(app: FastifyInstance, deps: Deps): void {
-  app.get('/api/runs', async () => deps.runs.listAll());
+  app.get('/api/runs', async (req) => {
+    const state = (req.query as { state?: string }).state;
+    if (state === 'running' || state === 'queued' || state === 'succeeded' || state === 'failed' || state === 'cancelled') {
+      return deps.runs.listByState(state);
+    }
+    return deps.runs.listAll();
+  });
 
   app.get('/api/runs/:id', async (req, reply) => {
     const { id } = req.params as { id: string };
