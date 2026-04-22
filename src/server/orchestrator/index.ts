@@ -495,6 +495,12 @@ export class Orchestrator {
 
   private cancelled = new Set<number>();
 
+  /** Returns the container handle for a run that is currently running or
+   *  resuming, or null if the run has no live container. */
+  getLiveContainer(runId: number): Docker.Container | null {
+    return this.active.get(runId)?.container ?? null;
+  }
+
   fireResumeNow(runId: number): void {
     this.scheduler.fireNow(runId);
   }
