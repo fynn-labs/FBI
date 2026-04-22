@@ -239,4 +239,48 @@ describe('WS /api/runs/:id/proxy/:port', () => {
     const code = await new Promise<number>((resolve) => ws.on('close', (c) => resolve(c)));
     expect(code).toBe(1001);
   });
+
+  it('does not leak the state listener on a closed/already-non-running run', async () => {
+    const received = await new Promise<{ port: number }>((resolve) => {
+      upstream = net.createServer((s) => s.on('data', () => { /* swallow */ }));
+      upstream.listen(0, '127.0.0.1', () => {
+        const a = upstream!.address();
+        if (!a || typeof a === 'string') throw new Error('no port');
+        resolve({ port: a.port });
+      });
+    });
+    const { runs, make } = setupRunsRepo();
+    const run = make(); runs.markStarted(run.id, 'cid');
+    const streams = new RunStreamRegistry();
+    // Publish a non-running frame BEFORE the WS connects, so the synchronous
+    // replay during subscribe should fire closeBoth and uninstall the listener.
+    streams.getOrCreateState(run.id).publish({
+      type: 'state', state: 'succeeded',
+      next_resume_at: null, resume_attempts: 0, last_limit_reset_at: null,
+    });
+    const container: Container = {
+      inspect: async () => ({
+        State: { Pid: 1 },
+        NetworkSettings: { IPAddress: '127.0.0.1' },
+      }),
+    };
+    const r = await makeWsApp({ runsRepo: runs, streams, getLiveContainer: () => container });
+    app = r.app;
+
+    const ws = new WebSocket(`ws://127.0.0.1:${r.port}/api/runs/${run.id}/proxy/${received.port}`);
+    const code = await new Promise<number>((resolve) => ws.on('close', (c) => resolve(c)));
+    expect(code).toBe(1001);
+
+    // Re-publish the same non-running state. If the listener leaked, calling
+    // publish would still find it in subscribers — we can't easily observe that
+    // directly, but we can check that no exception is thrown and the
+    // broadcaster's subscriber count is 0.
+    const bc = streams.getOrCreateState(run.id);
+    bc.publish({
+      type: 'state', state: 'failed',
+      next_resume_at: null, resume_attempts: 0, last_limit_reset_at: null,
+    });
+    const subsField = (bc as unknown as { subs: Set<unknown> }).subs;
+    expect(subsField.size).toBe(0);
+  });
 });

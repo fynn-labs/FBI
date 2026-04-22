@@ -102,9 +102,30 @@ export function registerProxyRoutes(app: FastifyInstance, deps: ProxyDeps): void
       if (socket.bufferedAmount > 1 << 20) tcp.pause();
     });
 
+    // WS→TCP backpressure: pause the underlying WS socket when the TCP write
+    // buffer is full, and resume once the TCP socket drains.
+    let wsPaused = false;
+    const pauseWs = () => {
+      if (!wsPaused) {
+        // ws WebSocket exposes the underlying net.Socket as _socket.
+        const underlying = (socket as unknown as { _socket?: net.Socket })._socket;
+        underlying?.pause();
+        wsPaused = true;
+      }
+    };
+    const resumeWs = () => {
+      if (wsPaused) {
+        const underlying = (socket as unknown as { _socket?: net.Socket })._socket;
+        underlying?.resume();
+        wsPaused = false;
+      }
+    };
+    tcp.on('drain', resumeWs);
+
     socket.on('message', (data: Buffer, isBinary: boolean) => {
       if (!isBinary) return; // text frames are not part of this protocol
-      tcp.write(data);
+      const ok = tcp.write(data);
+      if (!ok) pauseWs();
     });
     socket.on('close', () => closeBoth(1000, 'client closed'));
     socket.on('error', () => closeBoth(1011, 'ws error'));
@@ -118,10 +139,17 @@ export function registerProxyRoutes(app: FastifyInstance, deps: ProxyDeps): void
 
     // State-driven close. Subscribe AFTER closeBoth/stateUnsub are defined so
     // an immediate replay of a non-running frame can call closeBoth safely.
+    // Use a `triggered` flag to handle the synchronous-replay race: if the
+    // listener fires during subscribe() itself, stateUnsub is still the no-op
+    // initializer at that point, so we call the real unsub explicitly after
+    // subscribe() returns.
+    let triggered = false;
     stateUnsub = deps.streams.getOrCreateState(runId).subscribe((frame) => {
       if (frame.state !== 'running') {
+        triggered = true;
         closeBoth(1001, 'run ended');
       }
     });
+    if (triggered) stateUnsub();
   });
 }
