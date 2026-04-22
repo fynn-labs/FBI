@@ -103,8 +103,9 @@ export function App() {
         <Route path="/projects/:id" element={<ProjectDetailPage />} />
         <Route path="/projects/:id/edit" element={<EditProjectPage />} />
         <Route path="/projects/:id/runs/new" element={<NewRunPage />} />
-        <Route path="/runs" element={<RunsPage />} />
-        <Route path="/runs/:id" element={<RunDetailPage />} />
+        <Route path="/runs" element={<RunsPage />}>
+          <Route path=":id" element={<RunDetailPage />} />
+        </Route>
         <Route path="/settings" element={<SettingsPage />} />
         <Route path="/design" element={<DesignPage />} />
         <Route path="*" element={<Navigate to="/" replace />} />
