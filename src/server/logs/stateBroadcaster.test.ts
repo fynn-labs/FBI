@@ -40,4 +40,11 @@ describe('StateBroadcaster', () => {
     });
     expect(received).toEqual([]);
   });
+
+  it('does not call listener on subscribe when no frame has been published', () => {
+    const b = new StateBroadcaster();
+    const received: StateFrame[] = [];
+    b.subscribe((x) => received.push(x));
+    expect(received).toEqual([]);
+  });
 });
