@@ -32,14 +32,24 @@ export function Sidebar({ projects, collapsed }: SidebarProps) {
         <NavLink
           key={p.id}
           to={`/projects/${p.id}`}
+          title={collapsed ? p.name : undefined}
           className={({ isActive }) => cn(
             'flex items-center gap-2 px-2 py-1 mx-1 rounded-md text-[13px] transition-colors duration-fast ease-out',
+            collapsed && 'justify-center',
             isActive ? 'bg-accent-subtle text-accent-strong' : 'text-text-dim hover:bg-surface-raised hover:text-text',
           )}
         >
-          {p.hasRunning && <StatusDot tone="run" aria-label="running" />}
-          <span className="truncate">{collapsed ? p.name.slice(0, 2) : p.name}</span>
-          {!collapsed && <span className="ml-auto font-mono text-[11px] text-text-faint">{p.runs}</span>}
+          {collapsed ? (
+            <span className="w-7 h-7 flex items-center justify-center rounded-md text-base font-semibold">
+              {p.name[0]?.toUpperCase() ?? '·'}
+            </span>
+          ) : (
+            <>
+              {p.hasRunning && <StatusDot tone="run" aria-label="running" />}
+              <span className="truncate">{p.name}</span>
+              <span className="ml-auto font-mono text-[11px] text-text-faint">{p.runs}</span>
+            </>
+          )}
         </NavLink>
       ))}
       {!collapsed && <Group label="Views" />}
@@ -47,12 +57,20 @@ export function Sidebar({ projects, collapsed }: SidebarProps) {
         <NavLink
           key={v.id}
           to={v.route}
+          title={collapsed ? v.label : undefined}
           className={({ isActive }) => cn(
             'flex items-center gap-2 px-2 py-1 mx-1 rounded-md text-[13px] transition-colors duration-fast ease-out',
+            collapsed && 'justify-center',
             isActive ? 'bg-accent-subtle text-accent-strong' : 'text-text-dim hover:bg-surface-raised hover:text-text',
           )}
         >
-          <span className="truncate">{collapsed ? v.label.slice(0, 2) : v.label}</span>
+          {collapsed ? (
+            <span className="w-7 h-7 flex items-center justify-center rounded-md text-base font-semibold">
+              {v.label[0]?.toUpperCase() ?? '·'}
+            </span>
+          ) : (
+            <span className="truncate">{v.label}</span>
+          )}
         </NavLink>
       ))}
     </div>

@@ -22,7 +22,7 @@ import { DesignPage } from './pages/Design.js';
 
 function Shell({ projects, runs, children }: { projects: Project[]; runs: Run[]; children: ReactNode }) {
   const location = useLocation();
-  const hideSidebar = location.pathname === '/settings' || location.pathname === '/design';
+  const hideSidebar = location.pathname === '/design';
 
   const active = runs.filter((r) => r.state === 'running').length;
   const today = runs.filter((r) => Date.now() - new Date(r.created_at).getTime() < 86400_000).length;

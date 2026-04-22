@@ -7,6 +7,17 @@ export interface CheatsheetProps {
   onClose: () => void;
 }
 
+function displayKey(token: string): string {
+  const t = token.toLowerCase();
+  if (t === 'mod' || t === 'cmd') return navigator.platform.includes('Mac') ? '⌘' : 'Ctrl';
+  if (t === 'ctrl') return 'Ctrl';
+  if (t === 'shift') return '⇧';
+  if (t === 'alt' || t === 'opt') return '⌥';
+  if (t === 'enter') return '⏎';
+  if (t === 'escape') return 'Esc';
+  return token;
+}
+
 export function Cheatsheet({ open, onClose }: CheatsheetProps) {
   const bindings = keymap.list().filter((b) => b.description);
   return (
@@ -16,7 +27,7 @@ export function Cheatsheet({ open, onClose }: CheatsheetProps) {
           <li key={i} className="flex items-center justify-between text-[13px]">
             <span className="text-text-dim">{b.description}</span>
             <span className="flex gap-1">
-              {b.chord.split(/\s+|\+/).map((k, j) => <Kbd key={j}>{k}</Kbd>)}
+              {b.chord.split(/\s+|\+/).map((k, j) => <Kbd key={j}>{displayKey(k)}</Kbd>)}
             </span>
           </li>
         ))}
