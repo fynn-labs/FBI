@@ -119,7 +119,9 @@ export function ProjectDetailPage() {
       right={
         hasChildRoute ? <Outlet /> : (
           <div className="h-full flex items-center justify-center">
-            <EmptyState title="Select a run" description="Or create a new run for this project." />
+            <div className="max-w-md mx-auto w-full">
+              <EmptyState title="Select a run" description="Or create a new run for this project." />
+            </div>
           </div>
         )
       }

@@ -63,7 +63,9 @@ export function ProjectsPage() {
       right={
         atIndex ? (
           <div className="h-full flex items-center justify-center">
-            <EmptyState title="Select a project" description="Pick a project, or create one." />
+            <div className="max-w-md mx-auto w-full">
+              <EmptyState title="Select a project" description="Pick a project, or create one." />
+            </div>
           </div>
         ) : <Outlet />
       }

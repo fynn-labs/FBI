@@ -77,11 +77,13 @@ export function RunsPage() {
       right={
         params.id ? <Outlet /> : (
           <div className="h-full flex items-center justify-center">
-            <EmptyState
-              title="Select a run"
-              description="Pick a run from the list, or create a new one."
-              hint={<KeyboardHint keys={['j', '/', 'k']} label="navigate" />}
-            />
+            <div className="max-w-md mx-auto w-full">
+              <EmptyState
+                title="Select a run"
+                description="Pick a run from the list, or create a new one."
+                hint={<KeyboardHint keys={['j', '/', 'k']} label="navigate" />}
+              />
+            </div>
           </div>
         )
       }
