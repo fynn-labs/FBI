@@ -8,8 +8,8 @@ import { Terminal } from '../components/Terminal.js';
 import { parseGitHubRepo } from '@shared/parseGitHubRepo.js';
 
 export function RunDetailPage() {
-  const { id } = useParams();
-  const runId = Number(id);
+  const { id, rid } = useParams();
+  const runId = Number(rid ?? id);
   const nav = useNavigate();
   const [run, setRun] = useState<Run | null>(null);
   const [gh, setGh] = useState<Awaited<ReturnType<typeof api.getRunGithub>> | null>(null);
