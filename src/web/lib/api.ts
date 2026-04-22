@@ -83,6 +83,11 @@ export const api = {
       }),
     }),
   deleteRun: (id: number) => request<void>(`/api/runs/${id}`, { method: 'DELETE' }),
+  renameRun: (id: number, title: string) =>
+    request<Run>(`/api/runs/${id}`, {
+      method: 'PATCH',
+      body: JSON.stringify({ title }),
+    }),
   continueRun: (id: number) =>
     request<void>(`/api/runs/${id}/continue`, { method: 'POST' }),
 
