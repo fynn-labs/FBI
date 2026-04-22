@@ -13,11 +13,23 @@ interface Deps {
 
 export function registerRunsRoutes(app: FastifyInstance, deps: Deps): void {
   app.get('/api/runs', async (req) => {
-    const state = (req.query as { state?: string }).state;
-    if (state === 'running' || state === 'queued' || state === 'succeeded' || state === 'failed' || state === 'cancelled') {
-      return deps.runs.listByState(state);
+    const q = req.query as {
+      state?: string; project_id?: string; q?: string; limit?: string; offset?: string;
+    };
+    const paged = q.limit !== undefined || q.offset !== undefined;
+    const state = (q.state === 'running' || q.state === 'queued' ||
+      q.state === 'succeeded' || q.state === 'failed' || q.state === 'cancelled')
+      ? q.state : undefined;
+
+    if (!paged) {
+      if (state) return deps.runs.listByState(state);
+      return deps.runs.listAll();
     }
-    return deps.runs.listAll();
+
+    const limit = Math.min(200, Math.max(1, Number(q.limit ?? 50)));
+    const offset = Math.max(0, Number(q.offset ?? 0));
+    const project_id = q.project_id ? Number(q.project_id) : undefined;
+    return deps.runs.listFiltered({ state, project_id, q: q.q, limit, offset });
   });
 
   app.get('/api/runs/:id', async (req, reply) => {
