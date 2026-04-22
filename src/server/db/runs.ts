@@ -132,6 +132,23 @@ export class RunsRepo {
       .run(containerId, Date.now(), id);
   }
 
+  markContinuing(id: number, containerId: string): void {
+    this.db
+      .prepare(
+        `UPDATE runs
+            SET state='running',
+                container_id=?,
+                resume_attempts=0,
+                next_resume_at=NULL,
+                finished_at=NULL,
+                exit_code=NULL,
+                error=NULL,
+                started_at=COALESCE(started_at, ?)
+          WHERE id=? AND state IN ('failed','cancelled')`,
+      )
+      .run(containerId, Date.now(), id);
+  }
+
   setClaudeSessionId(id: number, sessionId: string): void {
     this.db
       .prepare(

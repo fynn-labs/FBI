@@ -253,4 +253,55 @@ describe('RunsRepo auto-resume', () => {
     expect(awaiting).toHaveLength(1);
     expect(awaiting[0]).toEqual({ id: run.id, next_resume_at: 9000 });
   });
+
+  it('markContinuing transitions failed → running, resets resume_attempts, clears finished state', () => {
+    const run = runs.create({
+      project_id: projectId, prompt: 'x',
+      log_path_tmpl: (id) => `/tmp/${id}.log`,
+    });
+    runs.markStarted(run.id, 'c1');
+    runs.markAwaitingResume(run.id, { next_resume_at: 1, last_limit_reset_at: 1 });
+    runs.markResuming(run.id, 'c2');
+    runs.markFinished(run.id, { state: 'failed', error: 'boom', exit_code: 1 });
+
+    const before = runs.get(run.id)!;
+    expect(before.state).toBe('failed');
+    expect(before.resume_attempts).toBe(1);
+    expect(before.error).toBe('boom');
+    expect(before.finished_at).not.toBeNull();
+
+    runs.markContinuing(run.id, 'c3');
+
+    const after = runs.get(run.id)!;
+    expect(after.state).toBe('running');
+    expect(after.container_id).toBe('c3');
+    expect(after.resume_attempts).toBe(0);
+    expect(after.error).toBeNull();
+    expect(after.exit_code).toBeNull();
+    expect(after.finished_at).toBeNull();
+  });
+
+  it('markContinuing also accepts cancelled as the source state', () => {
+    const run = runs.create({
+      project_id: projectId, prompt: 'x',
+      log_path_tmpl: (id) => `/tmp/${id}.log`,
+    });
+    runs.markStarted(run.id, 'c1');
+    runs.markFinished(run.id, { state: 'cancelled' });
+    runs.markContinuing(run.id, 'c2');
+    expect(runs.get(run.id)!.state).toBe('running');
+  });
+
+  it('markContinuing refuses to transition from non-terminal states', () => {
+    const run = runs.create({
+      project_id: projectId, prompt: 'x',
+      log_path_tmpl: (id) => `/tmp/${id}.log`,
+    });
+    runs.markStarted(run.id, 'c1');
+    // Running → markContinuing must be a no-op.
+    runs.markContinuing(run.id, 'c2');
+    const after = runs.get(run.id)!;
+    expect(after.container_id).toBe('c1');
+    expect(after.state).toBe('running');
+  });
 });
