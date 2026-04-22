@@ -1,43 +1,39 @@
 import type { DB } from './index.js';
+import type { UsageError } from '../../shared/types.js';
 
-export interface RateLimitSnapshot {
-  requests_remaining: number | null;
-  requests_limit: number | null;
-  tokens_remaining: number | null;
-  tokens_limit: number | null;
-  reset_at: number | null;
-  observed_at: number;
-  observed_from_run_id: number | null;
+export interface RateLimitStateRow {
+  plan: 'pro' | 'max' | 'team' | null;
+  observed_at: number | null;
+  last_error: UsageError;
+  last_error_at: number | null;
 }
 
 export class RateLimitStateRepo {
-  constructor(private db: DB) {}
-
-  get(): RateLimitSnapshot | null {
-    const row = this.db.prepare('SELECT * FROM rate_limit_state WHERE id = 1').get() as
-      | RateLimitSnapshot
-      | undefined;
-    return row ?? null;
+  constructor(private db: DB) {
+    // Ensure seed row exists so every op can UPDATE safely.
+    this.db.prepare('INSERT OR IGNORE INTO rate_limit_state (id) VALUES (1)').run();
   }
 
-  upsert(s: RateLimitSnapshot): void {
+  get(): RateLimitStateRow {
+    const row = this.db.prepare(
+      'SELECT plan, observed_at, last_error, last_error_at FROM rate_limit_state WHERE id = 1'
+    ).get() as RateLimitStateRow | undefined;
+    return row ?? { plan: null, observed_at: null, last_error: null, last_error_at: null };
+  }
+
+  setObserved(now: number): void {
     this.db.prepare(
-      `INSERT INTO rate_limit_state
-         (id, requests_remaining, requests_limit, tokens_remaining, tokens_limit,
-          reset_at, observed_at, observed_from_run_id)
-       VALUES (1, ?, ?, ?, ?, ?, ?, ?)
-       ON CONFLICT(id) DO UPDATE SET
-         requests_remaining = excluded.requests_remaining,
-         requests_limit     = excluded.requests_limit,
-         tokens_remaining   = excluded.tokens_remaining,
-         tokens_limit       = excluded.tokens_limit,
-         reset_at           = excluded.reset_at,
-         observed_at        = excluded.observed_at,
-         observed_from_run_id = excluded.observed_from_run_id
-       WHERE excluded.observed_at > rate_limit_state.observed_at`,
-    ).run(
-      s.requests_remaining, s.requests_limit, s.tokens_remaining, s.tokens_limit,
-      s.reset_at, s.observed_at, s.observed_from_run_id,
-    );
+      'UPDATE rate_limit_state SET observed_at = ?, last_error = NULL, last_error_at = NULL WHERE id = 1'
+    ).run(now);
+  }
+
+  setError(kind: Exclude<UsageError, null>, now: number): void {
+    this.db.prepare(
+      'UPDATE rate_limit_state SET last_error = ?, last_error_at = ? WHERE id = 1'
+    ).run(kind, now);
+  }
+
+  setPlan(plan: 'pro' | 'max' | 'team'): void {
+    this.db.prepare('UPDATE rate_limit_state SET plan = ? WHERE id = 1').run(plan);
   }
 }
