@@ -49,4 +49,20 @@ describe('settings routes', () => {
     expect(body.auto_resume_enabled).toBe(true);
     expect(body.auto_resume_max_attempts).toBe(7);
   });
+
+  it('PATCH /api/settings sets usage_notifications_enabled and GET reflects it', async () => {
+    const { app } = setup();
+    const patchRes = await app.inject({
+      method: 'PATCH', url: '/api/settings',
+      payload: { usage_notifications_enabled: true },
+    });
+    expect(patchRes.statusCode).toBe(200);
+    const patchBody = patchRes.json() as { usage_notifications_enabled: boolean };
+    expect(patchBody.usage_notifications_enabled).toBe(true);
+
+    const getRes = await app.inject({ method: 'GET', url: '/api/settings' });
+    expect(getRes.statusCode).toBe(200);
+    const getBody = getRes.json() as { usage_notifications_enabled: boolean };
+    expect(getBody.usage_notifications_enabled).toBe(true);
+  });
 });

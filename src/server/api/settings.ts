@@ -19,6 +19,7 @@ export function registerSettingsRoutes(app: FastifyInstance, deps: Deps): void {
       global_plugins?: string[];
       auto_resume_enabled?: boolean;
       auto_resume_max_attempts?: number;
+      usage_notifications_enabled?: boolean;
     };
     if (body.auto_resume_max_attempts !== undefined) {
       const v = body.auto_resume_max_attempts;
