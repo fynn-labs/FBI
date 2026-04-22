@@ -8,6 +8,11 @@ set -euo pipefail
 #   - ssh-agent for 'fbi' configured to start on boot with keys loaded
 #   - 'claude /login' performed once as 'fbi'
 
+for cmd in rsync node npm; do
+  command -v "$cmd" >/dev/null 2>&1 || { echo "ERROR: $cmd not found in PATH"; exit 1; }
+done
+id fbi >/dev/null 2>&1 || { echo "ERROR: user 'fbi' does not exist"; exit 1; }
+
 APP_DIR=/opt/fbi
 SOURCE_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 
@@ -19,10 +24,11 @@ if [ ! -f /etc/agent-manager/secrets.key ]; then
   chmod 600 /etc/agent-manager/secrets.key
 fi
 
+systemctl stop fbi.service 2>/dev/null || true
 rsync -a --delete --exclude node_modules --exclude .git "$SOURCE_DIR/" "$APP_DIR/"
 chown -R fbi:fbi "$APP_DIR"
 
-su - fbi -c "cd $APP_DIR && npm ci && npm run build"
+su - fbi -c "cd '$APP_DIR' && npm ci && npm run build"
 
 cat > /etc/default/fbi <<'ENV'
 PORT=3000
@@ -37,6 +43,7 @@ GIT_AUTHOR_EMAIL=you@example.com
 # HOST_CLAUDE_DIR=/home/fbi/.claude
 WEB_DIR=/opt/fbi/dist/web
 ENV
+chmod 640 /etc/default/fbi
 
 install -m 644 "$APP_DIR/systemd/fbi.service" /etc/systemd/system/fbi.service
 systemctl daemon-reload

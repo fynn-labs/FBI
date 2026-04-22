@@ -59,10 +59,10 @@ Open the service URL over Tailscale (port 3000 by default).
 
 ```bash
 npm install
+head -c 32 /dev/urandom > /tmp/fbi.key
 GIT_AUTHOR_NAME="Dev" GIT_AUTHOR_EMAIL=dev@example.com \
   DB_PATH=/tmp/fbi.db RUNS_DIR=/tmp/fbi-runs \
   SECRETS_KEY_FILE=/tmp/fbi.key \
-  head -c 32 /dev/urandom > /tmp/fbi.key && \
   npm run dev
 ```
 
