@@ -1,6 +1,8 @@
 {
   "name": "FBI",
-  "image": "mcr.microsoft.com/devcontainers/typescript-node:1-22-bookworm",
+  "build": {
+    "dockerfile": "Dockerfile"
+  },
   "features": {
     "ghcr.io/devcontainers/features/docker-outside-of-docker:1": {}
   },
@@ -11,7 +13,10 @@
   },
   "postCreateCommand": "npm install",
   "remoteEnv": {
-    "HOST_CLAUDE_DIR": "${localEnv:HOME}/.claude"
+    "HOST_CLAUDE_DIR": "${localEnv:HOME}/.claude",
+    "PUPPETEER_EXECUTABLE_PATH": "/usr/bin/chromium",
+    "PUPPETEER_SKIP_CHROMIUM_DOWNLOAD": "true",
+    "PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH": "/usr/bin/chromium"
   },
   "customizations": {
     "vscode": {
