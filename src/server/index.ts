@@ -70,6 +70,7 @@ async function main() {
     runsDir: config.runsDir,
     launch: (id) => orchestrator.launch(id),
     cancel: (id) => orchestrator.cancel(id),
+    fireResumeNow: (id) => orchestrator.fireResumeNow(id),
   });
   registerSettingsRoutes(app, {
     settings,

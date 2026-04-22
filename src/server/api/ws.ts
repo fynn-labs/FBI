@@ -40,7 +40,7 @@ export function registerWsRoute(app: FastifyInstance, deps: Deps): void {
     }
 
     // If run is finished, replay log and then close.
-    if (run.state !== 'running' && run.state !== 'queued') {
+    if (run.state !== 'running' && run.state !== 'queued' && run.state !== 'awaiting_resume') {
       const existing = LogStore.readAll(run.log_path);
       if (existing.length > 0) {
         socket.send(existing, () => {
@@ -81,9 +81,17 @@ export function registerWsRoute(app: FastifyInstance, deps: Deps): void {
     // Fix 3: If broadcaster already ended, close now.
     if (bc.isEnded()) {
       unsub();
-      socket.close(1000, 'ended');
+      if (socket.readyState === socket.OPEN) socket.close(1000, 'ended');
       return;
     }
+
+    // Subscribe to state frames and forward them as JSON text
+    const stateBc = deps.streams.getOrCreateState(runId);
+    const unsubState = stateBc.subscribe((frame) => {
+      if (socket.readyState === socket.OPEN) {
+        socket.send(JSON.stringify(frame));
+      }
+    });
 
     socket.on('message', (data: Buffer, isBinary: boolean) => {
       if (!isBinary) {
@@ -99,6 +107,6 @@ export function registerWsRoute(app: FastifyInstance, deps: Deps): void {
       deps.orchestrator.writeStdin(runId, data);
     });
 
-    socket.on('close', () => unsub());
+    socket.on('close', () => { unsub(); unsubState(); });
   });
 }
