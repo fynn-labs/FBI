@@ -50,6 +50,17 @@ export class Orchestrator {
       broadcaster.publish(chunk);
     };
 
+    const branchHint = run.branch_name;
+    const preamble = [
+      `You are working in /workspace on ${project.repo_url}.`,
+      `Its default branch is ${project.default_branch}. Do NOT commit to ${project.default_branch}.`,
+      branchHint
+        ? `Create or check out a branch named \`${branchHint}\`,`
+        : `Create or check out a branch appropriately named for this task,`,
+      'do your work there, and leave all commits on that branch.',
+      '',
+    ].join('\n');
+
     try {
       // Build or reuse image.
       onBytes(Buffer.from(`[fbi] resolving image\n`));
@@ -94,7 +105,6 @@ export class Orchestrator {
           `RUN_ID=${runId}`,
           `REPO_URL=${project.repo_url}`,
           `DEFAULT_BRANCH=${project.default_branch}`,
-          `BRANCH_NAME=${run.branch_name}`,
           `GIT_AUTHOR_NAME=${authorName}`,
           `GIT_AUTHOR_EMAIL=${authorEmail}`,
           `FBI_MARKETPLACES=${marketplaces.join('\n')}`,
@@ -130,6 +140,7 @@ export class Orchestrator {
         'prompt.txt': run.prompt ?? '',
         'instructions.txt': project.instructions ?? '',
         'global.txt': globalPrompt,
+        'preamble.txt': preamble,
       });
 
       // Inject a sanitized ~/.claude.json: strip the host-specific installMethod
@@ -170,10 +181,14 @@ export class Orchestrator {
           ? 'succeeded'
           : 'failed';
 
+      const branchFromResult =
+        parsed?.branch && parsed.branch.length > 0 ? parsed.branch : null;
+
       this.deps.runs.markFinished(runId, {
         state,
         exit_code: parsed?.exit_code ?? waitRes.StatusCode,
         head_commit: parsed?.head_sha ?? null,
+        branch_name: branchFromResult,
         error:
           state === 'failed'
             ? oomKilled
@@ -318,10 +333,14 @@ export class Orchestrator {
         ? 'succeeded'
         : 'failed';
 
+    const branchFromResult =
+      parsed?.branch && parsed.branch.length > 0 ? parsed.branch : null;
+
     this.deps.runs.markFinished(runId, {
       state,
       exit_code: parsed?.exit_code ?? waitRes.StatusCode,
       head_commit: parsed?.head_sha ?? null,
+      branch_name: branchFromResult,
       error:
         state === 'failed'
           ? oomKilled

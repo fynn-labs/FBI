@@ -26,7 +26,6 @@ async function setup() {
   fs.writeFileSync(logPath, 'past-output');
   const run = runs.create({
     project_id: p.id, prompt: 'hi',
-    branch_name_tmpl: (id) => `b-${id}`,
     log_path_tmpl: () => logPath,
   });
   // Mark it finished so the WS just replays the transcript.
