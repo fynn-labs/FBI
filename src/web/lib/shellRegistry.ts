@@ -8,7 +8,7 @@ interface Entry {
 }
 
 const TTL_MS = 5 * 60_000; // keep the socket warm for 5min after last unmount
-const BUFFER_CAP = 1024 * 1024; // 1 MB
+const BUFFER_CAP = 2 * 1024 * 1024; // 2 MB
 
 const cache = new Map<number, Entry>();
 
@@ -18,10 +18,19 @@ function makeEntry(runId: number): Entry {
   let bufferedBytes = 0;
 
   shell.onBytes((data) => {
-    entry.buffer.push(data);
-    bufferedBytes += data.byteLength;
-    // Drop oldest entries when over cap.
-    while (bufferedBytes > BUFFER_CAP && entry.buffer.length > 0) {
+    // If a single message exceeds the cap (e.g. the server's one-shot log
+    // replay on connect for long-running runs), keep only its last BUFFER_CAP
+    // bytes. Otherwise the drop-oldest loop below would shift it off in one
+    // step and leave the buffer empty — which made 'Load full history' a
+    // no-op for any replay over 2 MB.
+    const toAdd = data.byteLength > BUFFER_CAP
+      ? data.subarray(data.byteLength - BUFFER_CAP)
+      : data;
+    entry.buffer.push(toAdd);
+    bufferedBytes += toAdd.byteLength;
+    // Drop oldest entries when over cap, but always keep at least one (the
+    // most recent, which by construction fits within the cap).
+    while (bufferedBytes > BUFFER_CAP && entry.buffer.length > 1) {
       const oldest = entry.buffer.shift()!;
       bufferedBytes -= oldest.byteLength;
     }
