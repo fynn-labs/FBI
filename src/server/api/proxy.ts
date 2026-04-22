@@ -119,7 +119,7 @@ export function registerProxyRoutes(app: FastifyInstance, deps: ProxyDeps): void
     // State-driven close. Subscribe AFTER closeBoth/stateUnsub are defined so
     // an immediate replay of a non-running frame can call closeBoth safely.
     stateUnsub = deps.streams.getOrCreateState(runId).subscribe((frame) => {
-      if (frame.state !== 'running' && frame.state !== 'awaiting_resume') {
+      if (frame.state !== 'running') {
         closeBoth(1001, 'run ended');
       }
     });
