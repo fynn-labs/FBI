@@ -63,6 +63,28 @@ export class RunsRepo {
       .all(limit) as Run[];
   }
 
+  listRecentPrompts(
+    projectId: number,
+    limit = 10
+  ): { prompt: string; last_used_at: number; run_id: number }[] {
+    return this.db
+      .prepare(
+        `SELECT prompt,
+                MAX(created_at) AS last_used_at,
+                MAX(id)         AS run_id
+           FROM runs
+          WHERE project_id = ?
+          GROUP BY prompt
+          ORDER BY last_used_at DESC, run_id DESC
+          LIMIT ?`
+      )
+      .all(projectId, limit) as {
+        prompt: string;
+        last_used_at: number;
+        run_id: number;
+      }[];
+  }
+
   markStarted(id: number, containerId: string): void {
     this.db
       .prepare(

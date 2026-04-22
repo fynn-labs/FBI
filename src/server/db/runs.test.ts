@@ -71,4 +71,21 @@ describe('RunsRepo', () => {
     runs.markStarted(r.id, 'c');
     expect(runs.listByState('running').length).toBe(1);
   });
+
+  it('listRecentPrompts returns distinct prompts newest-first with limit', () => {
+    const mk = (prompt: string) =>
+      runs.create({
+        project_id: projectId,
+        prompt,
+        branch_name_tmpl: (id) => `b-${id}`,
+        log_path_tmpl: (id) => `/tmp/${id}.log`,
+      });
+    mk('alpha');
+    mk('beta');
+    mk('alpha');
+    mk('gamma');
+
+    const recent = runs.listRecentPrompts(projectId, 10);
+    expect(recent.map((r) => r.prompt)).toEqual(['gamma', 'alpha', 'beta']);
+  });
 });
