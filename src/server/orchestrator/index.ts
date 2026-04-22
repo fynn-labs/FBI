@@ -86,7 +86,7 @@ export class Orchestrator {
           AutoRemove: false,
           Binds: [
             `${SUPERVISOR}:/usr/local/bin/supervisor.sh:ro`,
-            `${this.deps.config.hostClaudeDir}:/home/agent/.claude:ro`,
+            `${this.deps.config.hostClaudeDir}:/home/agent/.claude`,
             // Mount .claude.json (settings/config) if present alongside .claude/
             ...claudeJsonMount(this.deps.config.hostClaudeDir),
             ...auth.mounts().map((m) =>
@@ -299,7 +299,7 @@ export class Orchestrator {
 function claudeJsonMount(hostClaudeDir: string): string[] {
   const hostJson = path.join(path.dirname(hostClaudeDir), '.claude.json');
   return fs.existsSync(hostJson)
-    ? [`${hostJson}:/home/agent/.claude.json:ro`]
+    ? [`${hostJson}:/home/agent/.claude.json`]
     : [];
 }
 
