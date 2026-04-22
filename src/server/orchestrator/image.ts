@@ -144,11 +144,16 @@ export class ImageBuilder {
     onLog: (c: Uint8Array) => void
   ): Promise<void> {
     return new Promise((resolve, reject) => {
+      let streamError: string | null = null;
       this.docker.modem.followProgress(
         stream,
-        (err) => (err ? reject(err) : resolve()),
+        (err) => {
+          if (err) return reject(err);
+          if (streamError) return reject(new Error(`Docker build failed: ${streamError}`));
+          resolve();
+        },
         (event: { stream?: string; error?: string }) => {
-          if (event.error) return; // final handler reports
+          if (event.error) { streamError = event.error; return; }
           if (event.stream) onLog(Buffer.from(event.stream));
         }
       );

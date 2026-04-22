@@ -17,6 +17,9 @@ set -euo pipefail
 
 if command -v apt-get >/dev/null 2>&1; then
   export DEBIAN_FRONTEND=noninteractive
+  # Remove any third-party apt sources from the base image (stale keys, etc.).
+  # We add back what we need explicitly (NodeSource, gh CLI) below.
+  find /etc/apt/sources.list.d -mindepth 1 -delete 2>/dev/null || true
   apt-get update
   apt-get install -y --no-install-recommends \
       git openssh-client ca-certificates curl gnupg
