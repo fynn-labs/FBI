@@ -21,6 +21,7 @@ export interface Project {
   pids_limit: number | null;
   created_at: number;
   updated_at: number;
+  last_run?: { id: number; state: RunState; created_at: number } | null;
 }
 
 export interface Run {

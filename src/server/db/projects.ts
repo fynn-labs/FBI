@@ -1,5 +1,5 @@
 import type { DB } from './index.js';
-import type { Project } from '../../shared/types.js';
+import type { Project, RunState } from '../../shared/types.js';
 
 export interface CreateProjectInput {
   name: string;
@@ -105,12 +105,20 @@ export class ProjectsRepo {
     return row ? fromRow(row) : undefined;
   }
 
+  private lastRunFor(projectId: number):
+    { id: number; state: RunState; created_at: number } | null {
+    const row = this.db
+      .prepare(`SELECT id, state, created_at FROM runs
+                WHERE project_id = ? ORDER BY id DESC LIMIT 1`)
+      .get(projectId) as { id: number; state: RunState; created_at: number } | undefined;
+    return row ?? null;
+  }
+
   list(): Project[] {
-    return (
-      this.db
-        .prepare('SELECT * FROM projects ORDER BY updated_at DESC')
-        .all() as ProjectRow[]
-    ).map(fromRow);
+    const rows = this.db
+      .prepare('SELECT * FROM projects ORDER BY updated_at DESC')
+      .all() as ProjectRow[];
+    return rows.map((row) => ({ ...fromRow(row), last_run: this.lastRunFor(row.id) }));
   }
 
   update(id: number, patch: UpdateProjectInput): void {

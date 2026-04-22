@@ -4,6 +4,7 @@ import path from 'node:path';
 import os from 'node:os';
 import { openDb } from './index.js';
 import { ProjectsRepo } from './projects.js';
+import { RunsRepo } from './runs.js';
 
 function tmpDb() {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'fbi-'));
@@ -108,5 +109,29 @@ describe('ProjectsRepo', () => {
     expect(p.mem_mb).toBeNull();
     expect(p.cpus).toBeNull();
     expect(p.pids_limit).toBeNull();
+  });
+
+  it('list() attaches last_run when runs exist', () => {
+    const p = repo.create({
+      name: 'withruns', repo_url: 'u', default_branch: 'main',
+      devcontainer_override_json: null, instructions: null,
+      git_author_name: null, git_author_email: null,
+    });
+    const runs = new RunsRepo((repo as any).db);
+    const r = runs.create({ project_id: p.id, prompt: 'x',
+      log_path_tmpl: (id: number) => `/tmp/${id}.log` });
+    const listed = repo.list().find((x) => x.id === p.id)!;
+    expect(listed.last_run).toBeTruthy();
+    expect(listed.last_run!.id).toBe(r.id);
+  });
+
+  it('list() returns last_run null when no runs', () => {
+    const p = repo.create({
+      name: 'empty', repo_url: 'u', default_branch: 'main',
+      devcontainer_override_json: null, instructions: null,
+      git_author_name: null, git_author_email: null,
+    });
+    const listed = repo.list().find((x) => x.id === p.id)!;
+    expect(listed.last_run).toBeNull();
   });
 });
