@@ -13,3 +13,4 @@ export * from './Checkbox.js';
 export * from './Select.js';
 export * from './Card.js';
 export * from './Section.js';
+export * from './Tabs.js';
