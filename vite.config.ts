@@ -30,6 +30,7 @@ export default defineConfig({
   resolve: {
     alias: {
       '@shared': path.resolve(__dirname, 'src/shared'),
+      '@ui': path.resolve(__dirname, 'src/web/ui'),
     },
   },
 });
