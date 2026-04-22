@@ -76,15 +76,34 @@ esac
     { mode: 0o755 },
   );
 
+  // Stub the finalize-branch helper — supervisor.sh delegates the post-
+  // claude commit+push+result.json write to it. We just write a minimal
+  // result.json so the tests' existing assertions pass. Stub filename
+  // deliberately omits the `fbi-` prefix so the `/fbi\b` path rewrite below
+  // doesn't clobber it.
+  const finalizeStub = path.join(bin, 'finalize-stub.sh');
+  fs.writeFileSync(
+    finalizeStub,
+    `#!/bin/sh
+printf '{"exit_code":%d,"push_exit":0,"head_sha":"deadbeef","branch":"main"}\\n' \
+  "\${CLAUDE_EXIT:-0}" > "\${RESULT_PATH:-/tmp/result.json}"
+exit 0
+`,
+    { mode: 0o755 },
+  );
+
   // Rewrite hardcoded container paths to sandbox paths so we can run the
-  // script without Docker. Use non-globals so we don't clobber substrings
-  // in unrelated words (there are none, but safer for future edits).
+  // script without Docker. Order matters: the finalize-branch path contains
+  // `/fbi-…` which would otherwise be mangled by the `/fbi\b` substitution,
+  // since `\b` matches at the hyphen. Substitute the longer, more specific
+  // paths first.
   const src = fs.readFileSync(SUPERVISOR_SRC, 'utf8');
   const patched = src
-    .replace(/\/workspace\b/g, workspace)
-    .replace(/\/fbi\b/g, fbi)
+    .replace(/\/usr\/local\/bin\/fbi-finalize-branch\.sh/g, finalizeStub)
     .replace(/\/tmp\/prompt\.txt\b/g, path.join(tmpOut, 'prompt.txt'))
-    .replace(/\/tmp\/result\.json\b/g, path.join(tmpOut, 'result.json'));
+    .replace(/\/tmp\/result\.json\b/g, path.join(tmpOut, 'result.json'))
+    .replace(/\/workspace\b/g, workspace)
+    .replace(/\/fbi\b/g, fbi);
   const script = path.join(root, 'supervisor.sh');
   fs.writeFileSync(script, patched, { mode: 0o755 });
 
