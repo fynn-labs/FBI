@@ -102,7 +102,7 @@ export function useRunWatcher(enabled: boolean) {
         } else if (prev === 'waiting' && msg.state !== 'waiting') {
           clearWaitingBadge(msg.run_id);
         }
-        if (isTerminal(msg.state)) {
+        if (isTerminal(msg.state) && !isTerminal(prev ?? 'queued')) {
           const proj = await api.getProject(msg.project_id).catch(() => null);
           void notifyComplete({
             id: msg.run_id,
