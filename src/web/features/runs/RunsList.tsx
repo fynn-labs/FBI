@@ -19,6 +19,7 @@ export function RunsList({ runs, toHref, currentId }: RunsListProps) {
     if (!q) return runs;
     return runs.filter((r) =>
       String(r.id).includes(q) ||
+      (r.title ?? '').toLowerCase().includes(q) ||
       (r.branch_name ?? '').toLowerCase().includes(q) ||
       r.prompt.toLowerCase().includes(q),
     );

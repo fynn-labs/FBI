@@ -24,7 +24,7 @@ export interface RunRowProps {
 }
 
 export function RunRow({ run, to }: RunRowProps) {
-  const label = run.branch_name || run.prompt.split('\n')[0] || 'untitled';
+  const label = run.title || run.branch_name || run.prompt.split('\n')[0] || 'untitled';
   return (
     <NavLink
       to={to}
