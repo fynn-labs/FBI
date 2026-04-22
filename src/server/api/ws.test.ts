@@ -148,7 +148,12 @@ describe('WS shell', () => {
     const frameReceived = new Promise<string>((resolve, reject) => {
       const t = setTimeout(() => reject(new Error('timeout waiting for state frame')), 2000);
       ws2.on('message', (data, isBinary) => {
-        if (!isBinary) { clearTimeout(t); resolve((data as Buffer).toString('utf8')); }
+        if (isBinary) return;
+        const text = (data as Buffer).toString('utf8');
+        const parsed = JSON.parse(text) as { type: string };
+        if (parsed.type === 'snapshot') return; // skip snapshot frames
+        clearTimeout(t);
+        resolve(text);
       });
     });
 
@@ -258,11 +263,13 @@ describe('WS typed frames', () => {
     const messages: string[] = [];
     let resolve1!: () => void;
     const got1 = new Promise<void>((r) => { resolve1 = r; });
-    let count = 0;
     ws.on('message', (d, isBinary) => {
       if (isBinary) return;
-      messages.push(d.toString());
-      if (++count >= 1) resolve1();
+      const text = (d as Buffer).toString('utf8');
+      const parsed = JSON.parse(text) as { type: string };
+      if (parsed.type === 'snapshot') return; // skip snapshot frames
+      messages.push(text);
+      if (messages.length >= 1) resolve1();
     });
     await new Promise((r) => ws.on('open', r));
 

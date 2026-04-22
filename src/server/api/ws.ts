@@ -91,21 +91,30 @@ export function registerWsRoute(app: FastifyInstance, deps: Deps): void {
       }));
     };
 
-    void sendSnapshot().then(() => {
-      live = true;
-      for (const chunk of buffered) {
-        if (socket.readyState === socket.OPEN) {
-          socket.send(chunk, (err) => { if (err) unsub(); });
+    void sendSnapshot()
+      .then(() => {
+        live = true;
+        for (const chunk of buffered) {
+          if (socket.readyState === socket.OPEN) {
+            socket.send(chunk, (err) => { if (err) unsub(); });
+          }
         }
-      }
-      // Edge: broadcaster ended while we were building the snapshot.
-      if (bc.isEnded()) {
+        // Edge: broadcaster ended while we were building the snapshot.
+        if (bc.isEnded()) {
+          unsub();
+          unsubEvents();
+          unsubState();
+          if (socket.readyState === socket.OPEN) socket.close(1000, 'ended');
+        }
+      })
+      .catch(() => {
+        // rebuildScreenFromLog failed (I/O error). Tear down so the client
+        // doesn't hang; they'll reconnect and try again.
         unsub();
         unsubEvents();
         unsubState();
-        if (socket.readyState === socket.OPEN) socket.close(1000, 'ended');
-      }
-    });
+        if (socket.readyState === socket.OPEN) socket.close(1011, 'snapshot error');
+      });
 
     socket.on('message', async (data: Buffer, isBinary: boolean) => {
       if (!isBinary) {
@@ -116,11 +125,14 @@ export function registerWsRoute(app: FastifyInstance, deps: Deps): void {
             return;
           }
           if (msg.type === 'resync') {
-            // Send a fresh snapshot. Any bytes arriving from the broadcaster
-            // between this snapshot and the next delivered chunk are
-            // strictly newer — the client drops its local queue on snapshot
-            // arrival, so there's no double-apply risk.
-            const screen = deps.streams.getScreen(runId);
+            // Re-serialize the current screen. If none exists in memory (rare —
+            // e.g. a previous rebuild failed), try a fresh rebuild from log.
+            let screen = deps.streams.getScreen(runId);
+            if (!screen) {
+              try {
+                screen = await deps.streams.rebuildScreenFromLog(runId, run.log_path);
+              } catch { /* swallow; leave screen undefined */ }
+            }
             if (screen && socket.readyState === socket.OPEN) {
               socket.send(JSON.stringify({
                 type: 'snapshot',
