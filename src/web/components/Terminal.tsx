@@ -2,7 +2,7 @@ import { useEffect, useRef } from 'react';
 import { Terminal as Xterm } from '@xterm/xterm';
 import { FitAddon } from '@xterm/addon-fit';
 import '@xterm/xterm/css/xterm.css';
-import { openShell } from '../lib/ws.js';
+import { acquireShell, releaseShell, getBuffer } from '../lib/shellRegistry.js';
 import { publishUsage, publishRateLimit, publishState } from '../features/runs/usageBus.js';
 import type { UsageSnapshot, RateLimitState, RunWsStateMessage } from '@shared/types.js';
 
@@ -42,7 +42,11 @@ export function Terminal({ runId, interactive }: Props) {
     });
     observer.observe(document.documentElement, { attributes: true, attributeFilter: ['class'] });
 
-    const shell = openShell(runId);
+    const shell = acquireShell(runId);
+
+    // Replay buffered bytes before subscribing to live data.
+    for (const chunk of getBuffer(runId)) term.write(chunk);
+
     const unsubBytes = shell.onBytes((data) => term.write(data));
     const unsubEv = shell.onTypedEvent<{ type: string; snapshot?: unknown }>((msg) => {
       if (msg.type === 'usage') publishUsage(runId, msg.snapshot as UsageSnapshot);
@@ -71,7 +75,7 @@ export function Terminal({ runId, interactive }: Props) {
       window.removeEventListener('resize', onResize);
       unsubBytes();
       unsubEv();
-      shell.close();
+      releaseShell(runId);
       term.dispose();
     };
   }, [runId, interactive]);
