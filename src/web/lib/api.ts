@@ -107,6 +107,7 @@ export const api = {
     global_plugins?: string[];
     auto_resume_enabled?: boolean;
     auto_resume_max_attempts?: number;
+    usage_notifications_enabled?: boolean;
   }) => request<Settings>('/api/settings', { method: 'PATCH', body: JSON.stringify(patch) }),
   runGc: () => request<{ deletedCount: number; deletedBytes: number }>(
     '/api/settings/run-gc', { method: 'POST', body: JSON.stringify({}) }),

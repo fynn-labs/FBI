@@ -14,6 +14,7 @@ export function SettingsPage() {
   const [runningGc, setRunningGc] = useState(false);
   const [marketplaces, setMarketplaces] = useState<string[]>([]);
   const [plugins, setPlugins] = useState<string[]>([]);
+  const [usageNotif, setUsageNotif] = useState<boolean>(false);
   const [autoResumeEnabled, setAutoResumeEnabled] = useState<boolean>(true);
   const [autoResumeMaxAttempts, setAutoResumeMaxAttempts] = useState<number>(3);
   const [saving, setSaving] = useState(false);
@@ -31,6 +32,7 @@ export function SettingsPage() {
       setPlugins(s.global_plugins);
       setAutoResumeEnabled(s.auto_resume_enabled);
       setAutoResumeMaxAttempts(s.auto_resume_max_attempts);
+      setUsageNotif(s.usage_notifications_enabled);
     });
   }, []);
 
@@ -48,6 +50,7 @@ export function SettingsPage() {
         global_plugins: plugins,
         auto_resume_enabled: autoResumeEnabled,
         auto_resume_max_attempts: autoResumeMaxAttempts,
+        usage_notifications_enabled: usageNotif,
       });
       setSaved(true);
     } catch (err) { setError(String(err)); }
@@ -70,6 +73,14 @@ export function SettingsPage() {
         <div className="flex items-center gap-3">
           <Toggle checked={enabled} onChange={setEnabled} aria-label="Enable run-completion notifications" />
           <span className="text-[14px] text-text-dim">Enable run-completion notifications</span>
+        </div>
+        <div className="flex items-center gap-3 mt-3">
+          <Toggle
+            checked={usageNotif}
+            onChange={setUsageNotif}
+            aria-label="Notify me when Claude usage hits 75% or 90%"
+          />
+          <span className="text-[14px] text-text-dim">Notify me when Claude usage hits 75% or 90%</span>
         </div>
       </Section>
 
