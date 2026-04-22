@@ -88,4 +88,13 @@ export const api = {
   getConfigDefaults: () => request<{ defaultMarketplaces: string[]; defaultPlugins: string[] }>(
     '/api/config/defaults'
   ),
+
+  getRunGithub: (id: number) => request<{
+    pr: null | { number: number; url: string; state: 'OPEN' | 'CLOSED' | 'MERGED'; title: string };
+    checks: null | { state: 'pending' | 'success' | 'failure'; passed: number; failed: number; total: number };
+    github_available: boolean;
+  }>(`/api/runs/${id}/github`),
+
+  createRunPr: (id: number) => request<{ number: number; url: string; state: string; title: string }>(
+    `/api/runs/${id}/github/pr`, { method: 'POST', body: JSON.stringify({}) }),
 };
