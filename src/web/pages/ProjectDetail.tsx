@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { Outlet, useParams } from 'react-router-dom';
+import { Outlet, useLocation, useParams } from 'react-router-dom';
 import { SplitPane } from '@ui/patterns/SplitPane.js';
 import { EmptyState, LoadingState, ErrorState } from '@ui/patterns/index.js';
 import type { Project, Run } from '@shared/types.js';
@@ -8,8 +8,10 @@ import { RunsList } from '../features/runs/RunsList.js';
 import { ProjectHeader } from '../features/projects/ProjectHeader.js';
 
 export function ProjectDetailPage() {
-  const { id, rid } = useParams();
+  const { id } = useParams();
   const pid = Number(id);
+  const location = useLocation();
+  const hasChildRoute = location.pathname.replace(/\/$/, '') !== `/projects/${pid}`;
   const [project, setProject] = useState<Project | null>(null);
   const [runs, setRuns] = useState<Run[] | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -38,7 +40,7 @@ export function ProjectDetailPage() {
         </div>
       }
       right={
-        rid ? <Outlet /> : (
+        hasChildRoute ? <Outlet /> : (
           <div className="h-full flex items-center justify-center">
             <EmptyState title="Select a run" description="Or create a new run for this project." />
           </div>
