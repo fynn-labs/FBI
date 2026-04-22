@@ -55,6 +55,7 @@ CREATE TABLE IF NOT EXISTS settings (
   last_gc_bytes INTEGER,
   updated_at INTEGER NOT NULL
 );
-INSERT OR IGNORE INTO settings
-  (id, global_prompt, notifications_enabled, concurrency_warn_at, image_gc_enabled, updated_at)
-VALUES (1, '', 1, 3, 0, 0);
+-- Seed row for settings is inserted by migrate() in index.ts, AFTER any
+-- needed ALTER TABLEs have added columns that may be missing on upgraded
+-- databases. Seeding here would fail on a pre-existing settings table that
+-- doesn't yet have the new columns.
