@@ -115,7 +115,7 @@ export class Orchestrator {
 
   private async createContainerForRun(
     runId: number,
-    opts: { resumeSessionId: string | null },
+    opts: { resumeSessionId: string | null; branchName: string | null },
     onBytes: (chunk: Uint8Array) => void,
   ): Promise<{ container: Docker.Container; imageTag: string; projectSecrets: Record<string, string>; authCleanup: () => void }> {
     const run = this.deps.runs.get(runId)!;
@@ -162,6 +162,7 @@ export class Orchestrator {
         `FBI_PLUGINS=${plugins.join('\n')}`,
         'IS_SANDBOX=1',
         ...(opts.resumeSessionId ? [`FBI_RESUME_SESSION_ID=${opts.resumeSessionId}`] : []),
+        ...(opts.branchName ? [`FBI_CHECKOUT_BRANCH=${opts.branchName}`] : []),
         ...Object.entries(auth.env()).map(([k, v]) => `${k}=${v}`),
         ...Object.entries(projectSecrets).map(([k, v]) => `${k}=${v}`),
       ],
@@ -220,7 +221,7 @@ export class Orchestrator {
 
     try {
       const { container, projectSecrets } = await this.createContainerForRun(
-        runId, { resumeSessionId: null }, onBytes,
+        runId, { resumeSessionId: null, branchName: null }, onBytes,
       );
       const effectiveMcps = this.deps.mcpServers.listEffective(project.id);
 
@@ -405,7 +406,10 @@ export class Orchestrator {
     try {
       const sessionId = run.claude_session_id; // may be null — supervisor falls through to fresh
       const { container } = await this.createContainerForRun(
-        runId, { resumeSessionId: sessionId }, onBytes,
+        runId, {
+          resumeSessionId: sessionId,
+          branchName: run.branch_name && run.branch_name.length > 0 ? run.branch_name : null,
+        }, onBytes,
       );
 
       if (!sessionId) {
