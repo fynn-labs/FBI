@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, screen, waitFor } from '@testing-library/react';
+import { render, screen, waitFor, act } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { JsonEditor } from './JsonEditor.js';
 
@@ -60,11 +60,19 @@ describe('JsonEditor', () => {
 
   it('updates isDark state when dark class is toggled via MutationObserver', async () => {
     render(<JsonEditor label="JSON" value="" onChange={() => {}} />);
-    document.documentElement.classList.add('dark');
+    await act(async () => {
+      document.documentElement.classList.add('dark');
+      // Allow MutationObserver callback to fire
+      await new Promise(resolve => setTimeout(resolve, 0));
+    });
     await waitFor(() => {
       // component still renders correctly after toggle
       expect(screen.getByText('JSON')).toBeInTheDocument();
     });
-    document.documentElement.classList.remove('dark');
+    await act(async () => {
+      document.documentElement.classList.remove('dark');
+      // Allow MutationObserver callback to fire
+      await new Promise(resolve => setTimeout(resolve, 0));
+    });
   });
 });
