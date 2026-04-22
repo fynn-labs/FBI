@@ -20,6 +20,10 @@ import { ImageBuilder, ALWAYS, POSTBUILD } from './image.js';
 import { ImageGc } from './imageGc.js';
 import { parseResultJson } from './result.js';
 import { SshAgentForwarding, type GitAuth } from './gitAuth.js';
+import { classify, type RateLimitStateInput } from './resumeDetector.js';
+import { ResumeScheduler } from './resumeScheduler.js';
+import { scanSessionId, runMountDir } from './sessionId.js';
+import type { RateLimitStateRepo } from '../db/rateLimitState.js';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const SUPERVISOR = path.join(HERE, 'supervisor.sh');
@@ -33,16 +37,26 @@ export interface OrchestratorDeps {
   settings: SettingsRepo;
   mcpServers: McpServersRepo;
   streams: RunStreamRegistry;
+  rateLimitState: RateLimitStateRepo;
 }
 
 export class Orchestrator {
   private imageBuilder: ImageBuilder;
   private gcTimer: NodeJS.Timeout | null = null;
   private gc: ImageGc;
+  private scheduler: ResumeScheduler;
 
   constructor(private deps: OrchestratorDeps) {
     this.imageBuilder = new ImageBuilder(deps.docker);
     this.gc = new ImageGc(this.deps.docker, () => ({ always: ALWAYS, postbuild: POSTBUILD }));
+    this.scheduler = new ResumeScheduler({
+      runs: deps.runs,
+      onFire: async (id) => {
+        const run = this.deps.runs.get(id);
+        if (!run || run.state !== 'awaiting_resume') return;
+        await this.resume(id);
+      },
+    });
   }
 
   async startGcScheduler(): Promise<void> {
@@ -69,6 +83,103 @@ export class Orchestrator {
       at: Date.now(), count: res.deletedCount, bytes: res.deletedBytes,
     });
     return res;
+  }
+
+  private mountDirFor(runId: number): string {
+    return runMountDir(this.deps.config.runsDir, runId);
+  }
+
+  private ensureMountDir(runId: number): string {
+    const dir = this.mountDirFor(runId);
+    fs.mkdirSync(dir, { recursive: true });
+    return dir;
+  }
+
+  private publishState(runId: number): void {
+    const run = this.deps.runs.get(runId);
+    if (!run) return;
+    this.deps.streams.getOrCreateState(runId).publish({
+      type: 'state',
+      state: run.state,
+      next_resume_at: run.next_resume_at,
+      resume_attempts: run.resume_attempts,
+      last_limit_reset_at: run.last_limit_reset_at,
+    });
+  }
+
+  private async createContainerForRun(
+    runId: number,
+    opts: { resumeSessionId: string | null },
+    onBytes: (chunk: Uint8Array) => void,
+  ): Promise<{ container: Docker.Container; imageTag: string; authCleanup: () => void }> {
+    const run = this.deps.runs.get(runId)!;
+    const project = this.deps.projects.get(run.project_id)!;
+    const memMb = project.mem_mb ?? this.deps.config.containerMemMb;
+    const cpus = project.cpus ?? this.deps.config.containerCpus;
+    const pids = project.pids_limit ?? this.deps.config.containerPids;
+
+    onBytes(Buffer.from(`[fbi] resolving image\n`));
+    const devcontainerFiles = await fetchDevcontainerFile(
+      project.repo_url, this.deps.config.hostSshAuthSock, onBytes,
+    );
+    const imageTag = await this.imageBuilder.resolve({
+      projectId: project.id,
+      devcontainerFiles,
+      overrideJson: project.devcontainer_override_json,
+      onLog: onBytes,
+    });
+    onBytes(Buffer.from(`[fbi] image: ${imageTag}\n`));
+
+    const auth: GitAuth = new SshAgentForwarding(this.deps.config.hostSshAuthSock);
+    const projectSecrets = this.deps.secrets.decryptAll(project.id);
+    const authorName = project.git_author_name ?? this.deps.config.gitAuthorName;
+    const authorEmail = project.git_author_email ?? this.deps.config.gitAuthorEmail;
+
+    const settingsData = this.deps.settings.get();
+    const marketplaces = uniq([...settingsData.global_marketplaces, ...project.marketplaces]);
+    const plugins = uniq([...settingsData.global_plugins, ...project.plugins]);
+
+    const mountDir = this.ensureMountDir(runId);
+
+    onBytes(Buffer.from(`[fbi] starting container\n`));
+    const container = await this.deps.docker.createContainer({
+      Image: imageTag,
+      name: `fbi-run-${runId}-${Date.now()}`,
+      User: 'agent',
+      Env: [
+        `RUN_ID=${runId}`,
+        `REPO_URL=${project.repo_url}`,
+        `DEFAULT_BRANCH=${project.default_branch}`,
+        `GIT_AUTHOR_NAME=${authorName}`,
+        `GIT_AUTHOR_EMAIL=${authorEmail}`,
+        `FBI_MARKETPLACES=${marketplaces.join('\n')}`,
+        `FBI_PLUGINS=${plugins.join('\n')}`,
+        'IS_SANDBOX=1',
+        ...(opts.resumeSessionId ? [`FBI_RESUME_SESSION_ID=${opts.resumeSessionId}`] : []),
+        ...Object.entries(auth.env()).map(([k, v]) => `${k}=${v}`),
+        ...Object.entries(projectSecrets).map(([k, v]) => `${k}=${v}`),
+      ],
+      Tty: true,
+      OpenStdin: true,
+      StdinOnce: false,
+      Entrypoint: ['/usr/local/bin/supervisor.sh'],
+      HostConfig: {
+        AutoRemove: false,
+        Memory: memMb * 1024 * 1024,
+        NanoCpus: Math.round(cpus * 1e9),
+        PidsLimit: pids,
+        Binds: [
+          `${SUPERVISOR}:/usr/local/bin/supervisor.sh:ro`,
+          `${mountDir}:/home/agent/.claude/projects/`,
+          ...claudeAuthMounts(this.deps.config.hostClaudeDir),
+          ...auth.mounts().map((m) =>
+            `${m.source}:${m.target}${m.readOnly ? ':ro' : ''}`
+          ),
+        ],
+      },
+    });
+
+    return { container, imageTag, authCleanup: () => { /* no-op */ } };
   }
 
   /** Kicks off a queued run. Fire-and-forget; state transitions go through DB. */
@@ -98,175 +209,219 @@ export class Orchestrator {
     ].join('\n');
 
     try {
-      // Build or reuse image.
-      onBytes(Buffer.from(`[fbi] resolving image\n`));
-      const devcontainerFiles = await fetchDevcontainerFile(
-        project.repo_url,
-        this.deps.config.hostSshAuthSock,
-        onBytes,
+      const { container } = await this.createContainerForRun(
+        runId, { resumeSessionId: null }, onBytes,
       );
-      const imageTag = await this.imageBuilder.resolve({
-        projectId: project.id,
-        devcontainerFiles,
-        overrideJson: project.devcontainer_override_json,
-        onLog: onBytes,
-      });
-      onBytes(Buffer.from(`[fbi] image: ${imageTag}\n`));
-
-      // Prepare auth + secrets + prompt files.
-      const auth: GitAuth = new SshAgentForwarding(this.deps.config.hostSshAuthSock);
       const projectSecrets = this.deps.secrets.decryptAll(project.id);
-      const authorName = project.git_author_name ?? this.deps.config.gitAuthorName;
-      const authorEmail = project.git_author_email ?? this.deps.config.gitAuthorEmail;
+      const effectiveMcps = this.deps.mcpServers.listEffective(project.id);
 
-      // Plugins: global defaults + per-project additions (dedup, preserve order).
-      const settingsData = this.deps.settings.get();
-      const marketplaces = uniq([
-        ...settingsData.global_marketplaces,
-        ...project.marketplaces,
-      ]);
-      const plugins = uniq([
-        ...settingsData.global_plugins,
-        ...project.plugins,
-      ]);
-
-      onBytes(Buffer.from(`[fbi] starting container\n`));
-      const memMb = project.mem_mb ?? this.deps.config.containerMemMb;
-      const cpus = project.cpus ?? this.deps.config.containerCpus;
-      const pids = project.pids_limit ?? this.deps.config.containerPids;
-      const container = await this.deps.docker.createContainer({
-        Image: imageTag,
-        name: `fbi-run-${runId}`,
-        User: 'agent',
-        Env: [
-          `RUN_ID=${runId}`,
-          `REPO_URL=${project.repo_url}`,
-          `DEFAULT_BRANCH=${project.default_branch}`,
-          `GIT_AUTHOR_NAME=${authorName}`,
-          `GIT_AUTHOR_EMAIL=${authorEmail}`,
-          `FBI_MARKETPLACES=${marketplaces.join('\n')}`,
-          `FBI_PLUGINS=${plugins.join('\n')}`,
-          // Signals to Claude Code that we're in a sandboxed env; bypasses
-          // its root/sudo refusal path (harmless here since we're non-root).
-          'IS_SANDBOX=1',
-          ...Object.entries(auth.env()).map(([k, v]) => `${k}=${v}`),
-          ...Object.entries(projectSecrets).map(([k, v]) => `${k}=${v}`),
-        ],
-        Tty: true,
-        OpenStdin: true,
-        StdinOnce: false,
-        Entrypoint: ['/usr/local/bin/supervisor.sh'],
-        HostConfig: {
-          AutoRemove: false,
-          Memory: memMb * 1024 * 1024,
-          NanoCpus: Math.round(cpus * 1e9),
-          PidsLimit: pids,
-          Binds: [
-            `${SUPERVISOR}:/usr/local/bin/supervisor.sh:ro`,
-            // Just the auth files — not the whole ~/.claude dir — so each
-            // container gets clean plugin/session state but stays logged in.
-            ...claudeAuthMounts(this.deps.config.hostClaudeDir),
-            ...auth.mounts().map((m) =>
-              `${m.source}:${m.target}${m.readOnly ? ':ro' : ''}`
-            ),
-          ],
-        },
-      });
-
-      // Inject prompt files directly into the container filesystem so we
-      // don't depend on directory bind mounts (which fail silently on some hosts).
-      const globalPrompt = this.deps.settings.get().global_prompt;
       await injectFiles(container, '/fbi', {
         'prompt.txt': run.prompt ?? '',
         'instructions.txt': project.instructions ?? '',
-        'global.txt': globalPrompt,
+        'global.txt': this.deps.settings.get().global_prompt,
         'preamble.txt': preamble,
       });
-
-      // Inject a sanitized ~/.claude.json: strip the host-specific installMethod
-      // so Claude doesn't warn about missing /home/agent/.local/bin/claude
-      // (host installed via curl, container uses npm). Also injects MCP server config.
-      const effectiveMcps = this.deps.mcpServers.listEffective(project.id);
       const claudeJson = buildContainerClaudeJson(
-        this.deps.config.hostClaudeDir,
-        effectiveMcps,
-        projectSecrets,
+        this.deps.config.hostClaudeDir, effectiveMcps, projectSecrets,
       );
       await injectFiles(container, '/home/agent', { '.claude.json': claudeJson }, 1000);
-
-      // Pre-accept the bypass-permissions dialog. Without this, Claude Code
-      // prompts on first launch even with --dangerously-skip-permissions,
-      // which breaks unattended runs.
       await injectFiles(
-        container,
-        '/home/agent/.claude',
+        container, '/home/agent/.claude',
         { 'settings.json': JSON.stringify({ skipDangerousModePermissionPrompt: true }) },
         1000,
       );
 
       const attach = await container.attach({
-        stream: true,
-        stdin: true,
-        stdout: true,
-        stderr: true,
-        hijack: true,
+        stream: true, stdin: true, stdout: true, stderr: true, hijack: true,
       });
       attach.on('data', (c: Buffer) => onBytes(c));
-
       await container.start();
       this.active.set(runId, { container, attachStream: attach });
       this.deps.runs.markStarted(runId, container.id);
+      this.publishState(runId);
 
-      // Wait for exit.
-      const waitRes = await container.wait();
-      const inspect = await container.inspect().catch(() => null);
-      const oomKilled = Boolean(inspect?.State?.OOMKilled);
-      const wasCancelled = this.cancelled.delete(runId);
-      const resultText = await readFileFromContainer(
-        container,
-        '/tmp/result.json'
-      ).catch(() => '');
-      const parsed = parseResultJson(resultText);
-
-      const state: 'succeeded' | 'failed' | 'cancelled' = wasCancelled
-        ? 'cancelled'
-        : waitRes.StatusCode === 0 && parsed && parsed.push_exit === 0
-          ? 'succeeded'
-          : 'failed';
-
-      const branchFromResult =
-        parsed?.branch && parsed.branch.length > 0 ? parsed.branch : null;
-
-      this.deps.runs.markFinished(runId, {
-        state,
-        exit_code: parsed?.exit_code ?? waitRes.StatusCode,
-        head_commit: parsed?.head_sha ?? null,
-        branch_name: branchFromResult,
-        error:
-          state === 'failed'
-            ? oomKilled
-              ? `container OOM (memory cap ${memMb} MB)`
-              : parsed
-                ? parsed.push_exit !== 0
-                  ? `git push failed (code ${parsed.push_exit})`
-                  : `agent exit ${parsed.exit_code}`
-                : `container exit ${waitRes.StatusCode}`
-            : null,
-      });
-      onBytes(Buffer.from(`\n[fbi] run ${state}\n`));
-      await container.remove({ force: true, v: true }).catch(() => {});
+      await this.awaitAndComplete(runId, container, onBytes, store, broadcaster);
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
       onBytes(Buffer.from(`\n[fbi] error: ${msg}\n`));
-      this.deps.runs.markFinished(runId, {
-        state: 'failed',
-        error: msg,
-      });
-    } finally {
+      this.deps.runs.markFinished(runId, { state: 'failed', error: msg });
+      this.publishState(runId);
       this.active.delete(runId);
       store.close();
       broadcaster.end();
       this.deps.streams.release(runId);
+    }
+  }
+
+  private async awaitAndComplete(
+    runId: number,
+    container: Docker.Container,
+    onBytes: (chunk: Uint8Array) => void,
+    store: LogStore,
+    broadcaster: ReturnType<RunStreamRegistry['getOrCreate']>,
+  ): Promise<void> {
+    const waitRes = await container.wait();
+    const inspect = await container.inspect().catch(() => null);
+    const oomKilled = Boolean(inspect?.State?.OOMKilled);
+    const wasCancelled = this.cancelled.delete(runId);
+    const resultText = await readFileFromContainer(container, '/tmp/result.json').catch(() => '');
+    const parsed = parseResultJson(resultText);
+
+    // Capture Claude session id from the mount (idempotent on repeat runs).
+    const sessionId = scanSessionId(this.mountDirFor(runId));
+    if (sessionId) this.deps.runs.setClaudeSessionId(runId, sessionId);
+
+    const failedNormally =
+      !(waitRes.StatusCode === 0 && parsed && parsed.push_exit === 0);
+    const settings = this.deps.settings.get();
+
+    if (failedNormally && !wasCancelled && settings.auto_resume_enabled) {
+      const logTail = Buffer.from(LogStore.readAll(this.deps.runs.get(runId)!.log_path)).toString('utf8');
+      const rls = this.deps.rateLimitState.get();
+      const rlsInput: RateLimitStateInput | null = rls ? {
+        requests_remaining: rls.requests_remaining,
+        requests_limit: rls.requests_limit,
+        tokens_remaining: rls.tokens_remaining,
+        tokens_limit: rls.tokens_limit,
+        reset_at: rls.reset_at,
+      } : null;
+      const verdict = classify(logTail, rlsInput, Date.now());
+
+      if (verdict.kind === 'rate_limit' && verdict.reset_at !== null) {
+        const run = this.deps.runs.get(runId)!;
+        if (run.resume_attempts + 1 > settings.auto_resume_max_attempts) {
+          onBytes(Buffer.from(
+            `\n[fbi] rate limited; exceeded auto-resume cap (${settings.auto_resume_max_attempts} attempts)\n`,
+          ));
+          this.deps.runs.markFinished(runId, {
+            state: 'failed',
+            error: `rate limited; exceeded auto-resume cap (${settings.auto_resume_max_attempts} attempts)`,
+          });
+          this.publishState(runId);
+        } else {
+          this.deps.runs.markAwaitingResume(runId, {
+            next_resume_at: verdict.reset_at,
+            last_limit_reset_at: verdict.reset_at,
+          });
+          onBytes(Buffer.from(
+            `\n[fbi] awaiting resume until ${new Date(verdict.reset_at).toISOString()}\n`,
+          ));
+          this.publishState(runId);
+          this.scheduler.schedule(runId, verdict.reset_at);
+          await container.remove({ force: true, v: true }).catch(() => {});
+          this.active.delete(runId);
+          // Keep log + broadcaster open — resume() will append.
+          return;
+        }
+        await container.remove({ force: true, v: true }).catch(() => {});
+        this.active.delete(runId);
+        store.close(); broadcaster.end();
+        this.deps.streams.release(runId);
+        return;
+      }
+    }
+
+    // Normal terminal path.
+    const state: 'succeeded' | 'failed' | 'cancelled' = wasCancelled
+      ? 'cancelled'
+      : waitRes.StatusCode === 0 && parsed && parsed.push_exit === 0
+        ? 'succeeded'
+        : 'failed';
+    const branchFromResult =
+      parsed?.branch && parsed.branch.length > 0 ? parsed.branch : null;
+    const memMb = this.deps.projects.get(this.deps.runs.get(runId)!.project_id)?.mem_mb ?? this.deps.config.containerMemMb;
+    this.deps.runs.markFinished(runId, {
+      state,
+      exit_code: parsed?.exit_code ?? waitRes.StatusCode,
+      head_commit: parsed?.head_sha ?? null,
+      branch_name: branchFromResult,
+      error: state === 'failed'
+        ? oomKilled
+          ? `container OOM (memory cap ${memMb} MB)`
+          : parsed
+            ? parsed.push_exit !== 0
+              ? `git push failed (code ${parsed.push_exit})`
+              : `agent exit ${parsed.exit_code}`
+            : `container exit ${waitRes.StatusCode}`
+        : null,
+    });
+    onBytes(Buffer.from(`\n[fbi] run ${state}\n`));
+    this.publishState(runId);
+    await container.remove({ force: true, v: true }).catch(() => {});
+    this.active.delete(runId);
+    store.close(); broadcaster.end();
+    this.deps.streams.release(runId);
+  }
+
+  async resume(runId: number): Promise<void> {
+    const run = this.deps.runs.get(runId);
+    if (!run) throw new Error(`run ${runId} not found`);
+    if (run.state !== 'awaiting_resume') return;
+
+    // Reuse the existing log store and broadcaster.
+    const store = new LogStore(run.log_path);
+    const broadcaster = this.deps.streams.getOrCreate(runId);
+    const onBytes = (chunk: Uint8Array) => { store.append(chunk); broadcaster.publish(chunk); };
+
+    onBytes(Buffer.from(
+      `\n[fbi] resuming (attempt ${run.resume_attempts} of ${this.deps.settings.get().auto_resume_max_attempts})\n`,
+    ));
+
+    try {
+      const sessionId = run.claude_session_id; // may be null — supervisor falls through to fresh
+      const { container } = await this.createContainerForRun(
+        runId, { resumeSessionId: sessionId }, onBytes,
+      );
+
+      if (!sessionId) {
+        onBytes(Buffer.from(`[fbi] resume: no session captured, starting fresh\n`));
+        const project = this.deps.projects.get(run.project_id)!;
+        const preamble = [
+          `You are working in /workspace on ${project.repo_url}.`,
+          `Its default branch is ${project.default_branch}. Do NOT commit to ${project.default_branch}.`,
+          run.branch_name
+            ? `Create or check out a branch named \`${run.branch_name}\`,`
+            : `Create or check out a branch appropriately named for this task,`,
+          'do your work there, and leave all commits on that branch.',
+          '',
+        ].join('\n');
+        await injectFiles(container, '/fbi', {
+          'prompt.txt': run.prompt ?? '',
+          'instructions.txt': project.instructions ?? '',
+          'global.txt': this.deps.settings.get().global_prompt,
+          'preamble.txt': preamble,
+        });
+      }
+
+      const projectSecrets = this.deps.secrets.decryptAll(run.project_id);
+      const effectiveMcps = this.deps.mcpServers.listEffective(run.project_id);
+      const claudeJson = buildContainerClaudeJson(
+        this.deps.config.hostClaudeDir, effectiveMcps, projectSecrets,
+      );
+      await injectFiles(container, '/home/agent', { '.claude.json': claudeJson }, 1000);
+      await injectFiles(
+        container, '/home/agent/.claude',
+        { 'settings.json': JSON.stringify({ skipDangerousModePermissionPrompt: true }) },
+        1000,
+      );
+
+      const attach = await container.attach({
+        stream: true, stdin: true, stdout: true, stderr: true, hijack: true,
+      });
+      attach.on('data', (c: Buffer) => onBytes(c));
+      await container.start();
+      this.active.set(runId, { container, attachStream: attach });
+      this.deps.runs.markResuming(runId, container.id);
+      this.publishState(runId);
+
+      await this.awaitAndComplete(runId, container, onBytes, store, broadcaster);
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      onBytes(Buffer.from(`\n[fbi] resume error: ${msg}\n`));
+      this.deps.runs.markFinished(runId, { state: 'failed', error: `resume failed: ${msg}` });
+      this.publishState(runId);
+      this.active.delete(runId);
+      store.close(); broadcaster.end(); this.deps.streams.release(runId);
     }
   }
 
@@ -292,6 +447,17 @@ export class Orchestrator {
 
   /** Cancel a running run. Safe to call on non-running runs (no-op). */
   async cancel(runId: number): Promise<void> {
+    const run = this.deps.runs.get(runId);
+    if (!run) return;
+    if (run.state === 'awaiting_resume') {
+      this.scheduler.cancel(runId);
+      this.deps.runs.markFinished(runId, { state: 'cancelled', error: null });
+      this.publishState(runId);
+      const bc = this.deps.streams.get(runId);
+      bc?.end();
+      this.deps.streams.release(runId);
+      return;
+    }
     const a = this.active.get(runId);
     if (!a) return;
     await a.container.stop({ t: 10 }).catch(() => {});
@@ -301,6 +467,14 @@ export class Orchestrator {
   }
 
   private cancelled = new Set<number>();
+
+  fireResumeNow(runId: number): void {
+    this.scheduler.fireNow(runId);
+  }
+
+  async rehydrateSchedules(): Promise<void> {
+    await this.scheduler.rehydrate();
+  }
 
   /**
    * Called at startup. For each run in state='running', try to reattach; if
