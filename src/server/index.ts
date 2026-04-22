@@ -3,7 +3,7 @@ import fastifyStatic from '@fastify/static';
 import fastifyWebsocket from '@fastify/websocket';
 import Docker from 'dockerode';
 import fs from 'node:fs';
-import { loadConfig } from './config.js';
+import { loadConfig, legacyDefaultLists } from './config.js';
 import { openDb } from './db/index.js';
 import { ProjectsRepo } from './db/projects.js';
 import { RunsRepo } from './db/runs.js';
@@ -28,6 +28,18 @@ async function main() {
   const runs = new RunsRepo(db);
   const secrets = new SecretsRepo(db, key);
   const settings = new SettingsRepo(db);
+
+  // One-time migration: if FBI_DEFAULT_* env vars are set and the DB still has empty
+  // global lists, migrate them in so existing deployments don't lose configuration.
+  const legacy = legacyDefaultLists();
+  const currentSettings = settings.get();
+  if (legacy.marketplaces.length > 0 && currentSettings.global_marketplaces.length === 0) {
+    settings.update({ global_marketplaces: legacy.marketplaces });
+  }
+  if (legacy.plugins.length > 0 && currentSettings.global_plugins.length === 0) {
+    settings.update({ global_plugins: legacy.plugins });
+  }
+
   const streams = new RunStreamRegistry();
   const docker = new Docker();
 
