@@ -39,6 +39,10 @@ rsync -a --delete \
   "$SOURCE_DIR/" "$APP_DIR/"
 
 # ── Build ──────────────────────────────────────────────────────────────────────
+# Capture SHA from source (APP_DIR has no .git after rsync --exclude .git).
+export VITE_VERSION
+VITE_VERSION="$(git -C "$SOURCE_DIR" rev-parse --short HEAD 2>/dev/null || echo dev)"
+
 npm --prefix "$APP_DIR" ci
 npm --prefix "$APP_DIR" run build
 
