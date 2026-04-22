@@ -159,7 +159,7 @@ function PerRunSection() {
   const [runs, setRuns] = useState<Run[]>([]);
   useEffect(() => {
     let stop = false;
-    void api.listRuns({ limit: 20 }).then((r) => { if (!stop) setRuns((r as { runs: Run[]; total: number }).runs); }).catch(() => {});
+    void api.listRunsPaged({ limit: 20, offset: 0 }).then((r) => { if (!stop) setRuns(r.items); }).catch(() => {});
     return () => { stop = true; };
   }, []);
   return (

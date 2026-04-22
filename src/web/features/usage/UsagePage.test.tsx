@@ -22,7 +22,7 @@ describe('UsagePage', () => {
     };
     vi.spyOn(useUsageMod, 'useUsage').mockReturnValue(state);
     vi.spyOn(api, 'listDailyUsage').mockResolvedValue([]);
-    vi.spyOn(api, 'listRuns').mockResolvedValue({ runs: [], total: 0 });
+    vi.spyOn(api, 'listRunsPaged').mockResolvedValue({ items: [], total: 0 });
     render(<MemoryRouter><UsagePage /></MemoryRouter>);
     expect(await screen.findByText(/42%/)).toBeInTheDocument();
     expect(screen.getByText(/5-hour window/i)).toBeInTheDocument();
@@ -35,7 +35,7 @@ describe('UsagePage', () => {
       buckets: [], pacing: {},
     });
     vi.spyOn(api, 'listDailyUsage').mockResolvedValue([]);
-    vi.spyOn(api, 'listRuns').mockResolvedValue({ runs: [], total: 0 });
+    vi.spyOn(api, 'listRunsPaged').mockResolvedValue({ items: [], total: 0 });
     render(<MemoryRouter><UsagePage /></MemoryRouter>);
     expect(screen.getByText(/sign in to claude/i)).toBeInTheDocument();
   });
