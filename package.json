@@ -4,7 +4,7 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "build": "npm run build:server && npm run build:web",
+    "build": "npm run build:server && npm run build:web && npm run cli:dist",
     "build:server": "tsc -p tsconfig.server.json && cp src/server/db/schema.sql dist/server/db/schema.sql && cp src/server/orchestrator/supervisor.sh dist/server/orchestrator/supervisor.sh && cp src/server/orchestrator/finalizeBranch.sh dist/server/orchestrator/finalizeBranch.sh && cp src/server/orchestrator/Dockerfile.tmpl dist/server/orchestrator/Dockerfile.tmpl && cp src/server/orchestrator/postbuild.sh dist/server/orchestrator/postbuild.sh",
     "build:web": "VITE_VERSION=${VITE_VERSION:-$(git rev-parse --short HEAD 2>/dev/null || echo dev)} vite build",
     "dev": "concurrently -k \"npm:dev:server\" \"npm:dev:web\"",
@@ -14,6 +14,7 @@
     "test:watch": "vitest",
     "typecheck": "tsc -p tsconfig.server.json --noEmit && tsc -p tsconfig.web.json --noEmit && tsc -p tsconfig.test.json --noEmit",
     "cli:build": "make -C cli/fbi-tunnel build",
+    "cli:dist": "bash cli/fbi-tunnel/scripts/build-dist.sh",
     "cli:install": "make -C cli/fbi-tunnel install",
     "cli:test": "make -C cli/fbi-tunnel test",
     "lint": "eslint src"
