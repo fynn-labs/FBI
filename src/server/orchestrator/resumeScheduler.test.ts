@@ -78,14 +78,13 @@ describe('ResumeScheduler', () => {
     expect(fired.length).toBe(2);
   });
 
-  it('rehydrate tolerates rows with NULL next_resume_at (fires on next tick)', async () => {
+  it('rehydrate fires on next tick when next_resume_at is 0 (epoch past)', async () => {
     const { runs, projectId, scheduler, fired } = setup();
     const r = runs.create({
       project_id: projectId, prompt: 'x',
       log_path_tmpl: (id) => `/tmp/${id}.log`,
     });
     runs.markStarted(r.id, 'c');
-    // Directly put it in awaiting_resume with null next_resume_at via the repo API:
     runs.markAwaitingResume(r.id, { next_resume_at: 0, last_limit_reset_at: 0 });
     await scheduler.rehydrate();
     await vi.advanceTimersByTimeAsync(1);
