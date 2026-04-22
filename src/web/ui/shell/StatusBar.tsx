@@ -13,7 +13,7 @@ export function StatusBar() {
     return statusRegistry.subscribe(update);
   }, []);
   return (
-    <footer className="h-[22px] flex items-center gap-4 px-3 border-t border-border-strong bg-surface font-mono text-[10px] uppercase tracking-[0.06em] text-text-faint">
+    <footer className="h-[22px] flex items-center gap-4 px-3 border-t border-border-strong bg-surface font-mono text-[11px] uppercase tracking-[0.06em] text-text-faint">
       {left.map((i) => <span key={i.id}>{i.render()}</span>)}
       <span className="ml-auto flex items-center gap-3">
         {right.map((i) => <span key={i.id}>{i.render()}</span>)}

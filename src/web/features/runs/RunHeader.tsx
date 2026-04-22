@@ -19,7 +19,7 @@ export function RunHeader({ run, onCancel, onDelete }: RunHeaderProps) {
   const canFollowUp = run.state !== 'running' && run.state !== 'queued' && run.state !== 'awaiting_resume' && !!run.branch_name;
   return (
     <header className="flex items-center gap-2 px-3 py-2 border-b border-border-strong bg-surface">
-      <h1 className="text-[14px] font-semibold">Run #{run.id}</h1>
+      <h1 className="text-[15px] font-semibold">Run #{run.id}</h1>
       <Pill tone={TONE[run.state]}>{run.state}</Pill>
       {run.branch_name && <CodeBlock>{run.branch_name}{run.head_commit ? `@${run.head_commit.slice(0,8)}` : ''}</CodeBlock>}
       <div className="ml-auto flex gap-1.5">

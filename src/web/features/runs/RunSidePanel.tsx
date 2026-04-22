@@ -54,15 +54,15 @@ export function RunSidePanel({ run, siblings, github, onCreatePr, creatingPr }: 
       {github && run.state === 'succeeded' && (
         <Group label="GitHub">
           {!github.github_available ? (
-            <p className="text-[11px] text-text-faint">no gh / non-github</p>
+            <p className="text-[12px] text-text-faint">no gh / non-github</p>
           ) : github.pr ? (
             <>
-              <a href={github.pr.url} target="_blank" rel="noreferrer" className="block text-[11px] text-accent underline">
+              <a href={github.pr.url} target="_blank" rel="noreferrer" className="block text-[12px] text-accent underline">
                 PR #{github.pr.number}
               </a>
-              <p className="text-[11px] text-text-dim truncate">{github.pr.title}</p>
+              <p className="text-[12px] text-text-dim truncate">{github.pr.title}</p>
               {github.checks && (
-                <p className="text-[11px] text-text-faint mt-1">
+                <p className="text-[12px] text-text-faint mt-1">
                   CI: <span className={github.checks.state === 'success' ? 'text-ok' : github.checks.state === 'failure' ? 'text-fail' : 'text-text-faint'}>
                     {github.checks.state}
                   </span> ({github.checks.passed}/{github.checks.total})
@@ -73,7 +73,7 @@ export function RunSidePanel({ run, siblings, github, onCreatePr, creatingPr }: 
             <button
               onClick={onCreatePr}
               disabled={creatingPr}
-              className="text-[11px] text-accent hover:text-accent-strong disabled:opacity-50"
+              className="text-[12px] text-accent hover:text-accent-strong disabled:opacity-50"
             >
               {creatingPr ? 'Creating…' : 'Create PR'}
             </button>
@@ -84,7 +84,7 @@ export function RunSidePanel({ run, siblings, github, onCreatePr, creatingPr }: 
       {siblings.length > 0 && (
         <Group label="Related">
           {siblings.map((s) => (
-            <Link key={s.id} to={`/runs/${s.id}`} className="flex items-center gap-1 text-[11px] text-text-dim hover:text-text py-0.5">
+            <Link key={s.id} to={`/runs/${s.id}`} className="flex items-center gap-1 text-[12px] text-text-dim hover:text-text py-0.5">
               <span className="font-mono">#{s.id}</span>
               <Pill tone={TONE[s.state]}>{s.state}</Pill>
               <span className="truncate text-text-faint">{s.branch_name}</span>
@@ -99,12 +99,12 @@ export function RunSidePanel({ run, siblings, github, onCreatePr, creatingPr }: 
 function Group({ label, children }: { label: string; children: ReactNode }) {
   return (
     <section className="mb-3">
-      <h3 className="text-[10px] font-semibold uppercase tracking-[0.08em] text-text-faint pb-1 border-b border-border mb-1">{label}</h3>
+      <h3 className="text-[11px] font-semibold uppercase tracking-[0.08em] text-text-faint pb-1 border-b border-border mb-1">{label}</h3>
       {children}
     </section>
   );
 }
 
 function Row({ label, children }: { label: string; children: ReactNode }) {
-  return <div className="flex items-center gap-1 text-[11px] text-text-dim py-0.5"><span className="text-text-faint">{label}</span><span className="ml-auto">{children}</span></div>;
+  return <div className="flex items-center gap-1 text-[12px] text-text-dim py-0.5"><span className="text-text-faint">{label}</span><span className="ml-auto">{children}</span></div>;
 }

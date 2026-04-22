@@ -5,10 +5,10 @@ export interface GithubTabProps {
 }
 
 export function GithubTab({ github }: GithubTabProps) {
-  if (!github) return <p className="p-3 text-[11px] text-text-faint">Loading…</p>;
-  if (!github.github_available) return <p className="p-3 text-[11px] text-text-faint">GitHub CLI not available or non-GitHub remote.</p>;
+  if (!github) return <p className="p-3 text-[12px] text-text-faint">Loading…</p>;
+  if (!github.github_available) return <p className="p-3 text-[12px] text-text-faint">GitHub CLI not available or non-GitHub remote.</p>;
   return (
-    <div className="p-3 space-y-2 text-[12px]">
+    <div className="p-3 space-y-2 text-[13px]">
       {github.pr ? (
         <a href={github.pr.url} target="_blank" rel="noreferrer" className="text-accent">PR #{github.pr.number} — {github.pr.title}</a>
       ) : (

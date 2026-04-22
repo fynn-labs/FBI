@@ -10,8 +10,8 @@ export interface FilesTabProps {
 
 export function FilesTab({ diff, project }: FilesTabProps) {
   if (!diff) return <LoadingState label="Loading diff…" />;
-  if (!diff.github_available) return <p className="p-3 text-[11px] text-text-faint">GitHub CLI not available or non-GitHub remote.</p>;
-  if (diff.files.length === 0) return <p className="p-3 text-[11px] text-text-faint">No files changed.</p>;
+  if (!diff.github_available) return <p className="p-3 text-[12px] text-text-faint">GitHub CLI not available or non-GitHub remote.</p>;
+  if (diff.files.length === 0) return <p className="p-3 text-[12px] text-text-faint">No files changed.</p>;
   const repo = project ? parseGitHubRepo(project.repo_url) : null;
   return (
     <div className="py-1">

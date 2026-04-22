@@ -69,7 +69,7 @@ export function JsonEditor({ label, value, onChange }: JsonEditorProps) {
 
   return (
     <label className="block">
-      <span className="block text-[12px] font-medium text-text-dim mb-1.5">{label}</span>
+      <span className="block text-[13px] font-medium text-text-dim mb-1.5">{label}</span>
       <div className="border border-border-strong rounded-md overflow-hidden bg-surface-sunken">
         <CodeMirror
           value={value}
@@ -81,10 +81,10 @@ export function JsonEditor({ label, value, onChange }: JsonEditorProps) {
         />
       </div>
       {status === 'valid' && (
-        <p className="mt-1 text-[11px] text-ok">✓ Valid JSON</p>
+        <p className="mt-1 text-[12px] text-ok">✓ Valid JSON</p>
       )}
       {status !== 'valid' && status !== 'empty' && (
-        <p className="mt-1 text-[11px] text-fail">✗ {status}</p>
+        <p className="mt-1 text-[12px] text-fail">✗ {status}</p>
       )}
     </label>
   );

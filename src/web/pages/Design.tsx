@@ -19,7 +19,7 @@ export function DesignPage() {
   return (
     <div className="p-6 space-y-8 max-w-6xl">
       <header className="flex items-center justify-between border-b border-border pb-3">
-        <h1 className="text-[22px] font-semibold tracking-[-0.02em]">Design · showcase</h1>
+        <h1 className="text-[24px] font-semibold tracking-[-0.02em]">Design · showcase</h1>
         <div className="flex items-center gap-2">
           <Button variant="ghost" onClick={toggleTheme}>Toggle theme</Button>
           <KeyboardHint keys={['⌘', 'K']} label="search" />
@@ -61,13 +61,13 @@ export function DesignPage() {
           <FormRow label="Notifications">
             <div className="flex items-center gap-2">
               <Toggle checked={toggle} onChange={setToggle} aria-label="enable notifications" />
-              <span className="text-[12px] text-text-dim">enabled</span>
+              <span className="text-[13px] text-text-dim">enabled</span>
             </div>
           </FormRow>
           <FormRow label="I agree">
             <div className="flex items-center gap-2">
               <Checkbox checked={check} onChange={setCheck} id="agree" aria-label="agree" />
-              <label htmlFor="agree" className="text-[12px] text-text-dim">Accept terms</label>
+              <label htmlFor="agree" className="text-[13px] text-text-dim">Accept terms</label>
             </div>
           </FormRow>
           <FormRow label="Backend" htmlFor="backend-select">
@@ -102,7 +102,7 @@ export function DesignPage() {
             <Tooltip label="Switch theme (⌘T)"><Button variant="ghost" onClick={toggleTheme}>Theme</Button></Tooltip>
           </div>
           <Dialog open={dialog} onClose={() => setDialog(false)} title="Confirm delete">
-            <p className="text-[12px] text-text-dim mb-4">This removes the run and its transcript.</p>
+            <p className="text-[13px] text-text-dim mb-4">This removes the run and its transcript.</p>
             <div className="flex justify-end gap-2">
               <Button variant="ghost" onClick={() => setDialog(false)}>Cancel</Button>
               <Button variant="danger" onClick={() => setDialog(false)}>Delete</Button>
@@ -114,7 +114,7 @@ export function DesignPage() {
       <Section title="Cards, Stats, Progress, Sparkline">
         <div className="grid grid-cols-[1fr_1fr] gap-4">
           <Card>
-            <div className="p-4"><p className="text-[12px] text-text-dim">A card. Primitive container.</p></div>
+            <div className="p-4"><p className="text-[13px] text-text-dim">A card. Primitive container.</p></div>
           </Card>
           <div className="flex gap-2">
             <StatCard label="Active" value={1} tone="accent" delta="running" />
@@ -122,7 +122,7 @@ export function DesignPage() {
             <StatCard label="Failed" value={1} tone="fail" />
           </div>
           <div>
-            <p className="text-[11px] text-text-faint mb-1">Tokens used — 1.2M / 5M</p>
+            <p className="text-[12px] text-text-faint mb-1">Tokens used — 1.2M / 5M</p>
             <ProgressBar value={1_200_000} max={5_000_000} aria-label="tokens" />
           </div>
           <Sparkline values={[3, 5, 2, 7, 4, 9, 6, 11, 8, 14]} aria-label="runs per day" />
@@ -155,8 +155,8 @@ export function DesignPage() {
       <Section title="SplitPane">
         <div className="h-64 border border-border-strong rounded-lg overflow-hidden">
           <SplitPane
-            left={<div className="p-3 text-[12px] text-text-dim">master list</div>}
-            right={<div className="p-3 text-[12px] text-text-dim">detail pane</div>}
+            left={<div className="p-3 text-[13px] text-text-dim">master list</div>}
+            right={<div className="p-3 text-[13px] text-text-dim">detail pane</div>}
           />
         </div>
       </Section>

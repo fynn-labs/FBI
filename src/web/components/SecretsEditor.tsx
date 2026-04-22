@@ -40,7 +40,7 @@ export function SecretsEditor({ projectId }: { projectId: number }) {
         <ul className="space-y-1">
           {names.map((s) => (
             <li key={s.name} className="flex justify-between items-center py-1 border-b border-border last:border-0">
-              <code className="text-[12px] text-text font-mono">{s.name}</code>
+              <code className="text-[13px] text-text font-mono">{s.name}</code>
               <Button variant="danger" size="sm" type="button" onClick={() => remove(s.name)}>
                 Remove
               </Button>

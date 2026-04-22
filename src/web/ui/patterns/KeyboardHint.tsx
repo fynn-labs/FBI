@@ -7,7 +7,7 @@ export interface KeyboardHintProps {
 
 export function KeyboardHint({ keys, label }: KeyboardHintProps) {
   return (
-    <span className="inline-flex items-center gap-1 text-[10px] text-text-faint">
+    <span className="inline-flex items-center gap-1 text-[11px] text-text-faint">
       {keys.map((k, i) => <Kbd key={i}>{k}</Kbd>)}
       {label && <span>{label}</span>}
     </span>

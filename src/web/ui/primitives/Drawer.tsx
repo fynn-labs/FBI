@@ -14,11 +14,11 @@ export function Drawer({ open, onToggle, header, children, className }: DrawerPr
   return (
     <div className={cn('border-t border-border-strong bg-surface', className)}>
       <div className="flex items-center px-3 py-1.5">
-        <div className="flex-1 min-w-0 font-mono text-[11px] text-text-dim">{header}</div>
+        <div className="flex-1 min-w-0 font-mono text-[12px] text-text-dim">{header}</div>
         <IconButton
           aria-label={open ? 'Collapse drawer' : 'Expand drawer'}
           onClick={() => onToggle(!open)}
-          className="text-[12px]"
+          className="text-[13px]"
         >
           {open ? '▾' : '▸'}
         </IconButton>

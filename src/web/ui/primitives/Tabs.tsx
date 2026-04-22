@@ -26,7 +26,7 @@ export function Tabs<T extends string>({ tabs, value, onChange, className }: Tab
             aria-selected={active}
             onClick={() => onChange(t.value)}
             className={cn(
-              'font-mono text-[11px] px-3 py-1.5 border-b-2 transition-colors duration-fast ease-out',
+              'font-mono text-[12px] px-3 py-1.5 border-b-2 transition-colors duration-fast ease-out',
               active
                 ? 'text-accent-strong border-accent'
                 : 'text-text-faint border-transparent hover:text-text',

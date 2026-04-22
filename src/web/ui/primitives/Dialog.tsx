@@ -46,7 +46,7 @@ export function Dialog({ open, onClose, title, children, className }: DialogProp
         )}
       >
         <header className="px-5 py-3 border-b border-border">
-          <h2 className="text-[14px] font-semibold">{title}</h2>
+          <h2 className="text-[15px] font-semibold">{title}</h2>
         </header>
         <div className="p-5">{children}</div>
       </div>

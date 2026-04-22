@@ -8,5 +8,5 @@ export function TimestampRelative({ iso }: TimestampRelativeProps) {
   else if (diff < 3600) text = `${Math.round(diff / 60)}m`;
   else if (diff < 86400) text = `${Math.round(diff / 3600)}h`;
   else text = `${Math.round(diff / 86400)}d`;
-  return <time dateTime={iso} title={new Date(iso).toLocaleString()} className="font-mono text-[11px] text-text-faint">{text}</time>;
+  return <time dateTime={iso} title={new Date(iso).toLocaleString()} className="font-mono text-[12px] text-text-faint">{text}</time>;
 }
