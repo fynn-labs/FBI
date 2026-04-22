@@ -15,7 +15,7 @@ export const ALWAYS = ['git', 'openssh-client', 'gh', 'ca-certificates', 'claude
 
 export interface ResolveInput {
   projectId: number;
-  devcontainerFile: string | null;   // raw JSON contents if repo has one
+  devcontainerFiles: Record<string, string> | null; // all .devcontainer/ files if repo has them
   overrideJson: string | null;        // projects.devcontainer_override_json
   onLog: (chunk: Uint8Array) => void; // build logs
 }
@@ -31,7 +31,7 @@ export class ImageBuilder {
 
   async resolve(input: ResolveInput): Promise<string> {
     const hash = computeConfigHash({
-      devcontainer_file: input.devcontainerFile,
+      devcontainer_files: input.devcontainerFiles,
       override_json: input.overrideJson,
       always: ALWAYS,
       postbuild: POSTBUILD,
@@ -43,8 +43,8 @@ export class ImageBuilder {
     // Stage 1: build the base image (either devcontainer or fallback template).
     const baseTag = `fbi/p${input.projectId}-base:${hash}`;
     if (!(await this.imageExists(baseTag))) {
-      if (input.devcontainerFile) {
-        await this.buildDevcontainer(input.devcontainerFile, baseTag, input.onLog);
+      if (input.devcontainerFiles) {
+        await this.buildDevcontainer(input.devcontainerFiles, baseTag, input.onLog);
       } else {
         await this.buildFallback(input.overrideJson, baseTag, input.onLog);
       }
@@ -89,17 +89,16 @@ export class ImageBuilder {
   }
 
   private async buildDevcontainer(
-    devcontainerFileContents: string,
+    files: Record<string, string>,
     tag: string,
     onLog: (c: Uint8Array) => void
   ): Promise<void> {
-    // Write the file to a tmp dir and shell out to @devcontainers/cli.
+    // Write all .devcontainer/ files to a tmp dir and shell out to @devcontainers/cli.
     const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'fbi-dc-'));
     fs.mkdirSync(path.join(tmp, '.devcontainer'), { recursive: true });
-    fs.writeFileSync(
-      path.join(tmp, '.devcontainer', 'devcontainer.json'),
-      devcontainerFileContents
-    );
+    for (const [name, contents] of Object.entries(files)) {
+      fs.writeFileSync(path.join(tmp, '.devcontainer', name), contents);
+    }
     try {
       const out = execFileSync(
         'npx',

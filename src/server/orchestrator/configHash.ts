@@ -1,7 +1,7 @@
 import crypto from 'node:crypto';
 
 export interface ConfigHashInput {
-  devcontainer_file: string | null;
+  devcontainer_files: Record<string, string> | null;
   override_json: string | null;
   always: readonly string[];
   postbuild: string;
@@ -10,7 +10,11 @@ export interface ConfigHashInput {
 export function computeConfigHash(input: ConfigHashInput): string {
   const h = crypto.createHash('sha256');
   h.update('dev:');
-  h.update(input.devcontainer_file ?? '');
+  if (input.devcontainer_files) {
+    for (const k of Object.keys(input.devcontainer_files).sort()) {
+      h.update(`${k}:${input.devcontainer_files[k]}\n`);
+    }
+  }
   h.update('\nover:');
   h.update(input.override_json ?? '');
   h.update('\nalways:');

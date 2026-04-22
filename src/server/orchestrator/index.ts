@@ -97,14 +97,14 @@ export class Orchestrator {
     try {
       // Build or reuse image.
       onBytes(Buffer.from(`[fbi] resolving image\n`));
-      const devcontainerFile = await fetchDevcontainerFile(
+      const devcontainerFiles = await fetchDevcontainerFile(
         project.repo_url,
         this.deps.config.hostSshAuthSock,
         onBytes,
       );
       const imageTag = await this.imageBuilder.resolve({
         projectId: project.id,
-        devcontainerFile,
+        devcontainerFiles,
         overrideJson: project.devcontainer_override_json,
         onLog: onBytes,
       });
@@ -451,7 +451,7 @@ async function fetchDevcontainerFile(
   repoUrl: string,
   sshAuthSock: string,
   onLog: (chunk: Uint8Array) => void,
-): Promise<string | null> {
+): Promise<Record<string, string> | null> {
   if (!sshAuthSock) return null;
   const tmpParent = fs.mkdtempSync(path.join(os.tmpdir(), 'fbi-dc-'));
   const tmp = path.join(tmpParent, 'r');
@@ -464,12 +464,17 @@ async function fetchDevcontainerFile(
     );
     execFileSync('git', ['-C', tmp, 'sparse-checkout', 'set', '.devcontainer'], { env, stdio: 'pipe' });
     execFileSync('git', ['-C', tmp, 'checkout'], { env, stdio: 'pipe' });
-    const dcFile = path.join(tmp, '.devcontainer', 'devcontainer.json');
-    if (fs.existsSync(dcFile)) {
-      onLog(Buffer.from(`[fbi] using repo .devcontainer/devcontainer.json\n`));
-      return fs.readFileSync(dcFile, 'utf8');
+    const dcDir = path.join(tmp, '.devcontainer');
+    if (!fs.existsSync(path.join(dcDir, 'devcontainer.json'))) return null;
+    const files: Record<string, string> = {};
+    for (const entry of fs.readdirSync(dcDir)) {
+      const full = path.join(dcDir, entry);
+      if (fs.statSync(full).isFile()) {
+        files[entry] = fs.readFileSync(full, 'utf8');
+      }
     }
-    return null;
+    onLog(Buffer.from(`[fbi] using repo .devcontainer/devcontainer.json\n`));
+    return files;
   } catch {
     return null;
   } finally {

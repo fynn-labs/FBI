@@ -31,7 +31,7 @@ export class ImageGc {
     const reachable = new Set<string>();
     for (const p of projects) {
       const hash = computeConfigHash({
-        devcontainer_file: null,
+        devcontainer_files: null,
         override_json: p.devcontainer_override_json,
         always: cfg.always,
         postbuild: cfg.postbuild,

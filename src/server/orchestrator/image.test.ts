@@ -13,7 +13,7 @@ describe.skipIf(!HAVE_DOCKER)('ImageBuilder', () => {
     const builder = new ImageBuilder(docker);
     const tag = await builder.resolve({
       projectId: 999,
-      devcontainerFile: null,
+      devcontainerFiles: null,
       overrideJson: JSON.stringify({
         base: 'alpine:3.19',
         apt: [],
@@ -31,7 +31,7 @@ describe.skipIf(!HAVE_DOCKER)('ImageBuilder', () => {
     const builder = new ImageBuilder(docker);
     const input = {
       projectId: 998,
-      devcontainerFile: null,
+      devcontainerFiles: null,
       overrideJson: JSON.stringify({ base: 'alpine:3.19', apt: [], env: {} }),
       onLog: () => {},
     };

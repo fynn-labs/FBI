@@ -35,7 +35,7 @@ describe('ImageGc.sweep', () => {
   it('keeps reachable project images', async () => {
     const p = project(1, null, null);
     const hash = computeConfigHash({
-      devcontainer_file: null, override_json: null,
+      devcontainer_files: null, override_json: null,
       always: [], postbuild: '',
     });
     const now = Math.floor(Date.now() / 1000);
