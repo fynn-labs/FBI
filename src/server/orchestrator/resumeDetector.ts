@@ -32,14 +32,14 @@ export function classify(
   const mEpoch = tail.match(RE_PIPE_EPOCH);
   if (mEpoch) {
     const ms = Number(mEpoch[1]) * 1000;
-    return sanityClamp(ms, 'log_epoch', state, now);
+    return sanityClamp(ms, 'log_epoch', now);
   }
 
   // 2. Human reset string.
   const mHuman = tail.match(RE_HUMAN);
   if (mHuman) {
     const parsed = parseHumanResetTime(mHuman[1], now);
-    if (parsed !== null) return sanityClamp(parsed, 'log_text', state, now);
+    if (parsed !== null) return sanityClamp(parsed, 'log_text', now);
     // parseable text but unparseable time → fall through to lenient.
   }
 
@@ -74,7 +74,6 @@ function classifyFromState(
 function sanityClamp(
   ms: number,
   source: Exclude<ResumeVerdict['source'], null>,
-  _state: RateLimitStateInput | null,
   now: number,
 ): ResumeVerdict {
   if (!Number.isFinite(ms)) {
