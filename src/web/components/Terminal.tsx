@@ -32,7 +32,10 @@ export function Terminal({ runId, interactive }: Props) {
         'ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace',
       fontSize: 13,
       theme: readTheme(),
-      cursorBlink: true,
+      cursorBlink: interactive,
+      // Hide the caret when the terminal isn't focused — kills the "floating
+      // blue cursor" that showed up for non-interactive read-only panes.
+      cursorInactiveStyle: 'none',
     });
     const fit = new FitAddon();
     term.loadAddon(fit);
@@ -47,6 +50,25 @@ export function Terminal({ runId, interactive }: Props) {
       try { fit.fit(); return true; } catch { return false; }
     };
 
+    // Write big buffers in ~32KB slices so xterm's parser yields to the
+    // renderer between chunks. Writing a single 1MB+ replay in one shot
+    // stalls the main thread long enough that the terminal renders in a
+    // broken intermediate state.
+    const WRITE_CHUNK = 32 * 1024;
+    const writeChunked = (data: Uint8Array): void => {
+      if (data.byteLength <= WRITE_CHUNK) { term.write(data); return; }
+      let offset = 0;
+      const pump = () => {
+        if (disposed || offset >= data.byteLength) return;
+        const end = Math.min(offset + WRITE_CHUNK, data.byteLength);
+        term.write(data.subarray(offset, end), () => {
+          offset = end;
+          if (offset < data.byteLength) pump();
+        });
+      };
+      pump();
+    };
+
     // Defer first fit + replay until after layout settles. xterm's FitAddon
     // uses getBoundingClientRect which can return stale/zero values during
     // the first paint, especially when the parent SplitPane just mounted.
@@ -56,16 +78,17 @@ export function Terminal({ runId, interactive }: Props) {
       const raf2 = requestAnimationFrame(() => {
         if (disposed) return;
         safeFit();
-        // Replay buffered bytes as ONE write so xterm's parser pipeline
-        // processes it in a single pass instead of N queued chunks.
         const buf = getBuffer(runId);
         if (buf.length > 0) {
           const total = buf.reduce((s, c) => s + c.byteLength, 0);
           const merged = new Uint8Array(total);
           let offset = 0;
           for (const c of buf) { merged.set(c, offset); offset += c.byteLength; }
-          term.write(merged);
+          writeChunked(merged);
         }
+        // For read-only panes, hide the cursor entirely (DECTCEM off) so
+        // there's no vestigial caret at the end of the captured log.
+        if (!interactive) term.write('\x1b[?25l');
         if (interactive) term.focus();
       });
       // Cache inside the outer closure so cleanup can cancel it.
@@ -95,7 +118,10 @@ export function Terminal({ runId, interactive }: Props) {
     });
     ro.observe(host);
 
-    const unsubBytes = shell.onBytes((data) => term.write(data));
+    // The server sends the full log replay in a single WebSocket message
+    // on connect. Chunk it so a multi-megabyte initial payload doesn't
+    // freeze the parser.
+    const unsubBytes = shell.onBytes((data) => writeChunked(data));
     const unsubEv = shell.onTypedEvent<{ type: string; snapshot?: unknown }>((msg) => {
       if (msg.type === 'usage') publishUsage(runId, msg.snapshot as UsageSnapshot);
       else if (msg.type === 'rate_limit') publishRateLimit(runId, msg.snapshot as RateLimitState);
