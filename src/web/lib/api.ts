@@ -41,18 +41,26 @@ export const api = {
   removeSecret: (projectId: number, name: string) =>
     request<void>(`/api/projects/${projectId}/secrets/${name}`, { method: 'DELETE' }),
 
-  listRuns: () => request<Run[]>('/api/runs'),
+  listRuns: (state?: 'queued' | 'running' | 'succeeded' | 'failed' | 'cancelled') =>
+    request<Run[]>(state ? `/api/runs?state=${state}` : '/api/runs'),
   listProjectRuns: (projectId: number) =>
     request<Run[]>(`/api/projects/${projectId}/runs`),
   getRun: (id: number) => request<Run>(`/api/runs/${id}`),
-  createRun: (projectId: number, prompt: string) =>
+  getRecentPrompts: (projectId: number, limit = 10) =>
+    request<{ prompt: string; last_used_at: number; run_id: number }[]>(
+      `/api/projects/${projectId}/prompts/recent?limit=${limit}`
+    ),
+  createRun: (projectId: number, prompt: string, branch?: string) =>
     request<Run>(`/api/projects/${projectId}/runs`, {
       method: 'POST',
-      body: JSON.stringify({ prompt }),
+      body: JSON.stringify({
+        prompt,
+        branch: branch && branch.trim() !== '' ? branch.trim() : undefined,
+      }),
     }),
   deleteRun: (id: number) => request<void>(`/api/runs/${id}`, { method: 'DELETE' }),
 
   getSettings: () => request<Settings>('/api/settings'),
-  updateSettings: (patch: { global_prompt?: string }) =>
+  updateSettings: (patch: { global_prompt?: string; notifications_enabled?: boolean }) =>
     request<Settings>('/api/settings', { method: 'PATCH', body: JSON.stringify(patch) }),
 };

@@ -12,7 +12,13 @@ interface Deps {
 }
 
 export function registerRunsRoutes(app: FastifyInstance, deps: Deps): void {
-  app.get('/api/runs', async () => deps.runs.listAll());
+  app.get('/api/runs', async (req) => {
+    const state = (req.query as { state?: string }).state;
+    if (state === 'running' || state === 'queued' || state === 'succeeded' || state === 'failed' || state === 'cancelled') {
+      return deps.runs.listByState(state);
+    }
+    return deps.runs.listAll();
+  });
 
   app.get('/api/runs/:id', async (req, reply) => {
     const { id } = req.params as { id: string };
@@ -28,11 +34,12 @@ export function registerRunsRoutes(app: FastifyInstance, deps: Deps): void {
 
   app.post('/api/projects/:id/runs', async (req, reply) => {
     const { id } = req.params as { id: string };
-    const { prompt } = req.body as { prompt: string };
+    const body = req.body as { prompt: string; branch?: string };
+    const hint = (body.branch ?? '').trim();
     const run = deps.runs.create({
       project_id: Number(id),
-      prompt,
-      branch_name_tmpl: (rid) => `claude/run-${rid}`,
+      prompt: body.prompt,
+      branch_hint: hint === '' ? undefined : hint,
       log_path_tmpl: (rid) => path.join(deps.runsDir, `${rid}.log`),
     });
     void deps.launch(run.id).catch((err) => app.log.error({ err }, 'launch failed'));

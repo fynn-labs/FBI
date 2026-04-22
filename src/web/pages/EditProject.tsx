@@ -28,6 +28,9 @@ export function EditProjectPage() {
         git_author_email: p.git_author_email,
         marketplaces: p.marketplaces,
         plugins: p.plugins,
+        mem_mb: p.mem_mb,
+        cpus: p.cpus,
+        pids_limit: p.pids_limit,
       });
       nav(`/projects/${pid}`);
     } catch (err) { setError(String(err)); }
@@ -48,6 +51,12 @@ export function EditProjectPage() {
       <Area label="Extra plugins (one per line, format: name@marketplace)"
             value={p.plugins.join('\n')}
             onChange={(v) => setP({ ...p, plugins: splitLines(v) })} />
+      <NumberField label="Memory cap (MB) — blank = global default"
+                   value={p.mem_mb} onChange={(v) => setP({ ...p, mem_mb: v })} />
+      <NumberField label="CPUs — blank = global default"
+                   value={p.cpus} onChange={(v) => setP({ ...p, cpus: v })} />
+      <NumberField label="Pids limit — blank = global default"
+                   value={p.pids_limit} onChange={(v) => setP({ ...p, pids_limit: v })} />
       <JsonEditor label="Devcontainer override JSON (used when repo has no .devcontainer/devcontainer.json)"
                   value={p.devcontainer_override_json ?? ''}
                   onChange={(v) => setP({ ...p, devcontainer_override_json: v || null })} />
@@ -76,6 +85,27 @@ function Area({ label, value, onChange }: { label: string; value: string; onChan
       <span className="block text-sm font-medium mb-1">{label}</span>
       <textarea value={value} onChange={(e) => onChange(e.target.value)} rows={5}
                 className="w-full border rounded px-2 py-1 font-mono text-sm dark:bg-gray-900 dark:border-gray-600 dark:text-gray-100" />
+    </label>
+  );
+}
+function NumberField({
+  label, value, onChange, placeholder,
+}: {
+  label: string;
+  value: number | null;
+  onChange: (v: number | null) => void;
+  placeholder?: string;
+}) {
+  return (
+    <label className="block">
+      <span className="block text-sm font-medium mb-1">{label}</span>
+      <input
+        type="number"
+        value={value ?? ''}
+        placeholder={placeholder}
+        onChange={(e) => onChange(e.target.value === '' ? null : Number(e.target.value))}
+        className="w-full border rounded px-2 py-1 font-mono dark:bg-gray-900 dark:border-gray-600 dark:text-gray-100"
+      />
     </label>
   );
 }

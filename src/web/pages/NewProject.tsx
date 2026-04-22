@@ -37,6 +37,9 @@ export function NewProjectPage() {
         git_author_email: gitAuthorEmail.trim() || null,
         marketplaces: splitLines(marketplaces),
         plugins: splitLines(plugins),
+        mem_mb: null,
+        cpus: null,
+        pids_limit: null,
       });
       nav(`/projects/${p.id}`);
     } catch (err) {

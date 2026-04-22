@@ -11,6 +11,9 @@ export interface CreateProjectInput {
   git_author_email: string | null;
   marketplaces?: string[];
   plugins?: string[];
+  mem_mb?: number | null;
+  cpus?: number | null;
+  pids_limit?: number | null;
 }
 
 export type UpdateProjectInput = Partial<CreateProjectInput>;
@@ -26,6 +29,9 @@ interface ProjectRow {
   git_author_email: string | null;
   marketplaces_json: string;
   plugins_json: string;
+  mem_mb: number | null;
+  cpus: number | null;
+  pids_limit: number | null;
   created_at: number;
   updated_at: number;
 }
@@ -42,6 +48,9 @@ function fromRow(row: ProjectRow): Project {
     git_author_email: row.git_author_email,
     marketplaces: parseList(row.marketplaces_json),
     plugins: parseList(row.plugins_json),
+    mem_mb: row.mem_mb,
+    cpus: row.cpus,
+    pids_limit: row.pids_limit,
     created_at: row.created_at,
     updated_at: row.updated_at,
   };
@@ -63,10 +72,13 @@ export class ProjectsRepo {
         (name, repo_url, default_branch, devcontainer_override_json,
          instructions, git_author_name, git_author_email,
          marketplaces_json, plugins_json,
+         mem_mb, cpus, pids_limit,
          created_at, updated_at)
        VALUES (@name, @repo_url, @default_branch, @devcontainer_override_json,
                @instructions, @git_author_name, @git_author_email,
-               @marketplaces_json, @plugins_json, @now, @now)`
+               @marketplaces_json, @plugins_json,
+               @mem_mb, @cpus, @pids_limit,
+               @now, @now)`
     );
     const info = stmt.run({
       name: input.name,
@@ -78,6 +90,9 @@ export class ProjectsRepo {
       git_author_email: input.git_author_email,
       marketplaces_json: JSON.stringify(input.marketplaces ?? []),
       plugins_json: JSON.stringify(input.plugins ?? []),
+      mem_mb: input.mem_mb ?? null,
+      cpus: input.cpus ?? null,
+      pids_limit: input.pids_limit ?? null,
       now,
     });
     return this.get(Number(info.lastInsertRowid))!;
@@ -111,6 +126,7 @@ export class ProjectsRepo {
           git_author_name=@git_author_name, git_author_email=@git_author_email,
           marketplaces_json=@marketplaces_json,
           plugins_json=@plugins_json,
+          mem_mb=@mem_mb, cpus=@cpus, pids_limit=@pids_limit,
           updated_at=@updated_at
          WHERE id=@id`
       )
@@ -125,6 +141,9 @@ export class ProjectsRepo {
         git_author_email: merged.git_author_email,
         marketplaces_json: JSON.stringify(merged.marketplaces ?? []),
         plugins_json: JSON.stringify(merged.plugins ?? []),
+        mem_mb: merged.mem_mb ?? null,
+        cpus: merged.cpus ?? null,
+        pids_limit: merged.pids_limit ?? null,
         updated_at: merged.updated_at,
       });
   }

@@ -9,6 +9,9 @@ CREATE TABLE IF NOT EXISTS projects (
   git_author_email TEXT,
   marketplaces_json TEXT NOT NULL DEFAULT '[]',
   plugins_json TEXT NOT NULL DEFAULT '[]',
+  mem_mb INTEGER,
+  cpus REAL,
+  pids_limit INTEGER,
   created_at INTEGER NOT NULL,
   updated_at INTEGER NOT NULL
 );
@@ -44,6 +47,7 @@ CREATE INDEX IF NOT EXISTS idx_runs_state ON runs(state);
 CREATE TABLE IF NOT EXISTS settings (
   id INTEGER PRIMARY KEY CHECK (id = 1),
   global_prompt TEXT NOT NULL DEFAULT '',
+  notifications_enabled INTEGER NOT NULL DEFAULT 1,
   updated_at INTEGER NOT NULL
 );
-INSERT OR IGNORE INTO settings (id, global_prompt, updated_at) VALUES (1, '', 0);
+INSERT OR IGNORE INTO settings (id, global_prompt, notifications_enabled, updated_at) VALUES (1, '', 1, 0);

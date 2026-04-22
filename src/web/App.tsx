@@ -1,3 +1,4 @@
+import { useEffect, useState } from 'react';
 import { Routes, Route, Navigate } from 'react-router-dom';
 import { Layout } from './components/Layout.js';
 import { ProjectsPage } from './pages/Projects.js';
@@ -8,8 +9,16 @@ import { NewRunPage } from './pages/NewRun.js';
 import { RunsPage } from './pages/Runs.js';
 import { RunDetailPage } from './pages/RunDetail.js';
 import { SettingsPage } from './pages/Settings.js';
+import { useRunWatcher } from './hooks/useRunWatcher.js';
+import { api } from './lib/api.js';
 
 export function App() {
+  const [notifEnabled, setNotifEnabled] = useState(false);
+  useEffect(() => {
+    void api.getSettings().then((s) => setNotifEnabled(s.notifications_enabled));
+  }, []);
+  useRunWatcher(notifEnabled);
+
   return (
     <Layout>
       <Routes>

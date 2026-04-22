@@ -70,4 +70,43 @@ describe('ProjectsRepo', () => {
     repo.delete(p.id);
     expect(repo.list().length).toBe(1);
   });
+
+  it('stores and reads resource caps', () => {
+    const p = repo.create({
+      name: 'capped',
+      repo_url: 'u',
+      default_branch: 'main',
+      devcontainer_override_json: null,
+      instructions: null,
+      git_author_name: null,
+      git_author_email: null,
+      mem_mb: 2048,
+      cpus: 1.5,
+      pids_limit: 256,
+    });
+    expect(p.mem_mb).toBe(2048);
+    expect(p.cpus).toBe(1.5);
+    expect(p.pids_limit).toBe(256);
+
+    repo.update(p.id, { mem_mb: null, cpus: null, pids_limit: null });
+    const cleared = repo.get(p.id)!;
+    expect(cleared.mem_mb).toBeNull();
+    expect(cleared.cpus).toBeNull();
+    expect(cleared.pids_limit).toBeNull();
+  });
+
+  it('defaults resource caps to null when omitted', () => {
+    const p = repo.create({
+      name: 'defaulted',
+      repo_url: 'u',
+      default_branch: 'main',
+      devcontainer_override_json: null,
+      instructions: null,
+      git_author_name: null,
+      git_author_email: null,
+    });
+    expect(p.mem_mb).toBeNull();
+    expect(p.cpus).toBeNull();
+    expect(p.pids_limit).toBeNull();
+  });
 });

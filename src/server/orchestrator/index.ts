@@ -50,6 +50,17 @@ export class Orchestrator {
       broadcaster.publish(chunk);
     };
 
+    const branchHint = run.branch_name;
+    const preamble = [
+      `You are working in /workspace on ${project.repo_url}.`,
+      `Its default branch is ${project.default_branch}. Do NOT commit to ${project.default_branch}.`,
+      branchHint
+        ? `Create or check out a branch named \`${branchHint}\`,`
+        : `Create or check out a branch appropriately named for this task,`,
+      'do your work there, and leave all commits on that branch.',
+      '',
+    ].join('\n');
+
     try {
       // Build or reuse image.
       onBytes(Buffer.from(`[fbi] resolving image\n`));
@@ -83,6 +94,9 @@ export class Orchestrator {
       ]);
 
       onBytes(Buffer.from(`[fbi] starting container\n`));
+      const memMb = project.mem_mb ?? this.deps.config.containerMemMb;
+      const cpus = project.cpus ?? this.deps.config.containerCpus;
+      const pids = project.pids_limit ?? this.deps.config.containerPids;
       const container = await this.deps.docker.createContainer({
         Image: imageTag,
         name: `fbi-run-${runId}`,
@@ -91,7 +105,6 @@ export class Orchestrator {
           `RUN_ID=${runId}`,
           `REPO_URL=${project.repo_url}`,
           `DEFAULT_BRANCH=${project.default_branch}`,
-          `BRANCH_NAME=${run.branch_name}`,
           `GIT_AUTHOR_NAME=${authorName}`,
           `GIT_AUTHOR_EMAIL=${authorEmail}`,
           `FBI_MARKETPLACES=${marketplaces.join('\n')}`,
@@ -105,6 +118,9 @@ export class Orchestrator {
         Entrypoint: ['/usr/local/bin/supervisor.sh'],
         HostConfig: {
           AutoRemove: false,
+          Memory: memMb * 1024 * 1024,
+          NanoCpus: Math.round(cpus * 1e9),
+          PidsLimit: pids,
           Binds: [
             `${SUPERVISOR}:/usr/local/bin/supervisor.sh:ro`,
             // Just the auth files — not the whole ~/.claude dir — so each
@@ -124,6 +140,7 @@ export class Orchestrator {
         'prompt.txt': run.prompt ?? '',
         'instructions.txt': project.instructions ?? '',
         'global.txt': globalPrompt,
+        'preamble.txt': preamble,
       });
 
       // Inject a sanitized ~/.claude.json: strip the host-specific installMethod
@@ -149,6 +166,8 @@ export class Orchestrator {
 
       // Wait for exit.
       const waitRes = await container.wait();
+      const inspect = await container.inspect().catch(() => null);
+      const oomKilled = Boolean(inspect?.State?.OOMKilled);
       const wasCancelled = this.cancelled.delete(runId);
       const resultText = await readFileFromContainer(
         container,
@@ -162,17 +181,23 @@ export class Orchestrator {
           ? 'succeeded'
           : 'failed';
 
+      const branchFromResult =
+        parsed?.branch && parsed.branch.length > 0 ? parsed.branch : null;
+
       this.deps.runs.markFinished(runId, {
         state,
         exit_code: parsed?.exit_code ?? waitRes.StatusCode,
         head_commit: parsed?.head_sha ?? null,
+        branch_name: branchFromResult,
         error:
           state === 'failed'
-            ? parsed
-              ? parsed.push_exit !== 0
-                ? `git push failed (code ${parsed.push_exit})`
-                : `agent exit ${parsed.exit_code}`
-              : `container exit ${waitRes.StatusCode}`
+            ? oomKilled
+              ? `container OOM (memory cap ${memMb} MB)`
+              : parsed
+                ? parsed.push_exit !== 0
+                  ? `git push failed (code ${parsed.push_exit})`
+                  : `agent exit ${parsed.exit_code}`
+                : `container exit ${waitRes.StatusCode}`
             : null,
       });
       onBytes(Buffer.from(`\n[fbi] run ${state}\n`));
@@ -260,6 +285,9 @@ export class Orchestrator {
   private async reattach(runId: number, container: Docker.Container): Promise<void> {
     const run = this.deps.runs.get(runId);
     if (!run) return;
+    const project = this.deps.projects.get(run.project_id);
+    const memMb =
+      project?.mem_mb ?? this.deps.config.containerMemMb;
     const store = new LogStore(run.log_path);
     const broadcaster = this.deps.streams.getOrCreate(runId);
     const onBytes = (chunk: Uint8Array) => {
@@ -290,6 +318,8 @@ export class Orchestrator {
     this.active.set(runId, { container, attachStream });
 
     const waitRes = await container.wait();
+    const inspect = await container.inspect().catch(() => null);
+    const oomKilled = Boolean(inspect?.State?.OOMKilled);
     const wasCancelled = this.cancelled.delete(runId);
     const resultText = await readFileFromContainer(
       container,
@@ -303,18 +333,24 @@ export class Orchestrator {
         ? 'succeeded'
         : 'failed';
 
+    const branchFromResult =
+      parsed?.branch && parsed.branch.length > 0 ? parsed.branch : null;
+
     this.deps.runs.markFinished(runId, {
       state,
       exit_code: parsed?.exit_code ?? waitRes.StatusCode,
       head_commit: parsed?.head_sha ?? null,
+      branch_name: branchFromResult,
       error:
-        state === 'failed' && parsed
-          ? parsed.push_exit !== 0
-            ? `git push failed (code ${parsed.push_exit})`
-            : `agent exit ${parsed.exit_code}`
-          : state === 'failed'
-            ? `container exit ${waitRes.StatusCode}`
-            : null,
+        state === 'failed'
+          ? oomKilled
+            ? `container OOM (memory cap ${memMb} MB)`
+            : parsed
+              ? parsed.push_exit !== 0
+                ? `git push failed (code ${parsed.push_exit})`
+                : `agent exit ${parsed.exit_code}`
+              : `container exit ${waitRes.StatusCode}`
+          : null,
     });
 
     await container.remove({ force: true, v: true }).catch(() => {});

@@ -21,6 +21,9 @@ export interface Config {
   webDir: string;
   defaultMarketplaces: string[];
   defaultPlugins: string[];
+  containerMemMb: number;
+  containerCpus: number;
+  containerPids: number;
 }
 
 function parseList(v: string | undefined): string[] {
@@ -46,5 +49,8 @@ export function loadConfig(): Config {
     webDir: process.env.WEB_DIR ?? path.resolve('dist/web'),
     defaultMarketplaces: parseList(process.env.FBI_DEFAULT_MARKETPLACES),
     defaultPlugins: parseList(process.env.FBI_DEFAULT_PLUGINS),
+    containerMemMb: Number(process.env.FBI_CONTAINER_MEM_MB ?? 4096),
+    containerCpus: Number(process.env.FBI_CONTAINER_CPUS ?? 2),
+    containerPids: Number(process.env.FBI_CONTAINER_PIDS ?? 4096),
   };
 }

@@ -12,6 +12,9 @@ vi.mock('@uiw/react-codemirror', () => ({
       onChange={(e) => onChange?.(e.target.value)}
     />
   ),
+}));
+
+vi.mock('@uiw/codemirror-themes', () => ({
   createTheme: ({ theme }: { theme: string }) => ({ _isDark: theme === 'dark' }),
 }));
 

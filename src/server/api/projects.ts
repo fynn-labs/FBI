@@ -1,10 +1,12 @@
 import type { FastifyInstance } from 'fastify';
 import type { ProjectsRepo } from '../db/projects.js';
 import type { SecretsRepo } from '../db/secrets.js';
+import type { RunsRepo } from '../db/runs.js';
 
 interface Deps {
   projects: ProjectsRepo;
   secrets: SecretsRepo;
+  runs: RunsRepo;
 }
 
 export function registerProjectRoutes(app: FastifyInstance, deps: Deps): void {
@@ -21,6 +23,9 @@ export function registerProjectRoutes(app: FastifyInstance, deps: Deps): void {
       git_author_email?: string | null;
       marketplaces?: string[];
       plugins?: string[];
+      mem_mb?: number | null;
+      cpus?: number | null;
+      pids_limit?: number | null;
     };
     const created = deps.projects.create({
       name: body.name,
@@ -32,6 +37,9 @@ export function registerProjectRoutes(app: FastifyInstance, deps: Deps): void {
       git_author_email: body.git_author_email ?? null,
       marketplaces: body.marketplaces ?? [],
       plugins: body.plugins ?? [],
+      mem_mb: body.mem_mb ?? null,
+      cpus: body.cpus ?? null,
+      pids_limit: body.pids_limit ?? null,
     });
     reply.code(201);
     return created;
@@ -56,5 +64,14 @@ export function registerProjectRoutes(app: FastifyInstance, deps: Deps): void {
     const { id } = req.params as { id: string };
     deps.projects.delete(Number(id));
     reply.code(204);
+  });
+
+  app.get('/api/projects/:id/prompts/recent', async (req) => {
+    const { id } = req.params as { id: string };
+    const limit = Math.min(
+      50,
+      Math.max(1, Number((req.query as { limit?: string }).limit ?? 10))
+    );
+    return deps.runs.listRecentPrompts(Number(id), limit);
   });
 }

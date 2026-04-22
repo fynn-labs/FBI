@@ -3,12 +3,16 @@ import { api } from '../lib/api.js';
 
 export function SettingsPage() {
   const [prompt, setPrompt] = useState<string | null>(null);
+  const [enabled, setEnabled] = useState<boolean>(true);
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    void api.getSettings().then((s) => setPrompt(s.global_prompt));
+    void api.getSettings().then((s) => {
+      setPrompt(s.global_prompt);
+      setEnabled(s.notifications_enabled);
+    });
   }, []);
 
   async function submit(e: FormEvent) {
@@ -18,7 +22,7 @@ export function SettingsPage() {
     setSaved(false);
     setError(null);
     try {
-      await api.updateSettings({ global_prompt: prompt });
+      await api.updateSettings({ global_prompt: prompt, notifications_enabled: enabled });
       setSaved(true);
     } catch (err) {
       setError(String(err));
@@ -43,6 +47,14 @@ export function SettingsPage() {
           rows={10}
           className="w-full border rounded px-2 py-1 font-mono text-sm dark:bg-gray-900 dark:border-gray-600 dark:text-gray-100"
         />
+      </label>
+      <label className="flex items-center gap-2">
+        <input
+          type="checkbox"
+          checked={enabled}
+          onChange={(e) => setEnabled(e.target.checked)}
+        />
+        <span className="text-sm">Enable run-completion notifications</span>
       </label>
       {error && <div className="text-red-600">{error}</div>}
       {saved && <div className="text-green-600 text-sm">Saved.</div>}

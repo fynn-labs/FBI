@@ -1,12 +1,15 @@
 import { useState, type FormEvent } from 'react';
-import { useNavigate, useParams } from 'react-router-dom';
+import { useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import { api } from '../lib/api.js';
+import { RecentPromptsDropdown } from '../components/RecentPromptsDropdown.js';
 
 export function NewRunPage() {
   const { id } = useParams();
   const pid = Number(id);
   const nav = useNavigate();
+  const [searchParams] = useSearchParams();
   const [prompt, setPrompt] = useState('');
+  const [branch, setBranch] = useState(searchParams.get('branch') ?? '');
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -19,7 +22,7 @@ export function NewRunPage() {
     if (!prompt.trim()) return;
     setSubmitting(true);
     try {
-      const run = await api.createRun(pid, prompt);
+      const run = await api.createRun(pid, prompt, branch);
       nav(`/runs/${run.id}`);
     } catch (err) {
       setError(String(err));
@@ -31,6 +34,16 @@ export function NewRunPage() {
   return (
     <form onSubmit={submit} className="max-w-3xl space-y-4">
       <h1 className="text-2xl font-semibold">New Run</h1>
+      <RecentPromptsDropdown projectId={pid} onPick={setPrompt} />
+      <label className="block">
+        <span className="block text-sm font-medium mb-1">Branch name (optional)</span>
+        <input
+          value={branch}
+          onChange={(e) => setBranch(e.target.value)}
+          placeholder="leave blank to let Claude choose"
+          className="w-full border rounded px-3 py-2 font-mono text-sm dark:bg-gray-900 dark:border-gray-600 dark:text-gray-100"
+        />
+      </label>
       <textarea
         value={prompt}
         onChange={(e) => setPrompt(e.target.value)}

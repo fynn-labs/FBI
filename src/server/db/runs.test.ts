@@ -28,22 +28,30 @@ describe('RunsRepo', () => {
     projectId = r.projectId;
   });
 
-  it('creates a queued run with computed fields', () => {
+  it('creates a queued run with empty branch when no hint given', () => {
     const run = runs.create({
       project_id: projectId,
       prompt: 'hello',
-      branch_name_tmpl: (id) => `claude/run-${id}`,
       log_path_tmpl: (id) => `/tmp/runs/${id}.log`,
     });
     expect(run.state).toBe('queued');
-    expect(run.branch_name).toBe(`claude/run-${run.id}`);
+    expect(run.branch_name).toBe('');
     expect(run.log_path).toBe(`/tmp/runs/${run.id}.log`);
+  });
+
+  it('stores a branch hint on create', () => {
+    const run = runs.create({
+      project_id: projectId,
+      prompt: 'hi',
+      branch_hint: 'fix-login-bug',
+      log_path_tmpl: (id) => `/tmp/runs/${id}.log`,
+    });
+    expect(run.branch_name).toBe('fix-login-bug');
   });
 
   it('markStarted and markFinished update state', () => {
     const run = runs.create({
       project_id: projectId, prompt: 'x',
-      branch_name_tmpl: (id) => `b-${id}`,
       log_path_tmpl: (id) => `/tmp/${id}.log`,
     });
     runs.markStarted(run.id, 'container-abc');
@@ -65,10 +73,41 @@ describe('RunsRepo', () => {
   it('lists running runs', () => {
     const r = runs.create({
       project_id: projectId, prompt: 'x',
-      branch_name_tmpl: (id) => `b-${id}`,
       log_path_tmpl: (id) => `/tmp/${id}.log`,
     });
     runs.markStarted(r.id, 'c');
     expect(runs.listByState('running').length).toBe(1);
+  });
+
+  it('listRecentPrompts returns distinct prompts newest-first with limit', () => {
+    const mk = (prompt: string) =>
+      runs.create({
+        project_id: projectId,
+        prompt,
+        log_path_tmpl: (id) => `/tmp/${id}.log`,
+      });
+    mk('alpha');
+    mk('beta');
+    mk('alpha');
+    mk('gamma');
+
+    const recent = runs.listRecentPrompts(projectId, 10);
+    expect(recent.map((r) => r.prompt)).toEqual(['gamma', 'alpha', 'beta']);
+  });
+
+  it('markFinished can overwrite branch_name', () => {
+    const run = runs.create({
+      project_id: projectId,
+      prompt: 'x',
+      log_path_tmpl: (id) => `/tmp/${id}.log`,
+    });
+    runs.markStarted(run.id, 'c');
+    runs.markFinished(run.id, {
+      state: 'succeeded',
+      exit_code: 0,
+      head_commit: 'deadbeef',
+      branch_name: 'fix-login-bug',
+    });
+    expect(runs.get(run.id)!.branch_name).toBe('fix-login-bug');
   });
 });

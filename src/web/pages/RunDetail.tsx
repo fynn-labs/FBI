@@ -60,6 +60,18 @@ export function RunDetailPage() {
               Cancel
             </button>
           )}
+          {run.state !== 'running' && run.state !== 'queued' && run.branch_name && (
+            <button
+              onClick={() =>
+                nav(
+                  `/projects/${run.project_id}/runs/new?branch=${encodeURIComponent(run.branch_name!)}`
+                )
+              }
+              className="border px-3 py-1 rounded dark:border-gray-600 dark:text-gray-200"
+            >
+              Follow up
+            </button>
+          )}
           {run.state !== 'running' && (
             <button onClick={remove} className="border px-3 py-1 rounded dark:border-gray-600 dark:text-gray-200">
               Delete
