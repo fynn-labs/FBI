@@ -27,6 +27,7 @@ import type { RateLimitStateRepo } from '../db/rateLimitState.js';
 import type { UsageRepo } from '../db/usage.js';
 import { UsageTailer } from './usageTailer.js';
 import { LimitMonitor } from './limitMonitor.js';
+import { nudgeClaudeToExit } from './nudgeClaude.js';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const SUPERVISOR = path.join(HERE, 'supervisor.sh');
@@ -470,8 +471,10 @@ export class Orchestrator {
    * rate-limit message appears. Newer Claude Code wordings ("You've hit your
    * limit · resets <time>") display the limit in-TUI without exiting, so the
    * container waits forever and the existing classify()-at-exit flow never
-   * runs. We send Ctrl-C so Claude exits cleanly and supervisor.sh can still
-   * commit+push the WIP; SIGKILL is the 30s fallback.
+   * runs. Claude Code's TUI requires a *double* Ctrl-C to actually exit — a
+   * single 0x03 just clears/confirms. nudgeClaudeToExit handles the double-
+   * tap so supervisor.sh can still commit+push the WIP, and SIGKILL is the
+   * 30s last-resort fallback.
    */
   private makeLimitMonitor(
     runId: number,
@@ -483,13 +486,11 @@ export class Orchestrator {
       mountDir: this.mountDirFor(runId),
       onDetect: () => {
         if (!this.deps.settings.get().auto_resume_enabled) return;
-        onBytes(Buffer.from(
-          '\n[fbi] rate-limit message detected in stream; sending SIGINT to claude\n',
-        ));
-        try { attach.write(Buffer.from([0x03])); } catch { /* already closed */ }
-        setTimeout(() => {
-          container.kill().catch(() => { /* already stopped */ });
-        }, 30_000).unref?.();
+        nudgeClaudeToExit({
+          writeStdin: (b) => attach.write(Buffer.from(b)),
+          killContainer: () => container.kill().then(() => undefined),
+          log: (msg) => onBytes(Buffer.from(msg)),
+        });
       },
     });
   }

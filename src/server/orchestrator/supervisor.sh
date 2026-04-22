@@ -50,26 +50,26 @@ git checkout "$DEFAULT_BRANCH" || { echo "checkout failed"; exit 11; }
 git config user.name  "$GIT_AUTHOR_NAME"
 git config user.email "$GIT_AUTHOR_EMAIL"
 
-# Compose the final prompt: preamble + global + project instructions + run prompt.
-: > /tmp/prompt.txt
-for section in preamble.txt global.txt instructions.txt; do
-    if [ -s "/fbi/$section" ]; then
-        cat "/fbi/$section" >> /tmp/prompt.txt
-        printf '\n\n---\n\n' >> /tmp/prompt.txt
-    fi
-done
-[ -f /fbi/prompt.txt ] || { echo "prompt.txt not found in /fbi"; exit 12; }
-cat /fbi/prompt.txt >> /tmp/prompt.txt
-
 # Run the agent. Two modes:
-#   fresh: read composed prompt from /tmp/prompt.txt and stdin-pipe into claude.
-#   resume: use $FBI_RESUME_SESSION_ID to continue an existing session.
+#   fresh: compose /tmp/prompt.txt from /fbi/*.txt and stdin-pipe into claude.
+#   resume: use $FBI_RESUME_SESSION_ID to continue an existing session. The
+#           resume path reuses the saved Claude session and does not need a
+#           fresh prompt, so /fbi/prompt.txt is intentionally not required.
 set +e
 if [ -n "${FBI_RESUME_SESSION_ID:-}" ]; then
     echo "[fbi] resuming claude session $FBI_RESUME_SESSION_ID"
     claude --resume "$FBI_RESUME_SESSION_ID" --dangerously-skip-permissions
     CLAUDE_EXIT=$?
 else
+    : > /tmp/prompt.txt
+    for section in preamble.txt global.txt instructions.txt; do
+        if [ -s "/fbi/$section" ]; then
+            cat "/fbi/$section" >> /tmp/prompt.txt
+            printf '\n\n---\n\n' >> /tmp/prompt.txt
+        fi
+    done
+    [ -f /fbi/prompt.txt ] || { echo "prompt.txt not found in /fbi"; exit 12; }
+    cat /fbi/prompt.txt >> /tmp/prompt.txt
     claude --dangerously-skip-permissions < /tmp/prompt.txt
     CLAUDE_EXIT=$?
 fi
