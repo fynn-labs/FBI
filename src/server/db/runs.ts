@@ -167,6 +167,10 @@ export class RunsRepo {
       .all() as Array<Pick<Run, 'id' | 'next_resume_at'>>;
   }
 
+  updateLastLimitResetAt(id: number, resetAt: number): void {
+    this.db.prepare('UPDATE runs SET last_limit_reset_at = ? WHERE id = ?').run(resetAt, id);
+  }
+
   markFinished(id: number, f: FinishInput): void {
     if (f.branch_name !== undefined && f.branch_name !== null && f.branch_name !== '') {
       this.db
