@@ -1,14 +1,16 @@
-import { useTheme } from '../lib/theme.js';
+import { useEffect, useState } from 'react';
+import { applyTheme, resolveInitialTheme, toggleTheme, type Theme } from '@ui/theme.js';
 
 export function ThemeToggle() {
-  const { theme, toggle } = useTheme();
+  const [theme, setTheme] = useState<Theme>(resolveInitialTheme);
+  useEffect(() => { applyTheme(theme); }, [theme]);
   return (
     <button
-      onClick={toggle}
-      aria-label={theme === 'dark' ? 'Switch to light mode' : 'Switch to dark mode'}
-      className="text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200 text-lg leading-none"
+      onClick={() => setTheme(toggleTheme())}
+      aria-label={theme === 'light' ? 'Switch to dark mode' : 'Switch to light mode'}
+      className="text-text-faint hover:text-text text-lg leading-none"
     >
-      {theme === 'dark' ? '☀' : '☾'}
+      {theme === 'light' ? '☾' : '☀'}
     </button>
   );
 }

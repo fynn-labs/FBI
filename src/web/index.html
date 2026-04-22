@@ -5,16 +5,10 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>FBI</title>
     <script>
-      (function () {
-        var saved = localStorage.getItem('fbi-theme');
-        var prefersDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
-        if (saved === 'dark' || (!saved && prefersDark)) {
-          document.documentElement.classList.add('dark');
-        }
-      })();
-    </script>
+  (function(){try{var s=localStorage.getItem('fbi-theme');var m=window.matchMedia('(prefers-color-scheme: light)').matches;if(s==='light'||(!s&&m)){document.documentElement.classList.add('light');}}catch(e){}})();
+</script>
   </head>
-  <body class="bg-gray-50 dark:bg-gray-800">
+  <body>
     <div id="root"></div>
     <script type="module" src="./main.tsx"></script>
   </body>
