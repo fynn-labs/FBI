@@ -22,7 +22,8 @@ import { parseResultJson } from './result.js';
 import { SshAgentForwarding, type GitAuth } from './gitAuth.js';
 import { classify, type RateLimitStateInput } from './resumeDetector.js';
 import { ResumeScheduler } from './resumeScheduler.js';
-import { scanSessionId, runMountDir } from './sessionId.js';
+import { scanSessionId, runMountDir, runStateDir } from './sessionId.js';
+import { TitleWatcher } from './titleWatcher.js';
 import type { RateLimitStateRepo } from '../db/rateLimitState.js';
 import type { UsageRepo } from '../db/usage.js';
 import { UsageTailer } from './usageTailer.js';
@@ -109,6 +110,16 @@ export class Orchestrator {
     return dir;
   }
 
+  private stateDirFor(runId: number): string {
+    return runStateDir(this.deps.config.runsDir, runId);
+  }
+
+  private ensureStateDir(runId: number): string {
+    const dir = this.stateDirFor(runId);
+    fs.mkdirSync(dir, { recursive: true, mode: 0o777 });
+    return dir;
+  }
+
   private publishState(runId: number): void {
     const run = this.deps.runs.get(runId);
     if (!run) return;
@@ -118,6 +129,16 @@ export class Orchestrator {
       next_resume_at: run.next_resume_at,
       resume_attempts: run.resume_attempts,
       last_limit_reset_at: run.last_limit_reset_at,
+    });
+  }
+
+  private publishTitleUpdate(runId: number, title: string): void {
+    this.deps.runs.updateTitle(runId, title, { respectLock: true });
+    const after = this.deps.runs.get(runId);
+    this.deps.streams.getOrCreateEvents(runId).publish({
+      type: 'title',
+      title: after?.title ?? null,
+      title_locked: (after?.title_locked ?? 0) as 0 | 1,
     });
   }
 
@@ -187,6 +208,7 @@ export class Orchestrator {
           `${SUPERVISOR}:/usr/local/bin/supervisor.sh:ro`,
           `${FINALIZE_BRANCH}:/usr/local/bin/fbi-finalize-branch.sh:ro`,
           `${mountDir}:/home/agent/.claude/projects/`,
+          `${this.ensureStateDir(runId)}:/fbi-state/`,
           ...claudeAuthMounts(this.deps.config.hostClaudeDir),
           ...auth.mounts().map((m) =>
             `${m.source}:${m.target}${m.readOnly ? ':ro' : ''}`
@@ -222,9 +244,16 @@ export class Orchestrator {
         : `Create or check out a branch appropriately named for this task,`,
       'do your work there, and leave all commits on that branch.',
       '',
+      'As soon as you understand the task, write a short name (4–8 words,',
+      'imperative, no trailing punctuation) describing this session to',
+      '`/fbi-state/session-name`. You may overwrite it later if your',
+      'understanding changes. Also include a refined `title` field in the',
+      'final result JSON.',
+      '',
     ].join('\n');
 
     let tailer: UsageTailer | null = null;
+    let titleWatcher: TitleWatcher | null = null;
     let limitMonitor: LimitMonitor | null = null;
 
     try {
@@ -276,6 +305,13 @@ export class Orchestrator {
         onError: () => { this.deps.usage.bumpParseErrors(runId); },
       });
       tailer.start();
+      titleWatcher = new TitleWatcher({
+        path: `${this.stateDirFor(runId)}/session-name`,
+        pollMs: 1000,
+        onTitle: (t) => this.publishTitleUpdate(runId, t),
+        onError: () => { /* swallow — best effort */ },
+      });
+      titleWatcher.start();
 
       await this.awaitAndComplete(runId, container, onBytes, store, broadcaster);
     } catch (err) {
@@ -289,6 +325,7 @@ export class Orchestrator {
       this.deps.streams.release(runId);
     } finally {
       if (tailer) await tailer.stop();
+      if (titleWatcher) await titleWatcher.stop();
       if (limitMonitor) limitMonitor.stop();
     }
   }
@@ -337,6 +374,9 @@ export class Orchestrator {
             state: 'failed',
             error: `rate limited; exceeded auto-resume cap (${settings.auto_resume_max_attempts} attempts)`,
           });
+          if (parsed?.title) {
+            this.publishTitleUpdate(runId, parsed.title);
+          }
           this.publishState(runId);
         } else {
           this.deps.runs.markAwaitingResume(runId, {
@@ -389,6 +429,9 @@ export class Orchestrator {
             : `container exit ${waitRes.StatusCode}`
         : null,
     });
+    if (parsed?.title) {
+      this.publishTitleUpdate(runId, parsed.title);
+    }
     onBytes(Buffer.from(`\n[fbi] run ${state}\n`));
     this.publishState(runId);
     await container.remove({ force: true, v: true }).catch(() => {});
@@ -431,6 +474,12 @@ export class Orchestrator {
             : `Create or check out a branch appropriately named for this task,`,
           'do your work there, and leave all commits on that branch.',
           '',
+          'As soon as you understand the task, write a short name (4–8 words,',
+          'imperative, no trailing punctuation) describing this session to',
+          '`/fbi-state/session-name`. You may overwrite it later if your',
+          'understanding changes. Also include a refined `title` field in the',
+          'final result JSON.',
+          '',
         ].join('\n');
         await injectFiles(container, '/fbi', {
           'prompt.txt': run.prompt ?? '',
@@ -463,9 +512,18 @@ export class Orchestrator {
       this.deps.runs.markResuming(runId, container.id);
       this.publishState(runId);
 
+      const titleWatcher = new TitleWatcher({
+        path: `${this.stateDirFor(runId)}/session-name`,
+        pollMs: 1000,
+        onTitle: (t) => this.publishTitleUpdate(runId, t),
+        onError: () => { /* swallow — best effort */ },
+      });
+      titleWatcher.start();
+
       try {
         await this.awaitAndComplete(runId, container, onBytes, store, broadcaster);
       } finally {
+        await titleWatcher.stop();
         limitMonitor.stop();
       }
     } catch (err) {
@@ -520,9 +578,18 @@ export class Orchestrator {
       this.deps.runs.markContinuing(runId, container.id);
       this.publishState(runId);
 
+      const titleWatcher = new TitleWatcher({
+        path: `${this.stateDirFor(runId)}/session-name`,
+        pollMs: 1000,
+        onTitle: (t) => this.publishTitleUpdate(runId, t),
+        onError: () => { /* swallow — best effort */ },
+      });
+      titleWatcher.start();
+
       try {
         await this.awaitAndComplete(runId, container, onBytes, store, broadcaster);
       } finally {
+        await titleWatcher.stop();
         limitMonitor.stop();
       }
     } catch (err) {
@@ -718,6 +785,13 @@ export class Orchestrator {
       onError: () => { this.deps.usage.bumpParseErrors(runId); },
     });
     tailer.start();
+    const titleWatcher = new TitleWatcher({
+      path: `${this.stateDirFor(runId)}/session-name`,
+      pollMs: 1000,
+      onTitle: (t) => this.publishTitleUpdate(runId, t),
+      onError: () => { /* swallow — best effort */ },
+    });
+    titleWatcher.start();
 
     try {
       const waitRes = await container.wait();
@@ -762,10 +836,14 @@ export class Orchestrator {
                 : `container exit ${waitRes.StatusCode}`
             : null,
       });
+      if (parsed?.title) {
+        this.publishTitleUpdate(runId, parsed.title);
+      }
 
       await container.remove({ force: true, v: true }).catch(() => {});
     } finally {
       await tailer.stop();
+      await titleWatcher.stop();
       limitMonitor.stop();
       events.end();
       this.active.delete(runId);

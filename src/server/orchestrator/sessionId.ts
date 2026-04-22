@@ -7,6 +7,10 @@ export function runMountDir(runsDir: string, runId: number): string {
   return path.join(runsDir, String(runId), 'claude-projects');
 }
 
+export function runStateDir(runsDir: string, runId: number): string {
+  return path.join(runsDir, String(runId), 'state');
+}
+
 export function scanSessionId(mountDir: string): string | null {
   let subs: string[];
   try {

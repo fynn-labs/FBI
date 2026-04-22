@@ -2,7 +2,7 @@ import { describe, it, expect } from 'vitest';
 import fs from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
-import { scanSessionId, runMountDir } from './sessionId.js';
+import { scanSessionId, runMountDir, runStateDir } from './sessionId.js';
 
 function tempdir(): string {
   return fs.mkdtempSync(path.join(os.tmpdir(), 'fbi-sess-'));
@@ -12,6 +12,12 @@ describe('runMountDir', () => {
   it('returns <runsDir>/<id>/claude-projects', () => {
     expect(runMountDir('/var/lib/fbi/runs', 42))
       .toBe('/var/lib/fbi/runs/42/claude-projects');
+  });
+});
+
+describe('runStateDir', () => {
+  it('returns {runsDir}/{id}/state', () => {
+    expect(runStateDir('/var/lib/fbi/runs', 7)).toBe('/var/lib/fbi/runs/7/state');
   });
 });
 
