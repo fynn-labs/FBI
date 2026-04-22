@@ -119,7 +119,21 @@ export function RunDetailPage() {
   async function kontinue() {
     if (!run) return;
     try { await api.continueRun(run.id); }
-    catch (e) { alert(e instanceof Error ? e.message : String(e)); }
+    catch (e) {
+      const raw = e instanceof Error ? e.message : String(e);
+      // The server returns { code, message } on 409 and { message } on 500.
+      // `request()` surfaces the body as a trailing JSON-ish string on the
+      // error — unwrap it so the alert shows only the human message.
+      const m = raw.match(/^HTTP \d+:\s*(.+)$/);
+      let shown = raw;
+      if (m) {
+        try {
+          const parsed = JSON.parse(m[1]) as { message?: string };
+          if (parsed.message) shown = parsed.message;
+        } catch { /* leave raw */ }
+      }
+      alert(shown);
+    }
   }
 
   async function createPr() {
