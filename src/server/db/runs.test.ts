@@ -241,4 +241,16 @@ describe('RunsRepo auto-resume', () => {
     runs.markAwaitingResume(run.id, { next_resume_at: 9000, last_limit_reset_at: 9000 });
     expect(runs.listByState('awaiting_resume').length).toBe(1);
   });
+
+  it('listAwaiting returns projected id and next_resume_at for parked runs', () => {
+    const run = runs.create({
+      project_id: projectId, prompt: 'x',
+      log_path_tmpl: (id) => `/tmp/${id}.log`,
+    });
+    runs.markStarted(run.id, 'c');
+    runs.markAwaitingResume(run.id, { next_resume_at: 9000, last_limit_reset_at: 9000 });
+    const awaiting = runs.listAwaiting();
+    expect(awaiting).toHaveLength(1);
+    expect(awaiting[0]).toEqual({ id: run.id, next_resume_at: 9000 });
+  });
 });
