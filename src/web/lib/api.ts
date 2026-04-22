@@ -57,6 +57,6 @@ export const api = {
   deleteRun: (id: number) => request<void>(`/api/runs/${id}`, { method: 'DELETE' }),
 
   getSettings: () => request<Settings>('/api/settings'),
-  updateSettings: (patch: { global_prompt?: string }) =>
+  updateSettings: (patch: { global_prompt?: string; notifications_enabled?: boolean }) =>
     request<Settings>('/api/settings', { method: 'PATCH', body: JSON.stringify(patch) }),
 };
