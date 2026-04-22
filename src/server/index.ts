@@ -33,12 +33,12 @@ async function main() {
   // global lists, migrate them in so existing deployments don't lose configuration.
   const legacy = legacyDefaultLists();
   const currentSettings = settings.get();
-  if (legacy.marketplaces.length > 0 && currentSettings.global_marketplaces.length === 0) {
-    settings.update({ global_marketplaces: legacy.marketplaces });
-  }
-  if (legacy.plugins.length > 0 && currentSettings.global_plugins.length === 0) {
-    settings.update({ global_plugins: legacy.plugins });
-  }
+  const migrationPatch: { global_marketplaces?: string[]; global_plugins?: string[] } = {};
+  if (legacy.marketplaces.length > 0 && currentSettings.global_marketplaces.length === 0)
+    migrationPatch.global_marketplaces = legacy.marketplaces;
+  if (legacy.plugins.length > 0 && currentSettings.global_plugins.length === 0)
+    migrationPatch.global_plugins = legacy.plugins;
+  if (Object.keys(migrationPatch).length > 0) settings.update(migrationPatch);
 
   const streams = new RunStreamRegistry();
   const docker = new Docker();
