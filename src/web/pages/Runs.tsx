@@ -1,17 +1,22 @@
 import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
-import type { Run } from '@shared/types.js';
+import type { Project, Run } from '@shared/types.js';
 import { api } from '../lib/api.js';
 import { StateBadge } from '../components/StateBadge.js';
 
 export function RunsPage() {
   const [runs, setRuns] = useState<Run[] | null>(null);
+  const [projectNames, setProjectNames] = useState<Map<number, string>>(new Map());
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
     let cancelled = false;
-    api.listRuns()
-      .then((data) => { if (!cancelled) setRuns(data); })
+    Promise.all([api.listRuns(), api.listProjects()])
+      .then(([runsData, projects]) => {
+        if (cancelled) return;
+        setRuns(runsData);
+        setProjectNames(new Map(projects.map((p: Project) => [p.id, p.name])));
+      })
       .catch((e) => { if (!cancelled) setError(String(e)); });
     return () => { cancelled = true; };
   }, []);
@@ -26,7 +31,7 @@ export function RunsPage() {
         {runs.map((r) => (
           <li key={r.id} className="p-3 flex justify-between items-center">
             <Link to={`/runs/${r.id}`} className="text-blue-700 dark:text-blue-400">
-              Run #{r.id} (project {r.project_id}) — {new Date(r.created_at).toLocaleString()}
+              Run #{r.id} ({projectNames.get(r.project_id) ?? `project ${r.project_id}`}) — {new Date(r.created_at).toLocaleString()}
             </Link>
             <StateBadge state={r.state} />
           </li>
