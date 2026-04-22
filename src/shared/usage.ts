@@ -48,7 +48,42 @@ function isRecord(v: unknown): v is Record<string, unknown> {
   return typeof v === 'object' && v !== null && !Array.isArray(v);
 }
 
-// parseRateLimitHeaders is defined in Task 4.
 export type RateLimitLineResult =
   | { kind: 'ok'; value: RateLimitSnapshot }
   | { kind: 'skip' };
+
+export function parseRateLimitHeaders(obj: unknown): RateLimitLineResult {
+  if (!isRecord(obj)) return { kind: 'skip' };
+  const rl = obj.rateLimits;
+  if (!isRecord(rl)) return { kind: 'skip' };
+
+  const num = (k: string): number | null => {
+    const v = rl[k];
+    if (typeof v === 'string') {
+      const n = Number(v);
+      return Number.isFinite(n) ? n : null;
+    }
+    if (typeof v === 'number' && Number.isFinite(v)) return v;
+    return null;
+  };
+  const resetAt = (): number | null => {
+    const v = rl['anthropic-ratelimit-unified-5h-reset'];
+    if (typeof v === 'string') {
+      const t = Date.parse(v);
+      return Number.isFinite(t) ? t : null;
+    }
+    if (typeof v === 'number' && Number.isFinite(v)) return v * (v < 1e12 ? 1000 : 1);
+    return null;
+  };
+
+  return {
+    kind: 'ok',
+    value: {
+      requests_remaining: num('anthropic-ratelimit-unified-5h-requests-remaining'),
+      requests_limit: num('anthropic-ratelimit-unified-5h-requests-limit'),
+      tokens_remaining: num('anthropic-ratelimit-unified-5h-tokens-remaining'),
+      tokens_limit: num('anthropic-ratelimit-unified-5h-tokens-limit'),
+      reset_at: resetAt(),
+    },
+  };
+}
