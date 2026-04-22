@@ -12,10 +12,14 @@ export function registerSettingsRoutes(app: FastifyInstance, deps: Deps): void {
     const body = req.body as {
       global_prompt?: string;
       notifications_enabled?: boolean;
+      global_marketplaces?: string[];
+      global_plugins?: string[];
     };
     return deps.settings.update({
       global_prompt: body.global_prompt,
       notifications_enabled: body.notifications_enabled,
+      global_marketplaces: body.global_marketplaces,
+      global_plugins: body.global_plugins,
     });
   });
 }

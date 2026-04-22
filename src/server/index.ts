@@ -9,6 +9,7 @@ import { ProjectsRepo } from './db/projects.js';
 import { RunsRepo } from './db/runs.js';
 import { SecretsRepo } from './db/secrets.js';
 import { SettingsRepo } from './db/settings.js';
+import { McpServersRepo } from './db/mcpServers.js';
 import { loadKey } from './crypto.js';
 import { RunStreamRegistry } from './logs/registry.js';
 import { Orchestrator } from './orchestrator/index.js';
@@ -16,6 +17,7 @@ import { registerProjectRoutes } from './api/projects.js';
 import { registerSecretsRoutes } from './api/secrets.js';
 import { registerRunsRoutes } from './api/runs.js';
 import { registerSettingsRoutes } from './api/settings.js';
+import { registerMcpServerRoutes } from './api/mcpServers.js';
 import { registerWsRoute } from './api/ws.js';
 
 async function main() {
@@ -28,6 +30,7 @@ async function main() {
   const runs = new RunsRepo(db);
   const secrets = new SecretsRepo(db, key);
   const settings = new SettingsRepo(db);
+  const mcpServers = new McpServersRepo(db);
 
   // One-time migration: if FBI_DEFAULT_* env vars are set and the DB still has empty
   // global lists, migrate them in so existing deployments don't lose configuration.
@@ -64,6 +67,7 @@ async function main() {
     cancel: (id) => orchestrator.cancel(id),
   });
   registerSettingsRoutes(app, { settings });
+  registerMcpServerRoutes(app, { mcpServers });
   registerWsRoute(app, { runs, streams, orchestrator });
 
   // SPA fallback: any non-/api route returns index.html.
