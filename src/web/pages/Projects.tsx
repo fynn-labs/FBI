@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { Outlet, Link } from 'react-router-dom';
+import { Outlet, Link, useLocation } from 'react-router-dom';
 import { SplitPane } from '@ui/patterns/SplitPane.js';
 import { LoadingState, EmptyState } from '@ui/patterns/index.js';
 import { Button } from '@ui/primitives/Button.js';
@@ -10,6 +10,8 @@ import { ProjectList } from '../features/projects/ProjectList.js';
 export function ProjectsPage() {
   const [projects, setProjects] = useState<Project[] | null>(null);
   const [runs, setRuns] = useState<Run[]>([]);
+  const location = useLocation();
+  const atIndex = location.pathname.replace(/\/$/, '') === '/projects';
 
   useEffect(() => {
     void api.listProjects().then(setProjects);
@@ -29,7 +31,13 @@ export function ProjectsPage() {
           )}
         </div>
       }
-      right={<Outlet />}
+      right={
+        atIndex ? (
+          <div className="h-full flex items-center justify-center">
+            <EmptyState title="Select a project" description="Pick a project, or create one." />
+          </div>
+        ) : <Outlet />
+      }
     />
   );
 }
