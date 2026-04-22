@@ -104,7 +104,7 @@ export class RunsRepo {
 
   markAwaitingResume(
     id: number,
-    p: { next_resume_at: number; last_limit_reset_at: number },
+    p: { next_resume_at: number; last_limit_reset_at: number | null },
   ): void {
     this.db
       .prepare(

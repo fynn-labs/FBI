@@ -23,7 +23,9 @@ vi.mock('@codemirror/lang-json', () => ({
 }));
 
 beforeEach(() => {
+  // Theme system: dark is default (no class). Light mode adds '.light'.
   document.documentElement.classList.remove('dark');
+  document.documentElement.classList.remove('light');
 });
 
 describe('JsonEditor', () => {
@@ -55,24 +57,25 @@ describe('JsonEditor', () => {
     expect(onChange).toHaveBeenCalledWith('{');
   });
 
-  it('renders without error when dark class is set on documentElement', () => {
-    document.documentElement.classList.add('dark');
+  it('renders in dark theme by default (no .light class on documentElement)', () => {
     render(<JsonEditor label="JSON" value='{}' onChange={() => {}} />);
     expect(screen.getByText('JSON')).toBeInTheDocument();
     expect(screen.getByText(/✓ valid json/i)).toBeInTheDocument();
+    expect(screen.getByTestId('codemirror')).toHaveAttribute('data-theme', 'dark');
   });
 
-  it('switches to dark theme via MutationObserver when dark class is added', async () => {
+  it('switches to light theme via MutationObserver when .light class is added', async () => {
     render(<JsonEditor label="JSON" value="" onChange={() => {}} />);
+    expect(screen.getByTestId('codemirror')).toHaveAttribute('data-theme', 'dark');
+    await act(async () => {
+      document.documentElement.classList.add('light');
+      await new Promise((r) => setTimeout(r, 0));
+    });
     expect(screen.getByTestId('codemirror')).toHaveAttribute('data-theme', 'light');
     await act(async () => {
-      document.documentElement.classList.add('dark');
+      document.documentElement.classList.remove('light');
       await new Promise((r) => setTimeout(r, 0));
     });
     expect(screen.getByTestId('codemirror')).toHaveAttribute('data-theme', 'dark');
-    await act(async () => {
-      document.documentElement.classList.remove('dark');
-      await new Promise((r) => setTimeout(r, 0));
-    });
   });
 });

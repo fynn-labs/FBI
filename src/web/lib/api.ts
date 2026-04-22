@@ -1,4 +1,4 @@
-import type { McpServer, Project, Run, SecretName, Settings } from '@shared/types.js';
+import type { DailyUsage, McpServer, Project, RateLimitState, Run, RunUsageBreakdownRow, SecretName, Settings } from '@shared/types.js';
 
 async function request<T>(url: string, init?: RequestInit): Promise<T> {
   let res: Response;
@@ -92,6 +92,8 @@ export const api = {
     image_gc_enabled?: boolean;
     global_marketplaces?: string[];
     global_plugins?: string[];
+    auto_resume_enabled?: boolean;
+    auto_resume_max_attempts?: number;
   }) => request<Settings>('/api/settings', { method: 'PATCH', body: JSON.stringify(patch) }),
   runGc: () => request<{ deletedCount: number; deletedBytes: number }>(
     '/api/settings/run-gc', { method: 'POST', body: JSON.stringify({}) }),
@@ -116,6 +118,10 @@ export const api = {
   }>(`/api/runs/${id}/diff`),
 
   getRunSiblings: (id: number) => request<Run[]>(`/api/runs/${id}/siblings`),
+
+  getRateLimit: () => request<RateLimitState>('/api/usage/rate-limit'),
+  getDailyUsage: (days = 14) => request<DailyUsage[]>(`/api/usage/daily?days=${days}`),
+  getRunUsageBreakdown: (runId: number) => request<RunUsageBreakdownRow[]>(`/api/usage/runs/${runId}`),
 
   // Global MCP servers
   listMcpServers: () => request<McpServer[]>('/api/mcp-servers'),

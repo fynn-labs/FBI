@@ -1,9 +1,11 @@
-// src/web/pages/NewProject.tsx
-import { useState, type FormEvent } from 'react';
+import { useState, useId, type FormEvent } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { api } from '../lib/api.js';
+import { FormRow } from '@ui/patterns/FormRow.js';
+import { Input, Textarea, Button, Section } from '@ui/primitives/index.js';
+import { ErrorState } from '@ui/patterns/index.js';
 import { JsonEditor } from '../components/JsonEditor.js';
 import { ChipInput } from '../components/ChipInput.js';
+import { api } from '../lib/api.js';
 
 export function NewProjectPage() {
   const nav = useNavigate();
@@ -19,24 +21,27 @@ export function NewProjectPage() {
   const [error, setError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
 
+  const nameId = useId();
+  const repoUrlId = useId();
+  const defaultBranchId = useId();
+  const gitAuthorNameId = useId();
+  const gitAuthorEmailId = useId();
+  const instructionsId = useId();
+
   async function onSubmit(e: FormEvent) {
     e.preventDefault();
     setSubmitting(true);
     setError(null);
     try {
       const p = await api.createProject({
-        name,
-        repo_url: repoUrl,
-        default_branch: defaultBranch,
+        name, repo_url: repoUrl, default_branch: defaultBranch,
         instructions: instructions.trim() || null,
         devcontainer_override_json: devcontainerJson.trim() || null,
         git_author_name: gitAuthorName.trim() || null,
         git_author_email: gitAuthorEmail.trim() || null,
         marketplaces,
         plugins,
-        mem_mb: null,
-        cpus: null,
-        pids_limit: null,
+        mem_mb: null, cpus: null, pids_limit: null,
       });
       nav(`/projects/${p.id}`);
     } catch (err) {
@@ -47,88 +52,51 @@ export function NewProjectPage() {
   }
 
   return (
-    <form onSubmit={onSubmit} className="max-w-2xl space-y-4">
-      <h1 className="text-2xl font-semibold">New Project</h1>
-      <Field label="Name">
-        <input
-          value={name}
-          onChange={(e) => setName(e.target.value)}
-          required
-          className="w-full border rounded px-2 py-1 dark:bg-gray-900 dark:border-gray-600 dark:text-gray-100"
-        />
-      </Field>
-      <Field label="Repo URL (SSH)">
-        <input
-          value={repoUrl}
-          onChange={(e) => setRepoUrl(e.target.value)}
-          required
-          className="w-full border rounded px-2 py-1 font-mono dark:bg-gray-900 dark:border-gray-600 dark:text-gray-100"
-        />
-      </Field>
-      <Field label="Default Branch">
-        <input
-          value={defaultBranch}
-          onChange={(e) => setDefaultBranch(e.target.value)}
-          required
-          className="w-full border rounded px-2 py-1 dark:bg-gray-900 dark:border-gray-600 dark:text-gray-100"
-        />
-      </Field>
-      <Field label="Git author name (override)">
-        <input
-          value={gitAuthorName}
-          onChange={(e) => setGitAuthorName(e.target.value)}
-          className="w-full border rounded px-2 py-1 font-mono dark:bg-gray-900 dark:border-gray-600 dark:text-gray-100"
-        />
-      </Field>
-      <Field label="Git author email (override)">
-        <input
-          value={gitAuthorEmail}
-          onChange={(e) => setGitAuthorEmail(e.target.value)}
-          className="w-full border rounded px-2 py-1 font-mono dark:bg-gray-900 dark:border-gray-600 dark:text-gray-100"
-        />
-      </Field>
-      <Field label="Project-level instructions (optional)">
-        <textarea
-          value={instructions}
-          onChange={(e) => setInstructions(e.target.value)}
-          rows={4}
-          className="w-full border rounded px-2 py-1 font-mono text-sm dark:bg-gray-900 dark:border-gray-600 dark:text-gray-100"
-        />
-      </Field>
-      <ChipInput
-        label="Extra plugin marketplaces (merged with global defaults)"
-        values={marketplaces}
-        onChange={setMarketplaces}
-        placeholder="https://registry.example.com"
-      />
-      <ChipInput
-        label="Extra plugins (merged with global defaults, format: name@marketplace)"
-        values={plugins}
-        onChange={setPlugins}
-        placeholder="name@marketplace"
-      />
-      <JsonEditor
-        label="Devcontainer override JSON (used when repo has no .devcontainer/devcontainer.json)"
-        value={devcontainerJson}
-        onChange={setDevcontainerJson}
-      />
-      {error && <div className="text-red-600">{error}</div>}
-      <button
-        type="submit"
-        disabled={submitting}
-        className="bg-blue-600 text-white px-4 py-2 rounded disabled:opacity-50"
-      >
-        {submitting ? 'Creating…' : 'Create'}
-      </button>
-    </form>
-  );
-}
+    <form onSubmit={onSubmit} className="max-w-2xl mx-auto p-6 space-y-6">
+      <h1 className="text-[26px] font-semibold tracking-[-0.02em]">New project</h1>
 
-function Field({ label, children }: { label: string; children: React.ReactNode }) {
-  return (
-    <label className="block">
-      <span className="block text-sm font-medium mb-1">{label}</span>
-      {children}
-    </label>
+      <Section title="Identity">
+        <FormRow label="Name" htmlFor={nameId}><Input id={nameId} className="w-full" value={name} onChange={(e) => setName(e.target.value)} required /></FormRow>
+        <FormRow label="Repo URL (SSH)" htmlFor={repoUrlId}><Input id={repoUrlId} className="w-full" value={repoUrl} onChange={(e) => setRepoUrl(e.target.value)} required /></FormRow>
+        <FormRow label="Default branch" htmlFor={defaultBranchId}><Input id={defaultBranchId} className="w-full" value={defaultBranch} onChange={(e) => setDefaultBranch(e.target.value)} required /></FormRow>
+      </Section>
+
+      <Section title="Git (overrides)">
+        <FormRow label="Author name" htmlFor={gitAuthorNameId}><Input id={gitAuthorNameId} className="w-full" value={gitAuthorName} onChange={(e) => setGitAuthorName(e.target.value)} /></FormRow>
+        <FormRow label="Author email" htmlFor={gitAuthorEmailId}><Input id={gitAuthorEmailId} className="w-full" value={gitAuthorEmail} onChange={(e) => setGitAuthorEmail(e.target.value)} /></FormRow>
+      </Section>
+
+      <Section title="Agent">
+        <FormRow label="Project-level instructions" htmlFor={instructionsId} hint="Prepended after the global prompt, before the run prompt.">
+          <Textarea id={instructionsId} className="w-full" rows={4} value={instructions} onChange={(e) => setInstructions(e.target.value)} />
+        </FormRow>
+      </Section>
+
+      <Section title="Plugins">
+        <ChipInput
+          label="Extra marketplaces (merged with global defaults)"
+          values={marketplaces}
+          onChange={setMarketplaces}
+          placeholder="add marketplace…"
+        />
+        <ChipInput
+          label="Extra plugins (name@marketplace)"
+          values={plugins}
+          onChange={setPlugins}
+          placeholder="add plugin…"
+        />
+      </Section>
+
+      <Section title="Devcontainer">
+        <JsonEditor
+          label="Override JSON (used when repo has no .devcontainer/devcontainer.json)"
+          value={devcontainerJson}
+          onChange={setDevcontainerJson}
+        />
+      </Section>
+
+      {error && <ErrorState message={error} />}
+      <Button type="submit" disabled={submitting}>{submitting ? 'Creating…' : 'Create project'}</Button>
+    </form>
   );
 }

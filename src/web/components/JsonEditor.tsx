@@ -53,13 +53,16 @@ interface JsonEditorProps {
 }
 
 export function JsonEditor({ label, value, onChange }: JsonEditorProps) {
+  // We toggle `.light` on <html>, not `.dark`. Dark is the default (no class).
+  // NOTE: CodeMirror theme objects use intentional concrete hex colors — they are opaque
+  // and cannot resolve CSS variables. TODO: read from tokens.css at mount time.
   const [isDark, setIsDark] = useState(() =>
-    document.documentElement.classList.contains('dark')
+    !document.documentElement.classList.contains('light')
   );
 
   useEffect(() => {
     const observer = new MutationObserver(() => {
-      setIsDark(document.documentElement.classList.contains('dark'));
+      setIsDark(!document.documentElement.classList.contains('light'));
     });
     observer.observe(document.documentElement, { attributeFilter: ['class'] });
     return () => observer.disconnect();
@@ -69,8 +72,8 @@ export function JsonEditor({ label, value, onChange }: JsonEditorProps) {
 
   return (
     <label className="block">
-      <span className="block text-sm font-medium mb-1">{label}</span>
-      <div className="border rounded overflow-hidden dark:border-gray-600">
+      <span className="block text-[14px] font-medium text-text-dim mb-1.5">{label}</span>
+      <div className="border border-border-strong rounded-md overflow-hidden bg-surface-sunken">
         <CodeMirror
           value={value}
           onChange={onChange}
@@ -81,10 +84,10 @@ export function JsonEditor({ label, value, onChange }: JsonEditorProps) {
         />
       </div>
       {status === 'valid' && (
-        <p className="mt-1 text-xs text-green-600 dark:text-green-400">✓ Valid JSON</p>
+        <p className="mt-1 text-[13px] text-ok">✓ Valid JSON</p>
       )}
       {status !== 'valid' && status !== 'empty' && (
-        <p className="mt-1 text-xs text-red-600 dark:text-red-400">✗ {status}</p>
+        <p className="mt-1 text-[13px] text-fail">✗ {status}</p>
       )}
     </label>
   );

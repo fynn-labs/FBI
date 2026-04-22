@@ -1,62 +1,151 @@
-import { useEffect, useState } from 'react';
-import { Link, useParams } from 'react-router-dom';
+import { useEffect, useRef, useState } from 'react';
+import { Link, Outlet, useLocation, useNavigate, useParams } from 'react-router-dom';
+import { SplitPane } from '@ui/patterns/SplitPane.js';
+import { EmptyState, LoadingState, ErrorState } from '@ui/patterns/index.js';
 import type { Project, Run } from '@shared/types.js';
 import { api } from '../lib/api.js';
-import { StateBadge } from '../components/StateBadge.js';
-import { SecretsEditor } from '../components/SecretsEditor.js';
+import { RunsList } from '../features/runs/RunsList.js';
+import { ProjectHeader } from '../features/projects/ProjectHeader.js';
+import { getLastRunForProject, setLastRunForProject } from '../features/runs/lastRun.js';
+import { useIsNarrow } from '../hooks/useIsNarrow.js';
 
 export function ProjectDetailPage() {
-  const { id } = useParams();
+  const { id, rid } = useParams();
   const pid = Number(id);
+  const location = useLocation();
+  const hasChildRoute = location.pathname.replace(/\/$/, '') !== `/projects/${pid}`;
+  const currentRunId = rid ? Number(rid) : null;
   const [project, setProject] = useState<Project | null>(null);
-  const [runs, setRuns] = useState<Run[]>([]);
+  const [runs, setRuns] = useState<Run[] | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const nav = useNavigate();
+  const narrow = useIsNarrow();
+
+  // Auto-redirect only on initial mount (fresh page load, not client-side back-nav).
+  // Once the user clears a run (back to /projects/:id), respect it.
+  // React Router reuses this component across /projects/:pid changes, so
+  // reset the scope whenever pid changes.
+  const autoRedirectAllowedRef = useRef(true);
+  const prevRidRef = useRef<string | undefined>(rid);
+  const lastSeenPidRef = useRef<number | null>(null);
 
   useEffect(() => {
-    void api.getProject(pid).then(setProject);
-    void api.listProjectRuns(pid).then(setRuns);
+    let cancelled = false;
+    let intervalId: ReturnType<typeof setInterval> | null = null;
+
+    const is404 = (e: unknown) => {
+      const msg = String(e);
+      return msg.includes('HTTP 404') || msg.includes(' 404 ');
+    };
+
+    void api.getProject(pid)
+      .then((p) => { if (!cancelled) setProject(p); })
+      .catch((e) => {
+        if (!cancelled) {
+          if (is404(e)) {
+            setError(`Project #${pid} not found`);
+            cancelled = true;
+            if (intervalId !== null) { clearInterval(intervalId); intervalId = null; }
+          }
+        }
+      });
+
+    const loadRuns = () => api.listProjectRuns(pid)
+      .then((r) => { if (!cancelled) setRuns(r); })
+      .catch((e) => {
+        if (!cancelled) {
+          if (is404(e)) {
+            setError(`Project #${pid} not found`);
+            cancelled = true;
+            if (intervalId !== null) { clearInterval(intervalId); intervalId = null; }
+          } else {
+            setError(String(e));
+          }
+        }
+      });
+
+    loadRuns();
+    intervalId = setInterval(loadRuns, 5000);
+    return () => { cancelled = true; if (intervalId !== null) clearInterval(intervalId); };
   }, [pid]);
 
-  if (!project) return <div>Loading…</div>;
+  // Remember the current run id whenever it changes.
+  // If the user clears rid (back to /projects/:id), disable further auto-redirects.
+  useEffect(() => {
+    if (lastSeenPidRef.current !== pid) {
+      // Project changed (or first mount) — fresh auto-redirect permission.
+      autoRedirectAllowedRef.current = true;
+      prevRidRef.current = rid;
+      lastSeenPidRef.current = pid;
+      if (rid) setLastRunForProject(pid, Number(rid));
+      return;
+    }
+    if (rid) {
+      setLastRunForProject(pid, Number(rid));
+    } else if (prevRidRef.current) {
+      autoRedirectAllowedRef.current = false;
+    }
+    prevRidRef.current = rid;
+  }, [pid, rid]);
 
-  return (
-    <div className="space-y-6 max-w-3xl">
-      <div className="flex justify-between items-center">
-        <div>
-          <h1 className="text-2xl font-semibold">{project.name}</h1>
-          <p className="text-sm text-gray-500 dark:text-gray-400 font-mono">{project.repo_url}</p>
+  // Auto-redirect to the last-viewed run on fresh mount.
+  useEffect(() => {
+    if (!autoRedirectAllowedRef.current) return;
+    if (hasChildRoute) return;
+    if (!runs || runs.length === 0) return;
+    const lastId = getLastRunForProject(pid);
+    if (lastId == null) return;
+    if (!runs.some((r) => r.id === lastId)) return;
+    autoRedirectAllowedRef.current = false;
+    nav(`/projects/${pid}/runs/${lastId}`, { replace: true });
+  }, [runs, hasChildRoute, pid, nav]);
+
+  if (error) return <ErrorState message={error} />;
+  if (!project || !runs) return <LoadingState label="Loading project…" />;
+
+  // Narrow: show only master list or only detail (stacked).
+  if (narrow) {
+    if (hasChildRoute) {
+      return (
+        <div className="h-full flex flex-col min-h-0">
+          <div className="px-3 py-2 border-b border-border bg-surface shrink-0">
+            <Link to={`/projects/${pid}`} className="text-[13px]">← Back to project</Link>
+          </div>
+          <div className="flex-1 min-h-0 overflow-auto">
+            <Outlet />
+          </div>
         </div>
-        <div className="flex gap-2">
-          <Link
-            to={`/projects/${pid}/edit`}
-            className="border px-3 py-1 rounded dark:border-gray-600 dark:text-gray-200"
-          >
-            Edit
-          </Link>
-          <Link
-            to={`/projects/${pid}/runs/new`}
-            className="bg-blue-600 text-white px-3 py-1 rounded dark:bg-blue-500"
-          >
-            New Run
-          </Link>
+      );
+    }
+    return (
+      <div className="h-full flex flex-col min-h-0">
+        <ProjectHeader project={project} />
+        <div className="flex-1 min-h-0 overflow-auto">
+          <RunsList runs={runs} toHref={(r) => `/projects/${pid}/runs/${r.id}`} currentId={currentRunId} />
         </div>
       </div>
+    );
+  }
 
-      <SecretsEditor projectId={pid} />
-
-      <section className="bg-white border rounded p-4 dark:bg-gray-700 dark:border-gray-600">
-        <h2 className="font-semibold mb-2">Runs</h2>
-        <ul className="divide-y dark:divide-gray-700">
-          {runs.length === 0 && <li className="text-gray-500 dark:text-gray-400">No runs yet</li>}
-          {runs.map((r) => (
-            <li key={r.id} className="py-2 flex items-center justify-between">
-              <Link to={`/runs/${r.id}`} className="text-blue-700 dark:text-blue-400">
-                Run #{r.id} · {new Date(r.created_at).toLocaleString()}
-              </Link>
-              <StateBadge state={r.state} />
-            </li>
-          ))}
-        </ul>
-      </section>
-    </div>
+  return (
+    <SplitPane
+      leftWidth="360px"
+      storageKey="project-detail"
+      left={
+        <div className="h-full flex flex-col min-h-0">
+          <ProjectHeader project={project} />
+          <div className="flex-1 min-h-0"><RunsList runs={runs} toHref={(r) => `/projects/${pid}/runs/${r.id}`} currentId={currentRunId} /></div>
+        </div>
+      }
+      right={
+        hasChildRoute ? <Outlet /> : (
+          <div className="h-full flex items-center justify-center">
+            <div className="max-w-md mx-auto w-full">
+              <EmptyState title="Select a run" description="Or create a new run for this project." />
+            </div>
+          </div>
+        )
+      }
+    />
   );
 }

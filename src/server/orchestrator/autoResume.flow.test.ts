@@ -11,6 +11,7 @@ import { SecretsRepo } from '../db/secrets.js';
 import { SettingsRepo } from '../db/settings.js';
 import { McpServersRepo } from '../db/mcpServers.js';
 import { RateLimitStateRepo } from '../db/rateLimitState.js';
+import { UsageRepo } from '../db/usage.js';
 import { RunStreamRegistry } from '../logs/registry.js';
 import { Orchestrator } from './index.js';
 import type { Config } from '../config.js';
@@ -89,6 +90,7 @@ function setup() {
   const settings = new SettingsRepo(db);
   const mcpServers = new McpServersRepo(db);
   const rateLimitState = new RateLimitStateRepo(db);
+  const usage = new UsageRepo(db);
   const streams = new RunStreamRegistry();
 
   const p = projects.create({
@@ -115,7 +117,7 @@ function setup() {
   return {
     dir, runs, projects, settings, p, streams,
     makeOrchestrator: (docker: Docker) => new Orchestrator({
-      docker, config, projects, runs, secrets, settings, mcpServers, streams, rateLimitState,
+      docker, config, projects, runs, secrets, settings, mcpServers, streams, rateLimitState, usage,
     }),
   };
 }

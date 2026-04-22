@@ -38,8 +38,8 @@ describe('NewProjectPage', () => {
     expect(screen.getByLabelText(/^name$/i)).toBeInTheDocument();
     expect(screen.getByLabelText(/repo url/i)).toBeInTheDocument();
     expect(screen.getByLabelText(/default branch/i)).toBeInTheDocument();
-    expect(screen.getByLabelText(/git author name/i)).toBeInTheDocument();
-    expect(screen.getByLabelText(/git author email/i)).toBeInTheDocument();
+    expect(screen.getByLabelText(/author name/i)).toBeInTheDocument();
+    expect(screen.getByLabelText(/author email/i)).toBeInTheDocument();
     expect(screen.getByLabelText(/instructions/i)).toBeInTheDocument();
     expect(screen.getByLabelText(/marketplaces/i)).toBeInTheDocument();
     expect(screen.getByLabelText(/plugins/i)).toBeInTheDocument();
@@ -58,8 +58,8 @@ describe('NewProjectPage', () => {
     await userEvent.type(screen.getByLabelText(/^name$/i), 'my-proj');
     await userEvent.type(screen.getByLabelText(/repo url/i), 'git@github.com:org/repo.git');
     // default branch is pre-filled 'main' — leave it
-    await userEvent.type(screen.getByLabelText(/git author name/i), 'Bot');
-    await userEvent.type(screen.getByLabelText(/git author email/i), 'bot@example.com');
+    await userEvent.type(screen.getByLabelText(/author name/i), 'Bot');
+    await userEvent.type(screen.getByLabelText(/author email/i), 'bot@example.com');
     await userEvent.type(screen.getByLabelText(/instructions/i), 'Use TypeScript');
     await userEvent.type(screen.getByLabelText(/marketplaces/i), 'https://example.com/mp');
     await userEvent.type(screen.getByLabelText(/plugins/i), 'myplugin@https://example.com/mp');
