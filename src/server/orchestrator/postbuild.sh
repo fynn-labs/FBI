@@ -20,6 +20,9 @@ if command -v apt-get >/dev/null 2>&1; then
   apt-get update
   apt-get install -y --no-install-recommends \
       git openssh-client ca-certificates curl gnupg
+  # Node.js 20 LTS — required for Claude Code CLI.
+  curl -fsSL https://deb.nodesource.com/setup_20.x | bash -
+  apt-get install -y --no-install-recommends nodejs
   rm -rf /var/lib/apt/lists/*
 fi
 
@@ -34,14 +37,12 @@ if ! command -v gh >/dev/null 2>&1; then
   apt-get install -y gh
 fi
 
-# Install Claude Code CLI.
+# Install Claude Code CLI via npm so the binary lands in npm's global bin
+# (typically /usr/bin/claude) and is accessible to all users without any
+# PATH hacks. The curl installer puts a wrapper in ~/. that breaks when
+# called from a different directory via a symlink.
 if ! command -v claude >/dev/null 2>&1; then
-  curl -fsSL https://claude.ai/install.sh | bash
-  # Installer drops the binary in ~/. Symlink so non-root users can find it.
-  CLAUDE_BIN="$(find /root -maxdepth 6 -name 'claude' -type f 2>/dev/null | head -1)"
-  if [ -n "$CLAUDE_BIN" ]; then
-    ln -sf "$CLAUDE_BIN" /usr/local/bin/claude
-  fi
+  npm install -g @anthropic-ai/claude-code
 fi
 
 # Create agent user.
