@@ -9,6 +9,7 @@ import { NewRunPage } from './pages/NewRun.js';
 import { RunsPage } from './pages/Runs.js';
 import { RunDetailPage } from './pages/RunDetail.js';
 import { SettingsPage } from './pages/Settings.js';
+import { DesignPage } from './pages/Design.js';
 import { useRunWatcher } from './hooks/useRunWatcher.js';
 import { api } from './lib/api.js';
 
@@ -30,6 +31,7 @@ export function App() {
         <Route path="/runs" element={<RunsPage />} />
         <Route path="/runs/:id" element={<RunDetailPage />} />
         <Route path="/settings" element={<SettingsPage />} />
+        <Route path="/design" element={<DesignPage />} />
         <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>
     </Layout>
