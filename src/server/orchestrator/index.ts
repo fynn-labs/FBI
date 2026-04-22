@@ -28,10 +28,18 @@ import type { UsageRepo } from '../db/usage.js';
 import { UsageTailer } from './usageTailer.js';
 import { LimitMonitor } from './limitMonitor.js';
 import { nudgeClaudeToExit } from './nudgeClaude.js';
+import { checkContinueEligibility } from './continueEligibility.js';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const SUPERVISOR = path.join(HERE, 'supervisor.sh');
 const FINALIZE_BRANCH = path.join(HERE, 'finalizeBranch.sh');
+
+export class ContinueNotEligibleError extends Error {
+  constructor(public readonly code: 'wrong_state' | 'no_session' | 'session_files_missing', message: string) {
+    super(`${code}: ${message}`);
+    this.name = 'ContinueNotEligibleError';
+  }
+}
 
 export interface OrchestratorDeps {
   docker: Docker;
@@ -464,6 +472,64 @@ export class Orchestrator {
       const msg = err instanceof Error ? err.message : String(err);
       onBytes(Buffer.from(`\n[fbi] resume error: ${msg}\n`));
       this.deps.runs.markFinished(runId, { state: 'failed', error: `resume failed: ${msg}` });
+      this.publishState(runId);
+      this.active.delete(runId);
+      store.close(); broadcaster.end(); this.deps.streams.release(runId);
+    }
+  }
+
+  async continueRun(runId: number): Promise<void> {
+    const run = this.deps.runs.get(runId);
+    if (!run) throw new Error(`run ${runId} not found`);
+    const verdict = checkContinueEligibility(run, this.deps.config.runsDir);
+    if (!verdict.ok) throw new ContinueNotEligibleError(verdict.code, verdict.message);
+
+    const store = new LogStore(run.log_path);
+    const broadcaster = this.deps.streams.getOrCreate(runId);
+    const onBytes = (chunk: Uint8Array) => { store.append(chunk); broadcaster.publish(chunk); };
+    onBytes(Buffer.from(`\n[fbi] continuing from session ${run.claude_session_id}\n`));
+
+    try {
+      const { container } = await this.createContainerForRun(
+        runId, {
+          resumeSessionId: run.claude_session_id,
+          branchName: run.branch_name && run.branch_name.length > 0 ? run.branch_name : null,
+        }, onBytes,
+      );
+
+      const projectSecrets = this.deps.secrets.decryptAll(run.project_id);
+      const effectiveMcps = this.deps.mcpServers.listEffective(run.project_id);
+      const claudeJson = buildContainerClaudeJson(
+        this.deps.config.hostClaudeDir, effectiveMcps, projectSecrets,
+      );
+      await injectFiles(container, '/home/agent', { '.claude.json': claudeJson }, 1000);
+      await injectFiles(
+        container, '/home/agent/.claude',
+        { 'settings.json': JSON.stringify({ skipDangerousModePermissionPrompt: true }) },
+        1000,
+      );
+
+      const attach = await container.attach({
+        stream: true, stdin: true, stdout: true, stderr: true, hijack: true,
+      });
+      const limitMonitor = this.makeLimitMonitor(runId, container, attach, onBytes);
+      attach.on('data', (c: Buffer) => { limitMonitor.feedLog(c); onBytes(c); });
+      await container.start();
+      limitMonitor.start();
+      this.active.set(runId, { container, attachStream: attach });
+      this.deps.runs.markContinuing(runId, container.id);
+      this.publishState(runId);
+
+      try {
+        await this.awaitAndComplete(runId, container, onBytes, store, broadcaster);
+      } finally {
+        limitMonitor.stop();
+      }
+    } catch (err) {
+      if (err instanceof ContinueNotEligibleError) throw err;
+      const msg = err instanceof Error ? err.message : String(err);
+      onBytes(Buffer.from(`\n[fbi] continue error: ${msg}\n`));
+      this.deps.runs.markFinished(runId, { state: 'failed', error: `continue failed: ${msg}` });
       this.publishState(runId);
       this.active.delete(runId);
       store.close(); broadcaster.end(); this.deps.streams.release(runId);
