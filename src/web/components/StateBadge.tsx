@@ -10,7 +10,7 @@ const COLORS: Record<RunState, string> = {
 
 export function StateBadge({ state }: { state: RunState }) {
   return (
-    <span className={`inline-block px-2 py-1 rounded text-xs font-mono ${COLORS[state]}`}>
+    <span className={`inline-block px-2 py-1 rounded text-xs font-mono ${COLORS[state] ?? 'bg-gray-100 text-gray-600'}`}>
       {state}
     </span>
   );

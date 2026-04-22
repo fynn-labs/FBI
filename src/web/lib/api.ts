@@ -25,9 +25,9 @@ async function request<T>(url: string, init?: RequestInit): Promise<T> {
 export const api = {
   listProjects: () => request<Project[]>('/api/projects'),
   getProject: (id: number) => request<Project>(`/api/projects/${id}`),
-  createProject: (body: Omit<Project, 'id'>) =>
+  createProject: (body: Omit<Project, 'id' | 'created_at' | 'updated_at'>) =>
     request<Project>('/api/projects', { method: 'POST', body: JSON.stringify(body) }),
-  updateProject: (id: number, patch: Partial<Omit<Project, 'id'>>) =>
+  updateProject: (id: number, patch: Partial<Omit<Project, 'id' | 'created_at' | 'updated_at'>>) =>
     request<Project>(`/api/projects/${id}`, { method: 'PATCH', body: JSON.stringify(patch) }),
   deleteProject: (id: number) => request<void>(`/api/projects/${id}`, { method: 'DELETE' }),
 

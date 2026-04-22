@@ -9,24 +9,26 @@ export function NewProjectPage() {
   const [defaultBranch, setDefaultBranch] = useState('main');
   const [instructions, setInstructions] = useState('');
   const [error, setError] = useState<string | null>(null);
+  const [submitting, setSubmitting] = useState(false);
 
   async function onSubmit(e: FormEvent) {
     e.preventDefault();
+    setSubmitting(true);
     try {
       const p = await api.createProject({
         name,
         repo_url: repoUrl,
         default_branch: defaultBranch,
-        instructions: instructions || null,
+        instructions: instructions.trim() || null,
         devcontainer_override_json: null,
         git_author_name: null,
         git_author_email: null,
-        created_at: 0,
-        updated_at: 0,
       });
       nav(`/projects/${p.id}`);
     } catch (err) {
       setError(String(err));
+    } finally {
+      setSubmitting(false);
     }
   }
 
@@ -53,6 +55,7 @@ export function NewProjectPage() {
         <input
           value={defaultBranch}
           onChange={(e) => setDefaultBranch(e.target.value)}
+          required
           className="w-full border rounded px-2 py-1"
         />
       </Field>
@@ -65,7 +68,9 @@ export function NewProjectPage() {
         />
       </Field>
       {error && <div className="text-red-600">{error}</div>}
-      <button className="bg-blue-600 text-white px-4 py-2 rounded">Create</button>
+      <button type="submit" disabled={submitting} className="bg-blue-600 text-white px-4 py-2 rounded disabled:opacity-50">
+        {submitting ? 'Creating…' : 'Create'}
+      </button>
     </form>
   );
 }

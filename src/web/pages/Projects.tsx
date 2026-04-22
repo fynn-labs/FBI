@@ -8,7 +8,11 @@ export function ProjectsPage() {
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    api.listProjects().then(setProjects).catch((e) => setError(String(e)));
+    let cancelled = false;
+    api.listProjects()
+      .then((data) => { if (!cancelled) setProjects(data); })
+      .catch((e) => { if (!cancelled) setError(String(e)); });
+    return () => { cancelled = true; };
   }, []);
 
   if (error) return <div className="text-red-600">{error}</div>;
