@@ -87,6 +87,8 @@ export class Orchestrator {
           Binds: [
             `${SUPERVISOR}:/usr/local/bin/supervisor.sh:ro`,
             `${this.deps.config.hostClaudeDir}:/home/agent/.claude`,
+            // Also mount at the original host path so plugin metadata absolute paths resolve.
+            `${this.deps.config.hostClaudeDir}:${this.deps.config.hostClaudeDir}:ro`,
             // Mount .claude.json (settings/config) if present alongside .claude/
             ...claudeJsonMount(this.deps.config.hostClaudeDir),
             ...auth.mounts().map((m) =>
