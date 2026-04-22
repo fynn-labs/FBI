@@ -14,11 +14,11 @@ export type ContinueEligibility =
  * the per-run session mount directory.
  */
 export function checkContinueEligibility(run: Run, runsDir: string): ContinueEligibility {
-  if (run.state !== 'failed' && run.state !== 'cancelled') {
+  if (run.state !== 'failed' && run.state !== 'cancelled' && run.state !== 'succeeded') {
     return {
       ok: false,
       code: 'wrong_state',
-      message: `run is ${run.state}; only failed or cancelled runs can be continued`,
+      message: `run is ${run.state}; only terminated runs can be continued`,
     };
   }
   if (!run.claude_session_id) {

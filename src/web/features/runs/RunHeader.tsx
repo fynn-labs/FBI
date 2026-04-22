@@ -18,7 +18,7 @@ export interface RunHeaderProps {
 export function RunHeader({ run, onCancel, onDelete, onContinue }: RunHeaderProps) {
   const nav = useNavigate();
   const canFollowUp = run.state !== 'running' && run.state !== 'queued' && run.state !== 'awaiting_resume' && !!run.branch_name;
-  const canContinue = run.state === 'failed' || run.state === 'cancelled';
+  const canContinue = run.state === 'failed' || run.state === 'cancelled' || run.state === 'succeeded';
   const continueDisabled = !run.claude_session_id;
   return (
     <header className="flex items-center gap-2 px-3 py-2 border-b border-border-strong bg-surface">

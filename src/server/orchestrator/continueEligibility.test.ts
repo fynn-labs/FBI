@@ -62,9 +62,16 @@ describe('checkContinueEligibility', () => {
     if (!r.ok) expect(r.code).toBe('wrong_state');
   });
 
-  it('rejects a succeeded run with wrong_state', () => {
+  it('accepts a succeeded run (continuation is allowed after success)', () => {
     writeSession(42);
-    const r = checkContinueEligibility(baseRun({ state: 'succeeded' }), runsDir);
+    expect(
+      checkContinueEligibility(baseRun({ state: 'succeeded' }), runsDir),
+    ).toEqual({ ok: true });
+  });
+
+  it('rejects a queued run with wrong_state', () => {
+    writeSession(42);
+    const r = checkContinueEligibility(baseRun({ state: 'queued' }), runsDir);
     expect(r.ok).toBe(false);
     if (!r.ok) expect(r.code).toBe('wrong_state');
   });

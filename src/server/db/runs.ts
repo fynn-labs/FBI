@@ -144,7 +144,7 @@ export class RunsRepo {
                 exit_code=NULL,
                 error=NULL,
                 started_at=COALESCE(started_at, ?)
-          WHERE id=? AND state IN ('failed','cancelled')`,
+          WHERE id=? AND state IN ('failed','cancelled','succeeded')`,
       )
       .run(containerId, Date.now(), id);
   }

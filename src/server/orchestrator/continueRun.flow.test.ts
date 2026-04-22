@@ -144,15 +144,34 @@ describe('Orchestrator.continueRun', () => {
     await expect(orch.continueRun(run.id)).rejects.toThrow(/no_session/);
   });
 
-  it('rejects a succeeded run', async () => {
-    const { runs, p, makeOrchestrator } = setup();
+  it('revives a succeeded run (continuation is allowed after success)', async () => {
+    const { dir, runs, p, makeOrchestrator } = setup();
     const run = runs.create({
       project_id: p.id, prompt: 'x',
+      branch_hint: 'feat/done',
       log_path_tmpl: (id) => path.join(os.tmpdir(), `cont-${id}.log`),
     });
     runs.markStarted(run.id, 'c1');
     runs.setClaudeSessionId(run.id, 'sess-ok');
     runs.markFinished(run.id, { state: 'succeeded' });
+    const sessDir = runMountDir(dir, run.id);
+    fs.mkdirSync(sessDir, { recursive: true });
+    fs.writeFileSync(path.join(sessDir, 'sess-ok.jsonl'), '{"x":1}\n');
+
+    const mockDocker = {
+      createContainer: vi.fn().mockResolvedValue(makeSuccessContainer()),
+    } as unknown as Docker;
+    const orch = makeOrchestrator(mockDocker);
+    await orch.continueRun(run.id);
+    expect(runs.get(run.id)!.state).toBe('succeeded');
+  });
+
+  it('rejects a queued run (only terminated runs can be continued)', async () => {
+    const { runs, p, makeOrchestrator } = setup();
+    const run = runs.create({
+      project_id: p.id, prompt: 'x',
+      log_path_tmpl: (id) => path.join(os.tmpdir(), `cont-${id}.log`),
+    });
     const orch = makeOrchestrator({ createContainer: vi.fn() } as unknown as Docker);
     await expect(orch.continueRun(run.id)).rejects.toThrow(/wrong_state/);
   });

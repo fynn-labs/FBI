@@ -292,6 +292,17 @@ describe('RunsRepo auto-resume', () => {
     expect(runs.get(run.id)!.state).toBe('running');
   });
 
+  it('markContinuing also accepts succeeded as the source state', () => {
+    const run = runs.create({
+      project_id: projectId, prompt: 'x',
+      log_path_tmpl: (id) => `/tmp/${id}.log`,
+    });
+    runs.markStarted(run.id, 'c1');
+    runs.markFinished(run.id, { state: 'succeeded' });
+    runs.markContinuing(run.id, 'c2');
+    expect(runs.get(run.id)!.state).toBe('running');
+  });
+
   it('markContinuing refuses to transition from non-terminal states', () => {
     const run = runs.create({
       project_id: projectId, prompt: 'x',
