@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"net"
@@ -54,7 +55,11 @@ func run(ctx context.Context, args Args, logger io.Writer, onReady func([]Mappin
 	}
 	onReady(mappings)
 
+	runCtx, cancel := context.WithCancel(ctx)
+	defer cancel()
+
 	var wg sync.WaitGroup
+	var endedOnce sync.Once
 	for _, b := range bounds {
 		b := b
 		wg.Add(1)
@@ -67,13 +72,19 @@ func run(ctx context.Context, args Args, logger io.Writer, onReady func([]Mappin
 				go func() {
 					fmt.Fprintf(logger, "open  remote %d  from %s\n", b.mapping.Remote, conn.RemoteAddr())
 					ferr := forwardConn(args.FBIUrl, args.RunID, b.mapping.Remote, conn)
+					if errors.Is(ferr, ErrRunEnded) {
+						endedOnce.Do(func() {
+							fmt.Fprintf(logger, "run %d ended\n", args.RunID)
+							cancel()
+						})
+					}
 					fmt.Fprintf(logger, "close remote %d  from %s  err=%v\n", b.mapping.Remote, conn.RemoteAddr(), ferr)
 				}()
 			}
 		}()
 	}
 
-	<-ctx.Done()
+	<-runCtx.Done()
 	for _, b := range bounds { b.l.Close() }
 	wg.Wait()
 	return nil

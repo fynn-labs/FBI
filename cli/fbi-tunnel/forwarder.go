@@ -1,6 +1,7 @@
 package main
 
 import (
+	"errors"
 	"fmt"
 	"io"
 	"net"
@@ -9,6 +10,10 @@ import (
 
 	"github.com/gorilla/websocket"
 )
+
+// ErrRunEnded is returned by forwardConn when the server closes the WebSocket
+// with close code 1001 (Going Away), signalling that the run has ended.
+var ErrRunEnded = errors.New("run ended")
 
 func wsUrl(baseUrl string) (string, error) {
 	u, err := url.Parse(strings.TrimRight(baseUrl, "/"))
@@ -54,6 +59,9 @@ func forwardConn(baseUrl string, runId int, remotePort int, local net.Conn) erro
 		for {
 			_, msg, err := ws.ReadMessage()
 			if err != nil {
+				if websocket.IsCloseError(err, websocket.CloseGoingAway) {
+					done <- ErrRunEnded; return
+				}
 				done <- err; return
 			}
 			if _, werr := local.Write(msg); werr != nil {
