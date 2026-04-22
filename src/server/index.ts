@@ -21,6 +21,7 @@ import { registerSettingsRoutes } from './api/settings.js';
 import { registerConfigRoutes } from './api/config.js';
 import { registerMcpServerRoutes } from './api/mcpServers.js';
 import { registerWsRoute } from './api/ws.js';
+import { registerUsageRoutes } from './api/usage.js';
 import { GhClient } from './github/gh.js';
 
 async function main() {
@@ -78,6 +79,7 @@ async function main() {
   registerConfigRoutes(app, { config });
   registerMcpServerRoutes(app, { mcpServers });
   registerWsRoute(app, { runs, streams, orchestrator });
+  registerUsageRoutes(app, { usage });
 
   // SPA fallback: any non-/api route returns index.html.
   app.setNotFoundHandler((req, reply) => {
