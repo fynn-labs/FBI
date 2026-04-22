@@ -177,6 +177,54 @@ describe('WS shell', () => {
   });
 });
 
+describe('WS global state channel', () => {
+  it('forwards global state frames on /api/ws/states', async () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'fbi-gs-'));
+    const db = openDb(path.join(dir, 'db.sqlite'));
+    const projects = new ProjectsRepo(db);
+    const runs = new RunsRepo(db);
+    const streams = new RunStreamRegistry();
+    const app = Fastify();
+    await app.register(fastifyWebsocket);
+    const orchestrator = { writeStdin: () => {}, resize: async () => {}, cancel: async () => {} };
+    registerWsRoute(app, { runs, streams, orchestrator });
+    await app.listen({ port: 0 });
+    const addr = app.server.address();
+    if (!addr || typeof addr === 'string') { await app.close(); throw new Error('no port'); }
+
+    const ws = new WebSocket(`ws://127.0.0.1:${addr.port}/api/ws/states`);
+    const frames: string[] = [];
+    const firstMessage = new Promise<void>((resolve) => {
+      ws.on('message', (d) => { frames.push((d as Buffer).toString('utf8')); resolve(); });
+    });
+    await new Promise<void>((resolve) => ws.on('open', () => resolve()));
+
+    streams.getGlobalStates().publish({
+      type: 'state',
+      run_id: 42,
+      project_id: 7,
+      state: 'waiting',
+      next_resume_at: null,
+      resume_attempts: 0,
+      last_limit_reset_at: null,
+    });
+
+    await Promise.race([
+      firstMessage,
+      new Promise<void>((_, rej) => setTimeout(() => rej(new Error('timeout waiting for global state frame')), 2000)),
+    ]);
+    expect(frames).toHaveLength(1);
+    const parsed = JSON.parse(frames[0]);
+    expect(parsed.type).toBe('state');
+    expect(parsed.run_id).toBe(42);
+    expect(parsed.project_id).toBe(7);
+    expect(parsed.state).toBe('waiting');
+
+    ws.close();
+    await app.close();
+  });
+});
+
 describe('WS typed frames', () => {
   it('forwards usage and rate_limit events as JSON text frames', async () => {
     // Reuse setup() but mark the run as running (not finished) so the ws stays open.

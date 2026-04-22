@@ -1,7 +1,7 @@
 import { Broadcaster } from './broadcaster.js';
 import { StateBroadcaster } from './stateBroadcaster.js';
 import { TypedBroadcaster } from './typedBroadcaster.js';
-import type { RunWsUsageMessage, RunWsRateLimitMessage } from '../../shared/types.js';
+import type { RunWsUsageMessage, RunWsRateLimitMessage, GlobalStateMessage } from '../../shared/types.js';
 
 export type RunEvent = RunWsUsageMessage | RunWsRateLimitMessage;
 
@@ -9,6 +9,7 @@ export class RunStreamRegistry {
   private bytes = new Map<number, Broadcaster>();
   private state = new Map<number, StateBroadcaster>();
   private events = new Map<number, TypedBroadcaster<RunEvent>>();
+  private globalStates = new TypedBroadcaster<GlobalStateMessage>();
 
   getOrCreate(runId: number): Broadcaster {
     let b = this.bytes.get(runId);
@@ -34,6 +35,10 @@ export class RunStreamRegistry {
     let b = this.events.get(runId);
     if (!b) { b = new TypedBroadcaster<RunEvent>(); this.events.set(runId, b); }
     return b;
+  }
+
+  getGlobalStates(): TypedBroadcaster<GlobalStateMessage> {
+    return this.globalStates;
   }
 
   release(runId: number): void {

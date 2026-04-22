@@ -113,12 +113,18 @@ export class Orchestrator {
   private publishState(runId: number): void {
     const run = this.deps.runs.get(runId);
     if (!run) return;
-    this.deps.streams.getOrCreateState(runId).publish({
-      type: 'state',
+    const frame = {
+      type: 'state' as const,
       state: run.state,
       next_resume_at: run.next_resume_at,
       resume_attempts: run.resume_attempts,
       last_limit_reset_at: run.last_limit_reset_at,
+    };
+    this.deps.streams.getOrCreateState(runId).publish(frame);
+    this.deps.streams.getGlobalStates().publish({
+      ...frame,
+      run_id: runId,
+      project_id: run.project_id,
     });
   }
 

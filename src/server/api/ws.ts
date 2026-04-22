@@ -113,4 +113,13 @@ export function registerWsRoute(app: FastifyInstance, deps: Deps): void {
 
     socket.on('close', () => { unsub(); unsubState(); unsubEvents(); });
   });
+
+  app.get('/api/ws/states', { websocket: true }, (socket: WebSocket) => {
+    const unsub = deps.streams.getGlobalStates().subscribe((frame) => {
+      if (socket.readyState === socket.OPEN) {
+        socket.send(JSON.stringify(frame));
+      }
+    });
+    socket.on('close', () => { unsub(); });
+  });
 }
