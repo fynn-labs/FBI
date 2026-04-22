@@ -7,48 +7,50 @@ describe('computeConfigHash', () => {
       devcontainer_file: '{"image":"node:20"}',
       override_json: null,
       always: ['git'],
+      postbuild: 'echo hi',
     });
     const b = computeConfigHash({
       devcontainer_file: '{"image":"node:20"}',
       override_json: null,
       always: ['git'],
+      postbuild: 'echo hi',
     });
     expect(a).toBe(b);
   });
 
   it('changes when devcontainer file changes', () => {
     const a = computeConfigHash({
-      devcontainer_file: '{"image":"node:20"}', override_json: null, always: [],
+      devcontainer_file: '{"image":"node:20"}', override_json: null, always: [], postbuild: '',
     });
     const b = computeConfigHash({
-      devcontainer_file: '{"image":"node:22"}', override_json: null, always: [],
+      devcontainer_file: '{"image":"node:22"}', override_json: null, always: [], postbuild: '',
     });
     expect(a).not.toBe(b);
   });
 
   it('changes when override changes', () => {
     const a = computeConfigHash({
-      devcontainer_file: null, override_json: '{"apt":["ripgrep"]}', always: [],
+      devcontainer_file: null, override_json: '{"apt":["ripgrep"]}', always: [], postbuild: '',
     });
     const b = computeConfigHash({
-      devcontainer_file: null, override_json: '{"apt":["jq"]}', always: [],
+      devcontainer_file: null, override_json: '{"apt":["jq"]}', always: [], postbuild: '',
     });
     expect(a).not.toBe(b);
   });
 
   it('is independent of always[] ordering', () => {
     const a = computeConfigHash({
-      devcontainer_file: null, override_json: null, always: ['a', 'b'],
+      devcontainer_file: null, override_json: null, always: ['a', 'b'], postbuild: '',
     });
     const b = computeConfigHash({
-      devcontainer_file: null, override_json: null, always: ['b', 'a'],
+      devcontainer_file: null, override_json: null, always: ['b', 'a'], postbuild: '',
     });
     expect(a).toBe(b);
   });
 
   it('produces 16 hex chars', () => {
     const h = computeConfigHash({
-      devcontainer_file: null, override_json: null, always: [],
+      devcontainer_file: null, override_json: null, always: [], postbuild: '',
     });
     expect(h).toMatch(/^[0-9a-f]{16}$/);
   });

@@ -4,6 +4,7 @@ export interface ConfigHashInput {
   devcontainer_file: string | null;
   override_json: string | null;
   always: readonly string[];
+  postbuild: string;
 }
 
 export function computeConfigHash(input: ConfigHashInput): string {
@@ -14,5 +15,7 @@ export function computeConfigHash(input: ConfigHashInput): string {
   h.update(input.override_json ?? '');
   h.update('\nalways:');
   h.update([...input.always].sort().join(','));
+  h.update('\npostbuild:');
+  h.update(input.postbuild);
   return h.digest('hex').slice(0, 16);
 }

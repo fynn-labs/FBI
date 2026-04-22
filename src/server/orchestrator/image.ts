@@ -34,6 +34,7 @@ export class ImageBuilder {
       devcontainer_file: input.devcontainerFile,
       override_json: input.overrideJson,
       always: ALWAYS,
+      postbuild: POSTBUILD,
     });
     const finalTag = `fbi/p${input.projectId}:${hash}`;
 
