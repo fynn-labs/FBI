@@ -83,6 +83,8 @@ export const api = {
       }),
     }),
   deleteRun: (id: number) => request<void>(`/api/runs/${id}`, { method: 'DELETE' }),
+  continueRun: (id: number) =>
+    request<void>(`/api/runs/${id}/continue`, { method: 'POST' }),
 
   getSettings: () => request<Settings>('/api/settings'),
   updateSettings: (patch: {
