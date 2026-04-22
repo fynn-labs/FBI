@@ -5,7 +5,7 @@ import os from 'node:os';
 import { fileURLToPath } from 'node:url';
 import tar from 'tar-stream';
 import { computeConfigHash } from './configHash.js';
-import { execFileSync } from 'node:child_process';
+import { spawn } from 'node:child_process';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 export const POSTBUILD = fs.readFileSync(path.join(HERE, 'postbuild.sh'), 'utf8');
@@ -100,18 +100,11 @@ export class ImageBuilder {
       fs.writeFileSync(path.join(tmp, '.devcontainer', name), contents);
     }
     try {
-      const out = execFileSync(
+      await spawnAsync(
         'npx',
-        [
-          '-y',
-          '@devcontainers/cli@0.67.0',
-          'build',
-          '--workspace-folder', tmp,
-          '--image-name', tag,
-        ],
-        { encoding: 'buffer' }
+        ['-y', '@devcontainers/cli@0.67.0', 'build', '--workspace-folder', tmp, '--image-name', tag],
+        onLog,
       );
-      onLog(out);
     } finally {
       fs.rmSync(tmp, { recursive: true, force: true });
     }
@@ -158,6 +151,23 @@ export class ImageBuilder {
       );
     });
   }
+}
+
+function spawnAsync(
+  cmd: string,
+  args: string[],
+  onLog: (c: Uint8Array) => void,
+): Promise<void> {
+  return new Promise((resolve, reject) => {
+    const proc = spawn(cmd, args, { stdio: ['ignore', 'pipe', 'pipe'] });
+    proc.stdout.on('data', onLog);
+    proc.stderr.on('data', onLog);
+    proc.on('close', (code) => {
+      if (code === 0) resolve();
+      else reject(new Error(`${cmd} exited with code ${code}`));
+    });
+    proc.on('error', reject);
+  });
 }
 
 function createTarContext(files: Record<string, string>): NodeJS.ReadableStream {

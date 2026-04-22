@@ -3,7 +3,10 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { execFileSync } from 'node:child_process';
+import { execFile } from 'node:child_process';
+import { promisify } from 'node:util';
+
+const execFileAsync = promisify(execFile);
 import type { RunsRepo } from '../db/runs.js';
 import type { ProjectsRepo } from '../db/projects.js';
 import type { SecretsRepo } from '../db/secrets.js';
@@ -457,13 +460,13 @@ async function fetchDevcontainerFile(
   const tmp = path.join(tmpParent, 'r');
   try {
     const env = { ...process.env, SSH_AUTH_SOCK: sshAuthSock, GIT_TERMINAL_PROMPT: '0' };
-    execFileSync(
+    await execFileAsync(
       'git',
       ['clone', '--depth=1', '--filter=blob:none', '--sparse', '--no-tags', repoUrl, tmp],
-      { env, stdio: 'pipe' }
+      { env }
     );
-    execFileSync('git', ['-C', tmp, 'sparse-checkout', 'set', '.devcontainer'], { env, stdio: 'pipe' });
-    execFileSync('git', ['-C', tmp, 'checkout'], { env, stdio: 'pipe' });
+    await execFileAsync('git', ['-C', tmp, 'sparse-checkout', 'set', '.devcontainer'], { env });
+    await execFileAsync('git', ['-C', tmp, 'checkout'], { env });
     const dcDir = path.join(tmp, '.devcontainer');
     if (!fs.existsSync(path.join(dcDir, 'devcontainer.json'))) return null;
     const files: Record<string, string> = {};
