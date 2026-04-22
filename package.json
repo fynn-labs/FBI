@@ -13,6 +13,9 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "typecheck": "tsc -p tsconfig.server.json --noEmit && tsc -p tsconfig.web.json --noEmit && tsc -p tsconfig.test.json --noEmit",
+    "cli:build": "make -C cli/fbi-tunnel build",
+    "cli:install": "make -C cli/fbi-tunnel install",
+    "cli:test": "make -C cli/fbi-tunnel test",
     "lint": "eslint src"
   },
   "dependencies": {
