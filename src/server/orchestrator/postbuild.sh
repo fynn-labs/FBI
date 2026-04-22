@@ -41,7 +41,7 @@ fi
 
 # Create agent user.
 if ! id agent >/dev/null 2>&1; then
-  useradd --create-home --shell /bin/bash --uid 1000 agent
+  useradd --create-home --shell /bin/bash agent
 fi
 
 # Seed known_hosts with GitHub's published keys.
