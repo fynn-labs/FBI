@@ -2,7 +2,6 @@
 
 DIST := dist
 OUT ?= $(DIST)
-VERSION ?= dev
 BINARIES := \
   $(DIST)/fbi-tunnel-darwin-amd64 \
   $(DIST)/fbi-tunnel-darwin-arm64 \
@@ -21,7 +20,7 @@ dist:
 	@for os in darwin linux; do \
 	  for arch in amd64 arm64; do \
 	    CGO_ENABLED=0 GOOS=$$os GOARCH=$$arch \
-	      go build -trimpath -ldflags="-s -w -X main.version=$(VERSION)" \
+	      go build -trimpath -ldflags='-s -w' \
 	      -o $(OUT)/fbi-tunnel-$$os-$$arch . ; \
 	  done ; \
 	done

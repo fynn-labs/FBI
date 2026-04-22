@@ -65,8 +65,9 @@ describe('GET /api/cli/fbi-tunnel/:os/:arch', () => {
     const dir = withTempDir(() => {});
     app = await makeApp({ cliDistDir: dir });
     const res = await app.inject({ method: 'GET', url: '/api/cli/fbi-tunnel/..%2Fetc/amd64' });
-    // Fastify decodes %2F into a literal "/" before matching; the route then
-    // does not match and returns 404. Either way, no bytes leave the server.
+    // Fastify decodes %2F to "/" before matching, so this request actually
+    // reaches the handler with os="../etc". The allowlist is the real defense —
+    // it rejects anything outside {darwin, linux} with a 400.
     expect([400, 404]).toContain(res.statusCode);
   });
 

@@ -12,17 +12,14 @@ OUT="$REPO_ROOT/dist/cli"
 
 mkdir -p "$OUT"
 
-VERSION="${VITE_VERSION:-$(git -C "$REPO_ROOT" rev-parse --short HEAD 2>/dev/null || echo dev)}"
-
 docker run --rm \
   -v "$CLI_DIR":/src \
   -v "$OUT":/out \
-  -e VERSION="$VERSION" \
   -w /src \
   golang:1.22-alpine \
-  sh -c 'apk add --no-cache make >/dev/null && make dist OUT=/out VERSION=$VERSION'
+  sh -c 'apk add --no-cache make >/dev/null && make dist OUT=/out'
 
 chmod +x "$OUT"/fbi-tunnel-* 2>/dev/null || true
 
-echo "fbi-tunnel binaries written to $OUT (version=$VERSION):"
+echo "fbi-tunnel binaries written to $OUT:"
 ls -la "$OUT"

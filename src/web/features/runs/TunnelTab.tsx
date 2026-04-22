@@ -23,12 +23,9 @@ function hintFor(state: RunState, hasPorts: boolean): string | null {
 
 function detectFromNavigator(): Platform {
   if (typeof navigator === 'undefined') return { os: 'darwin', arch: 'arm64' };
-  const uaData = (navigator as Navigator & { userAgentData?: { platform?: string } }).userAgentData;
-  if (uaData?.platform) {
-    // Client Hints "architecture" needs getHighEntropyValues(), which is async.
-    // For v1.1 we only use the sync `platform` and fall back to userAgent for arch.
-    return detectPlatform(navigator.userAgent);
-  }
+  // UA-CH's sync `platform` lacks arch; `architecture` needs async
+  // getHighEntropyValues(). UA-string parsing handles both in one pass, so
+  // use it unconditionally for v1.1.
   return detectPlatform(navigator.userAgent);
 }
 
