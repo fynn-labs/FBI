@@ -1,5 +1,6 @@
 export interface ShellHandle {
   onBytes(cb: (data: Uint8Array) => void): () => void;
+  onTypedEvent<T extends { type: string }>(cb: (msg: T) => void): () => void;
   onOpen(cb: () => void): void;
   send(data: Uint8Array): void;
   resize(cols: number, rows: number): void;
@@ -10,18 +11,36 @@ export function openShell(runId: number): ShellHandle {
   const proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
   const ws = new WebSocket(`${proto}//${location.host}/api/runs/${runId}/shell`);
   ws.binaryType = 'arraybuffer';
-  const cbs: Array<(d: Uint8Array) => void> = [];
+  const bytesCbs: Array<(d: Uint8Array) => void> = [];
+  const typedCbs: Array<(msg: { type: string }) => void> = [];
   ws.onmessage = (ev) => {
-    const data =
-      ev.data instanceof ArrayBuffer
-        ? new Uint8Array(ev.data)
-        : new TextEncoder().encode(typeof ev.data === 'string' ? ev.data : '');
-    for (const cb of cbs) cb(data);
+    if (typeof ev.data === 'string') {
+      // Text frame: try JSON parse for typed events
+      try {
+        const msg = JSON.parse(ev.data) as { type: string };
+        for (const cb of typedCbs) cb(msg);
+      } catch {
+        // Not valid JSON — treat as text bytes (legacy fallback)
+        const data = new TextEncoder().encode(ev.data);
+        for (const cb of bytesCbs) cb(data);
+      }
+      return;
+    }
+    // Binary frame
+    const data = ev.data instanceof ArrayBuffer
+      ? new Uint8Array(ev.data)
+      : new TextEncoder().encode('');
+    for (const cb of bytesCbs) cb(data);
   };
   return {
     onBytes: (cb) => {
-      cbs.push(cb);
-      return () => { const i = cbs.indexOf(cb); if (i !== -1) cbs.splice(i, 1); };
+      bytesCbs.push(cb);
+      return () => { const i = bytesCbs.indexOf(cb); if (i !== -1) bytesCbs.splice(i, 1); };
+    },
+    onTypedEvent: <T extends { type: string }>(cb: (msg: T) => void) => {
+      const wrapper = (msg: { type: string }) => cb(msg as T);
+      typedCbs.push(wrapper);
+      return () => { const i = typedCbs.indexOf(wrapper); if (i !== -1) typedCbs.splice(i, 1); };
     },
     onOpen: (cb) => { ws.addEventListener('open', cb, { once: true }); },
     send: (data) => {

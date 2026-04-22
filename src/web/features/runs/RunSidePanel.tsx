@@ -4,6 +4,7 @@ import { Pill, type PillTone } from '@ui/primitives/index.js';
 import { CodeBlock } from '@ui/data/CodeBlock.js';
 import { TimestampRelative } from '@ui/data/TimestampRelative.js';
 import type { Run } from '@shared/types.js';
+import { RunUsage } from './RunUsage.js';
 
 const TONE: Record<Run['state'], PillTone> = {
   queued: 'wait', running: 'run', succeeded: 'ok', failed: 'fail', cancelled: 'warn',
@@ -25,6 +26,8 @@ export function RunSidePanel({ run, siblings, github, onCreatePr, creatingPr }: 
         <Row label="started"><TimestampRelative iso={new Date(run.created_at).toISOString()} /></Row>
         {run.branch_name && <Row label="branch"><CodeBlock>{run.branch_name}</CodeBlock></Row>}
       </Group>
+
+      <RunUsage run={run} />
 
       {github && run.state === 'succeeded' && (
         <Group label="GitHub">

@@ -6,6 +6,7 @@ import { FormRow } from '@ui/patterns/FormRow.js';
 import { Input, Textarea, Button } from '@ui/primitives/index.js';
 import { ErrorState } from '@ui/patterns/ErrorState.js';
 import { useKeyBinding } from '@ui/shell/KeyMap.js';
+import { UsageWarning } from '../features/usage/UsageWarning.js';
 
 export function NewRunPage() {
   const { id } = useParams();
@@ -37,6 +38,7 @@ export function NewRunPage() {
 
   return (
     <form onSubmit={submit} className="max-w-3xl mx-auto p-6 space-y-4">
+      <UsageWarning />
       <h1 className="text-[22px] font-semibold tracking-[-0.02em]">New run</h1>
       <RecentPromptsDropdown projectId={pid} onPick={setPrompt} />
       <FormRow label="Branch name" hint="Leave blank to let Claude choose.">

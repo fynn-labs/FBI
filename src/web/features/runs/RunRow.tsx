@@ -3,6 +3,12 @@ import { Pill, type PillTone } from '@ui/primitives/index.js';
 import { TimestampRelative } from '@ui/data/TimestampRelative.js';
 import type { Run } from '@shared/types.js';
 
+function fmt(n: number): string {
+  if (n < 1000) return String(n);
+  if (n < 1_000_000) return `${(n / 1000).toFixed(n < 10_000 ? 1 : 0)}k`;
+  return `${(n / 1_000_000).toFixed(1)}M`;
+}
+
 const TONE: Record<Run['state'], PillTone> = {
   queued: 'wait',
   running: 'run',
@@ -29,6 +35,9 @@ export function RunRow({ run, to }: RunRowProps) {
     >
       <span className="font-mono text-[11px] w-8 text-text-faint">#{run.id}</span>
       <span className="flex-1 min-w-0 truncate">{label}</span>
+      {run.tokens_total > 0 && (
+        <span className="font-mono text-[10px] text-text-faint">{fmt(run.tokens_total)}</span>
+      )}
       <Pill tone={TONE[run.state]}>{run.state}</Pill>
       <TimestampRelative iso={new Date(run.created_at).toISOString()} />
     </NavLink>

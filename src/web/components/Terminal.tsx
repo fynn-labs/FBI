@@ -3,6 +3,8 @@ import { Terminal as Xterm } from '@xterm/xterm';
 import { FitAddon } from '@xterm/addon-fit';
 import '@xterm/xterm/css/xterm.css';
 import { openShell } from '../lib/ws.js';
+import { publishUsage, publishRateLimit } from '../features/runs/usageBus.js';
+import type { UsageSnapshot, RateLimitState } from '@shared/types.js';
 
 interface Props {
   runId: number;
@@ -42,6 +44,10 @@ export function Terminal({ runId, interactive }: Props) {
 
     const shell = openShell(runId);
     const unsubBytes = shell.onBytes((data) => term.write(data));
+    const unsubEv = shell.onTypedEvent<{ type: string; snapshot: unknown }>((msg) => {
+      if (msg.type === 'usage') publishUsage(runId, msg.snapshot as UsageSnapshot);
+      else if (msg.type === 'rate_limit') publishRateLimit(runId, msg.snapshot as RateLimitState);
+    });
 
     const onResize = () => {
       fit.fit();
@@ -63,6 +69,7 @@ export function Terminal({ runId, interactive }: Props) {
       observer.disconnect();
       window.removeEventListener('resize', onResize);
       unsubBytes();
+      unsubEv();
       shell.close();
       term.dispose();
     };

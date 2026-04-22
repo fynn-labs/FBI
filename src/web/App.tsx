@@ -9,6 +9,7 @@ import { toggleTheme } from '@ui/theme.js';
 import { api } from './lib/api.js';
 import { useRunWatcher } from './hooks/useRunWatcher.js';
 import type { Project, Run } from '@shared/types.js';
+import { RateLimitPill } from './features/usage/RateLimitPill.js';
 import { ProjectsPage } from './pages/Projects.js';
 import { NewProjectPage } from './pages/NewProject.js';
 import { ProjectDetailPage } from './pages/ProjectDetail.js';
@@ -46,7 +47,8 @@ function StatusRegistrations({ active, today }: { active: number; today: number 
     const off1 = statusRegistry.register({ id: 'conn', side: 'left', order: 0, render: () => <>● <span className="text-ok">connected</span></> });
     const off2 = statusRegistry.register({ id: 'active', side: 'left', order: 1, render: () => <>{active} <span className="text-run">running</span></> });
     const off3 = statusRegistry.register({ id: 'today', side: 'left', order: 2, render: () => <>{today} today</> });
-    return () => { off1(); off2(); off3(); };
+    const offRL = statusRegistry.register({ id: 'ratelimit', side: 'right', order: 0, render: () => <RateLimitPill /> });
+    return () => { off1(); off2(); off3(); offRL(); };
   }, [active, today]);
   return null;
 }
