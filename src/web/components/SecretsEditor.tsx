@@ -1,6 +1,8 @@
 import { useEffect, useState } from 'react';
 import type { SecretName } from '@shared/types.js';
 import { api } from '../lib/api.js';
+import { Input, Button } from '@ui/primitives/index.js';
+import { EmptyState, ErrorState } from '@ui/patterns/index.js';
 
 export function SecretsEditor({ projectId }: { projectId: number }) {
   const [names, setNames] = useState<SecretName[]>([]);
@@ -29,35 +31,42 @@ export function SecretsEditor({ projectId }: { projectId: number }) {
       setError(null);
     } catch (e) { setError(String(e)); }
   }
+
   return (
-    <section className="bg-white border rounded p-4 dark:bg-gray-700 dark:border-gray-600">
-      <h2 className="font-semibold mb-2">Secrets</h2>
-      <ul className="mb-3 space-y-1">
-        {names.length === 0 && <li className="text-gray-500 dark:text-gray-400">None</li>}
-        {names.map((s) => (
-          <li key={s.name} className="flex justify-between items-center">
-            <code>{s.name}</code>
-            <button onClick={() => remove(s.name)} className="text-red-600 text-sm">
-              remove
-            </button>
-          </li>
-        ))}
-      </ul>
-      <div className="flex gap-2">
-        <input
-          placeholder="NAME" value={name} onChange={(e) => setName(e.target.value)}
-          className="border rounded px-2 py-1 font-mono dark:bg-gray-800 dark:border-gray-600 dark:text-gray-100"
+    <div className="bg-surface border border-border-strong rounded-md p-4 space-y-3">
+      {names.length === 0 ? (
+        <EmptyState title="No secrets" description="Add key/value secrets for this project." />
+      ) : (
+        <ul className="space-y-1">
+          {names.map((s) => (
+            <li key={s.name} className="flex justify-between items-center py-1 border-b border-border last:border-0">
+              <code className="text-[12px] text-text font-mono">{s.name}</code>
+              <Button variant="danger" size="sm" type="button" onClick={() => remove(s.name)}>
+                Remove
+              </Button>
+            </li>
+          ))}
+        </ul>
+      )}
+      <div className="flex gap-2 items-center">
+        <Input
+          placeholder="NAME"
+          value={name}
+          onChange={(e) => setName(e.target.value)}
+          className="w-40"
         />
-        <input
-          placeholder="value" value={value} onChange={(e) => setValue(e.target.value)}
+        <Input
+          placeholder="value"
+          value={value}
+          onChange={(e) => setValue(e.target.value)}
           type="password"
-          className="border rounded px-2 py-1 flex-1 dark:bg-gray-800 dark:border-gray-600 dark:text-gray-100"
+          className="flex-1"
         />
-        <button onClick={add} className="bg-gray-800 text-white px-3 py-1 rounded">
+        <Button type="button" variant="secondary" onClick={add}>
           Add
-        </button>
+        </Button>
       </div>
-      {error && <p className="text-red-600 text-sm mt-2">{error}</p>}
-    </section>
+      {error && <ErrorState message={error} />}
+    </div>
   );
 }

@@ -1,116 +1,118 @@
 import { useEffect, useState, type FormEvent } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
-import type { Project } from '@shared/types.js';
 import { api } from '../lib/api.js';
+import { FormRow } from '@ui/patterns/FormRow.js';
+import { Input, Textarea, Button, Section } from '@ui/primitives/index.js';
+import { ErrorState, LoadingState } from '@ui/patterns/index.js';
 import { JsonEditor } from '../components/JsonEditor.js';
+import { SecretsEditor } from '../components/SecretsEditor.js';
 import { ChipInput } from '../components/ChipInput.js';
-import { McpServerList } from '../components/McpServerList.js';
+import type { Project } from '@shared/types.js';
 
 export function EditProjectPage() {
   const { id } = useParams();
   const pid = Number(id);
   const nav = useNavigate();
-  const [p, setP] = useState<Project | null>(null);
+  const [project, setProject] = useState<Project | null>(null);
+  const [name, setName] = useState('');
+  const [repoUrl, setRepoUrl] = useState('');
+  const [defaultBranch, setDefaultBranch] = useState('main');
+  const [gitAuthorName, setGitAuthorName] = useState('');
+  const [gitAuthorEmail, setGitAuthorEmail] = useState('');
+  const [instructions, setInstructions] = useState('');
+  const [marketplaces, setMarketplaces] = useState<string[]>([]);
+  const [plugins, setPlugins] = useState<string[]>([]);
+  const [devcontainerJson, setDevcontainerJson] = useState('');
   const [error, setError] = useState<string | null>(null);
+  const [saving, setSaving] = useState(false);
 
-  useEffect(() => { void api.getProject(pid).then(setP); }, [pid]);
-  if (!p) return <div>Loading…</div>;
+  useEffect(() => {
+    void api.getProject(pid).then((p) => {
+      setProject(p);
+      setName(p.name);
+      setRepoUrl(p.repo_url);
+      setDefaultBranch(p.default_branch);
+      setGitAuthorName(p.git_author_name ?? '');
+      setGitAuthorEmail(p.git_author_email ?? '');
+      setInstructions(p.instructions ?? '');
+      setMarketplaces(p.marketplaces ?? []);
+      setPlugins(p.plugins ?? []);
+      setDevcontainerJson(p.devcontainer_override_json ?? '');
+    });
+  }, [pid]);
 
   async function submit(e: FormEvent) {
     e.preventDefault();
-    if (!p) return;
+    setSaving(true); setError(null);
     try {
       await api.updateProject(pid, {
-        name: p.name,
-        repo_url: p.repo_url,
-        default_branch: p.default_branch,
-        instructions: p.instructions,
-        devcontainer_override_json: p.devcontainer_override_json,
-        git_author_name: p.git_author_name,
-        git_author_email: p.git_author_email,
-        marketplaces: p.marketplaces,
-        plugins: p.plugins,
-        mem_mb: p.mem_mb,
-        cpus: p.cpus,
-        pids_limit: p.pids_limit,
+        name, repo_url: repoUrl, default_branch: defaultBranch,
+        instructions: instructions.trim() || null,
+        devcontainer_override_json: devcontainerJson.trim() || null,
+        git_author_name: gitAuthorName.trim() || null,
+        git_author_email: gitAuthorEmail.trim() || null,
+        marketplaces, plugins,
       });
       nav(`/projects/${pid}`);
-    } catch (err) { setError(String(err)); }
+    } catch (err) {
+      setError(String(err));
+    } finally {
+      setSaving(false);
+    }
   }
 
-  return (
-    <form onSubmit={submit} className="max-w-2xl space-y-4">
-      <h1 className="text-2xl font-semibold">Edit {p.name}</h1>
-      <Text label="Name" value={p.name} onChange={(v) => setP({ ...p, name: v })} />
-      <Text label="Repo URL" value={p.repo_url} onChange={(v) => setP({ ...p, repo_url: v })} />
-      <Text label="Default branch" value={p.default_branch} onChange={(v) => setP({ ...p, default_branch: v })} />
-      <Text label="Git author name (override)" value={p.git_author_name ?? ''} onChange={(v) => setP({ ...p, git_author_name: v || null })} />
-      <Text label="Git author email (override)" value={p.git_author_email ?? ''} onChange={(v) => setP({ ...p, git_author_email: v || null })} />
-      <Area label="Instructions" value={p.instructions ?? ''} onChange={(v) => setP({ ...p, instructions: v || null })} />
-      <ChipInput
-        label="Extra plugin marketplaces (merged with global defaults)"
-        values={p.marketplaces}
-        onChange={(v) => setP({ ...p, marketplaces: v })}
-        placeholder="https://registry.example.com"
-      />
-      <ChipInput
-        label="Extra plugins (merged with global defaults, format: name@marketplace)"
-        values={p.plugins}
-        onChange={(v) => setP({ ...p, plugins: v })}
-        placeholder="name@marketplace"
-      />
-      <McpServerList projectId={pid} label="Additional MCP servers" />
-      <NumberField label="Memory cap (MB) — blank = global default"
-                   value={p.mem_mb} onChange={(v) => setP({ ...p, mem_mb: v })} />
-      <NumberField label="CPUs — blank = global default"
-                   value={p.cpus} onChange={(v) => setP({ ...p, cpus: v })} />
-      <NumberField label="Pids limit — blank = global default"
-                   value={p.pids_limit} onChange={(v) => setP({ ...p, pids_limit: v })} />
-      <JsonEditor label="Devcontainer override JSON (used when repo has no .devcontainer/devcontainer.json)"
-                  value={p.devcontainer_override_json ?? ''}
-                  onChange={(v) => setP({ ...p, devcontainer_override_json: v || null })} />
-      {error && <div className="text-red-600">{error}</div>}
-      <button type="submit" className="bg-blue-600 text-white px-4 py-2 rounded">Save</button>
-    </form>
-  );
-}
+  if (!project) return <LoadingState label="Loading project…" />;
 
-function Text({ label, value, onChange }: { label: string; value: string; onChange: (v: string) => void }) {
   return (
-    <label className="block">
-      <span className="block text-sm font-medium mb-1">{label}</span>
-      <input value={value} onChange={(e) => onChange(e.target.value)}
-             className="w-full border rounded px-2 py-1 font-mono dark:bg-gray-900 dark:border-gray-600 dark:text-gray-100" />
-    </label>
-  );
-}
-function Area({ label, value, onChange }: { label: string; value: string; onChange: (v: string) => void }) {
-  return (
-    <label className="block">
-      <span className="block text-sm font-medium mb-1">{label}</span>
-      <textarea value={value} onChange={(e) => onChange(e.target.value)} rows={5}
-                className="w-full border rounded px-2 py-1 font-mono text-sm dark:bg-gray-900 dark:border-gray-600 dark:text-gray-100" />
-    </label>
-  );
-}
-function NumberField({
-  label, value, onChange, placeholder,
-}: {
-  label: string;
-  value: number | null;
-  onChange: (v: number | null) => void;
-  placeholder?: string;
-}) {
-  return (
-    <label className="block">
-      <span className="block text-sm font-medium mb-1">{label}</span>
-      <input
-        type="number"
-        value={value ?? ''}
-        placeholder={placeholder}
-        onChange={(e) => onChange(e.target.value === '' ? null : Number(e.target.value))}
-        className="w-full border rounded px-2 py-1 font-mono dark:bg-gray-900 dark:border-gray-600 dark:text-gray-100"
-      />
-    </label>
+    <form onSubmit={submit} className="max-w-2xl mx-auto p-6 space-y-6">
+      <h1 className="text-[22px] font-semibold tracking-[-0.02em]">Edit project</h1>
+
+      <Section title="Identity">
+        <FormRow label="Name"><Input value={name} onChange={(e) => setName(e.target.value)} required /></FormRow>
+        <FormRow label="Repo URL (SSH)"><Input value={repoUrl} onChange={(e) => setRepoUrl(e.target.value)} required /></FormRow>
+        <FormRow label="Default branch"><Input value={defaultBranch} onChange={(e) => setDefaultBranch(e.target.value)} required /></FormRow>
+      </Section>
+
+      <Section title="Git (overrides)">
+        <FormRow label="Author name"><Input value={gitAuthorName} onChange={(e) => setGitAuthorName(e.target.value)} /></FormRow>
+        <FormRow label="Author email"><Input value={gitAuthorEmail} onChange={(e) => setGitAuthorEmail(e.target.value)} /></FormRow>
+      </Section>
+
+      <Section title="Agent">
+        <FormRow label="Project-level instructions" hint="Prepended after the global prompt, before the run prompt.">
+          <Textarea rows={4} value={instructions} onChange={(e) => setInstructions(e.target.value)} />
+        </FormRow>
+      </Section>
+
+      <Section title="Plugins">
+        <ChipInput
+          label="Extra marketplaces (merged with global defaults)"
+          values={marketplaces}
+          onChange={setMarketplaces}
+          placeholder="add marketplace…"
+        />
+        <ChipInput
+          label="Extra plugins (name@marketplace)"
+          values={plugins}
+          onChange={setPlugins}
+          placeholder="add plugin…"
+        />
+      </Section>
+
+      <Section title="Devcontainer">
+        <JsonEditor
+          label="Override JSON"
+          value={devcontainerJson}
+          onChange={setDevcontainerJson}
+        />
+      </Section>
+
+      <Section title="Secrets">
+        <SecretsEditor projectId={pid} />
+      </Section>
+
+      {error && <ErrorState message={error} />}
+      <Button type="submit" disabled={saving}>{saving ? 'Saving…' : 'Save'}</Button>
+    </form>
   );
 }
