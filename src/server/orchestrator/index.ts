@@ -246,7 +246,7 @@ export class Orchestrator {
       // ScreenState.write returns a promise (parser is async). We don't
       // await — ordering is preserved internally by xterm-headless, and
       // snapshot callers tolerate "at most one frame stale."
-      void screen.write(chunk);
+      void screen.write(chunk).catch(() => {});
     };
 
     const branchHint = run.branch_name;
@@ -482,7 +482,7 @@ export class Orchestrator {
     const onBytes = (chunk: Uint8Array) => {
       store.append(chunk);
       broadcaster.publish(chunk);
-      void screen.write(chunk);
+      void screen.write(chunk).catch(() => {});
     };
 
     onBytes(Buffer.from(
@@ -799,7 +799,7 @@ export class Orchestrator {
     const onBytes = (chunk: Uint8Array) => {
       store.append(chunk);
       broadcaster.publish(chunk);
-      void screen.write(chunk);
+      void screen.write(chunk).catch(() => {});
     };
 
     onBytes(Buffer.from(`\n[fbi] reattached after orchestrator restart\n`));
