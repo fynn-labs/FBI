@@ -172,3 +172,73 @@ describe('RunsRepo', () => {
     expect(siblings.map((r) => r.id)).toEqual([b.id]);
   });
 });
+
+describe('RunsRepo auto-resume', () => {
+  let runs: RunsRepo;
+  let projectId: number;
+  beforeEach(() => {
+    const r = makeRepos();
+    runs = r.runs;
+    projectId = r.projectId;
+  });
+
+  it('new runs have zeroed auto-resume fields', () => {
+    const run = runs.create({
+      project_id: projectId, prompt: 'x',
+      log_path_tmpl: (id) => `/tmp/${id}.log`,
+    });
+    expect(run.resume_attempts).toBe(0);
+    expect(run.next_resume_at).toBeNull();
+    expect(run.claude_session_id).toBeNull();
+    expect(run.last_limit_reset_at).toBeNull();
+  });
+
+  it('markAwaitingResume sets state and timestamps and bumps attempts', () => {
+    const run = runs.create({
+      project_id: projectId, prompt: 'x',
+      log_path_tmpl: (id) => `/tmp/${id}.log`,
+    });
+    runs.markStarted(run.id, 'c');
+    runs.markAwaitingResume(run.id, { next_resume_at: 9000, last_limit_reset_at: 9000 });
+    const after = runs.get(run.id)!;
+    expect(after.state).toBe('awaiting_resume');
+    expect(after.next_resume_at).toBe(9000);
+    expect(after.last_limit_reset_at).toBe(9000);
+    expect(after.resume_attempts).toBe(1);
+    expect(after.container_id).toBeNull();
+  });
+
+  it('markResuming clears awaiting fields and returns to running', () => {
+    const run = runs.create({
+      project_id: projectId, prompt: 'x',
+      log_path_tmpl: (id) => `/tmp/${id}.log`,
+    });
+    runs.markStarted(run.id, 'c1');
+    runs.markAwaitingResume(run.id, { next_resume_at: 9000, last_limit_reset_at: 9000 });
+    runs.markResuming(run.id, 'c2');
+    const after = runs.get(run.id)!;
+    expect(after.state).toBe('running');
+    expect(after.container_id).toBe('c2');
+    expect(after.next_resume_at).toBeNull();
+  });
+
+  it('setClaudeSessionId writes once; no-op on subsequent calls with different value', () => {
+    const run = runs.create({
+      project_id: projectId, prompt: 'x',
+      log_path_tmpl: (id) => `/tmp/${id}.log`,
+    });
+    runs.setClaudeSessionId(run.id, 'session-1');
+    runs.setClaudeSessionId(run.id, 'session-2'); // ignored
+    expect(runs.get(run.id)!.claude_session_id).toBe('session-1');
+  });
+
+  it('listByState includes awaiting_resume rows', () => {
+    const run = runs.create({
+      project_id: projectId, prompt: 'x',
+      log_path_tmpl: (id) => `/tmp/${id}.log`,
+    });
+    runs.markStarted(run.id, 'c');
+    runs.markAwaitingResume(run.id, { next_resume_at: 9000, last_limit_reset_at: 9000 });
+    expect(runs.listByState('awaiting_resume').length).toBe(1);
+  });
+});
