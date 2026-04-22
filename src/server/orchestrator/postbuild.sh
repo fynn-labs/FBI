@@ -54,3 +54,7 @@ HOSTS
 chown -R agent:agent /home/agent/.ssh
 chmod 700 /home/agent/.ssh
 chmod 600 /home/agent/.ssh/known_hosts
+
+# Create workspace directory owned by agent so git clone works.
+mkdir -p /workspace
+chown agent:agent /workspace

@@ -11,7 +11,11 @@
     "forceConsistentCasingInFileNames": true,
     "noEmit": true,
     "lib": ["DOM", "DOM.Iterable", "ES2022"],
-    "types": ["vite/client"]
+    "types": ["vite/client"],
+    "baseUrl": ".",
+    "paths": {
+      "@shared/*": ["src/shared/*"]
+    }
   },
   "include": ["src/web/**/*.ts", "src/web/**/*.tsx", "src/shared/**/*.ts"],
   "exclude": ["**/*.test.ts", "**/*.test.tsx"]
