@@ -50,10 +50,13 @@ export const api = {
     request<{ prompt: string; last_used_at: number; run_id: number }[]>(
       `/api/projects/${projectId}/prompts/recent?limit=${limit}`
     ),
-  createRun: (projectId: number, prompt: string) =>
+  createRun: (projectId: number, prompt: string, branch?: string) =>
     request<Run>(`/api/projects/${projectId}/runs`, {
       method: 'POST',
-      body: JSON.stringify({ prompt }),
+      body: JSON.stringify({
+        prompt,
+        branch: branch && branch.trim() !== '' ? branch.trim() : undefined,
+      }),
     }),
   deleteRun: (id: number) => request<void>(`/api/runs/${id}`, { method: 'DELETE' }),
 
