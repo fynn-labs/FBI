@@ -56,8 +56,16 @@ export function Terminal({ runId, interactive }: Props) {
       const raf2 = requestAnimationFrame(() => {
         if (disposed) return;
         safeFit();
-        // Replay buffered bytes AFTER fit, so they render at the correct size.
-        for (const chunk of getBuffer(runId)) term.write(chunk);
+        // Replay buffered bytes as ONE write so xterm's parser pipeline
+        // processes it in a single pass instead of N queued chunks.
+        const buf = getBuffer(runId);
+        if (buf.length > 0) {
+          const total = buf.reduce((s, c) => s + c.byteLength, 0);
+          const merged = new Uint8Array(total);
+          let offset = 0;
+          for (const c of buf) { merged.set(c, offset); offset += c.byteLength; }
+          term.write(merged);
+        }
         if (interactive) term.focus();
       });
       // Cache inside the outer closure so cleanup can cancel it.
@@ -74,8 +82,16 @@ export function Terminal({ runId, interactive }: Props) {
     // window resize event.
     const shell = acquireShell(runId);
 
+    // Coalesce ResizeObserver callbacks into one fit per frame. Without this,
+    // a divider drag or sidebar toggle fires many ticks, each triggering a
+    // full xterm measure+render pass.
+    let roRaf: number | null = null;
     const ro = new ResizeObserver(() => {
-      if (safeFit() && interactive) shell.resize(term.cols, term.rows);
+      if (roRaf !== null) return;
+      roRaf = requestAnimationFrame(() => {
+        roRaf = null;
+        if (safeFit() && interactive) shell.resize(term.cols, term.rows);
+      });
     });
     ro.observe(host);
 
@@ -107,6 +123,7 @@ export function Terminal({ runId, interactive }: Props) {
       cancelAnimationFrame(raf1);
       const raf2 = (safeFit as unknown as { _raf?: number })._raf;
       if (raf2 !== undefined) cancelAnimationFrame(raf2);
+      if (roRaf !== null) cancelAnimationFrame(roRaf);
       ro.disconnect();
       observer.disconnect();
       window.removeEventListener('resize', onResize);

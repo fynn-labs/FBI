@@ -83,7 +83,7 @@ describe('releaseShell', () => {
     acquireShell(5);
     releaseShell(5);
 
-    vi.advanceTimersByTime(60_000);
+    vi.advanceTimersByTime(300_000);
 
     expect(stub.close).toHaveBeenCalledTimes(1);
   });
@@ -95,7 +95,7 @@ describe('releaseShell', () => {
     acquireShell(5);
     releaseShell(5);
 
-    vi.advanceTimersByTime(30_000); // halfway through TTL
+    vi.advanceTimersByTime(150_000); // halfway through TTL
 
     // re-acquire before TTL fires
     const h = acquireShell(5);
@@ -103,7 +103,7 @@ describe('releaseShell', () => {
     expect(stub.close).not.toHaveBeenCalled();
 
     // advance past original TTL
-    vi.advanceTimersByTime(60_000);
+    vi.advanceTimersByTime(300_000);
 
     // still not closed — new TTL was not triggered (refCount > 0)
     expect(stub.close).not.toHaveBeenCalled();
@@ -117,7 +117,7 @@ describe('releaseShell', () => {
     acquireShell(5); // refCount = 2
     releaseShell(5); // refCount = 1
 
-    vi.advanceTimersByTime(60_000);
+    vi.advanceTimersByTime(300_000);
 
     expect(stub.close).not.toHaveBeenCalled();
   });
@@ -157,7 +157,7 @@ describe('getBuffer', () => {
 
     acquireShell(8);
     releaseShell(8);
-    vi.advanceTimersByTime(60_000); // TTL fires, cache cleared
+    vi.advanceTimersByTime(300_000); // TTL fires, cache cleared
 
     expect(getBuffer(8)).toEqual([]);
   });

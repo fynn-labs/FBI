@@ -7,7 +7,7 @@ interface Entry {
   buffer: Uint8Array[];
 }
 
-const TTL_MS = 60_000; // keep the socket warm for 60s after last unmount
+const TTL_MS = 5 * 60_000; // keep the socket warm for 5min after last unmount
 const BUFFER_CAP = 1024 * 1024; // 1 MB
 
 const cache = new Map<number, Entry>();
