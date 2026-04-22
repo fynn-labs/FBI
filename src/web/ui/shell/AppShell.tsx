@@ -14,7 +14,9 @@ export interface AppShellProps {
 
 export function AppShell({ projects, children, hideSidebar }: AppShellProps) {
   const [paletteOpen, setPaletteOpen] = useState(false);
-  const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
+  const [sidebarCollapsed, setSidebarCollapsed] = useState<boolean>(() =>
+    typeof window !== 'undefined' && window.innerWidth < 900
+  );
   const location = useLocation();
 
   const breadcrumb = useMemo(() => location.pathname, [location.pathname]);

@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { Outlet, useNavigate, useParams } from 'react-router-dom';
+import { Link, Outlet, useNavigate, useParams } from 'react-router-dom';
 import { SplitPane } from '@ui/patterns/SplitPane.js';
 import { EmptyState, LoadingState, ErrorState } from '@ui/patterns/index.js';
 import { KeyboardHint } from '@ui/patterns/KeyboardHint.js';
@@ -7,6 +7,7 @@ import type { Run } from '@shared/types.js';
 import { api } from '../lib/api.js';
 import { RunsList } from '../features/runs/RunsList.js';
 import { getLastRunGlobal, setLastRunGlobal } from '../features/runs/lastRun.js';
+import { useIsNarrow } from '../hooks/useIsNarrow.js';
 
 export function RunsPage() {
   const [runs, setRuns] = useState<Run[] | null>(null);
@@ -14,6 +15,8 @@ export function RunsPage() {
   const params = useParams();
   const nav = useNavigate();
   const redirectedRef = useRef(false);
+  const narrow = useIsNarrow();
+  const hasChildRoute = Boolean(params.id);
 
   useEffect(() => {
     let cancelled = false;
@@ -44,6 +47,27 @@ export function RunsPage() {
 
   if (error) return <ErrorState message={error} />;
   if (!runs) return <LoadingState label="Loading runs…" />;
+
+  // Narrow: show only master or only detail (stacked).
+  if (narrow) {
+    if (hasChildRoute) {
+      return (
+        <div className="h-full flex flex-col min-h-0">
+          <div className="px-3 py-2 border-b border-border bg-surface shrink-0">
+            <Link to="/runs" className="text-[12px]">← Back to runs</Link>
+          </div>
+          <div className="flex-1 min-h-0 overflow-auto">
+            <Outlet />
+          </div>
+        </div>
+      );
+    }
+    return (
+      <div className="h-full min-h-0 overflow-auto">
+        <RunsList runs={runs} toHref={(r) => `/runs/${r.id}`} currentId={null} />
+      </div>
+    );
+  }
 
   return (
     <SplitPane

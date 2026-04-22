@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { Outlet, useLocation, useNavigate, useParams } from 'react-router-dom';
+import { Link, Outlet, useLocation, useNavigate, useParams } from 'react-router-dom';
 import { SplitPane } from '@ui/patterns/SplitPane.js';
 import { EmptyState, LoadingState, ErrorState } from '@ui/patterns/index.js';
 import type { Project, Run } from '@shared/types.js';
@@ -7,6 +7,7 @@ import { api } from '../lib/api.js';
 import { RunsList } from '../features/runs/RunsList.js';
 import { ProjectHeader } from '../features/projects/ProjectHeader.js';
 import { getLastRunForProject, setLastRunForProject } from '../features/runs/lastRun.js';
+import { useIsNarrow } from '../hooks/useIsNarrow.js';
 
 export function ProjectDetailPage() {
   const { id, rid } = useParams();
@@ -19,6 +20,7 @@ export function ProjectDetailPage() {
   const [error, setError] = useState<string | null>(null);
   const nav = useNavigate();
   const redirectedRef = useRef(false);
+  const narrow = useIsNarrow();
 
   useEffect(() => {
     let cancelled = false;
@@ -79,6 +81,30 @@ export function ProjectDetailPage() {
 
   if (error) return <ErrorState message={error} />;
   if (!project || !runs) return <LoadingState label="Loading project…" />;
+
+  // Narrow: show only master list or only detail (stacked).
+  if (narrow) {
+    if (hasChildRoute) {
+      return (
+        <div className="h-full flex flex-col min-h-0">
+          <div className="px-3 py-2 border-b border-border bg-surface shrink-0">
+            <Link to={`/projects/${pid}`} className="text-[12px]">← Back to project</Link>
+          </div>
+          <div className="flex-1 min-h-0 overflow-auto">
+            <Outlet />
+          </div>
+        </div>
+      );
+    }
+    return (
+      <div className="h-full flex flex-col min-h-0">
+        <ProjectHeader project={project} />
+        <div className="flex-1 min-h-0 overflow-auto">
+          <RunsList runs={runs} toHref={(r) => `/projects/${pid}/runs/${r.id}`} currentId={currentRunId} />
+        </div>
+      </div>
+    );
+  }
 
   return (
     <SplitPane
