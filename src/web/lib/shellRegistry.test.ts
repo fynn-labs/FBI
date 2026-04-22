@@ -159,8 +159,8 @@ describe('getLastSnapshot', () => {
 
     acquireShell(7);
 
-    const snap1: RunWsSnapshotMessage = { type: 'snapshot', ansi: 'hello' };
-    const snap2: RunWsSnapshotMessage = { type: 'snapshot', ansi: 'world' };
+    const snap1: RunWsSnapshotMessage = { type: 'snapshot', ansi: 'hello', cols: 80, rows: 24 };
+    const snap2: RunWsSnapshotMessage = { type: 'snapshot', ansi: 'world', cols: 80, rows: 24 };
     for (const cb of stub._snapshotCbs) cb(snap1);
 
     expect(getLastSnapshot(7)).toBe(snap1);

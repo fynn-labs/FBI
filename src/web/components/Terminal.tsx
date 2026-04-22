@@ -169,7 +169,7 @@ export function Terminal({ runId, interactive }: Props) {
     let stale = false;
     const markStale = () => { stale = true; };
     const refresh = () => {
-      if (!stale) return;
+      if (!stale || unsubSnapshot === null) return;
       stale = false;
       clearQueue();
       requestResync(runId);
@@ -198,10 +198,13 @@ export function Terminal({ runId, interactive }: Props) {
       term.reset();
       try {
         const res = await fetch(`/api/runs/${runId}/transcript`);
+        if (disposed) return;
         if (!res.ok) throw new Error(`status ${res.status}`);
         const buf = new Uint8Array(await res.arrayBuffer());
+        if (disposed) return;
         enqueueWrite(buf);
       } catch {
+        if (disposed) return;
         enqueueWrite(new TextEncoder().encode('\r\n[failed to load history]\r\n'));
       }
     };
