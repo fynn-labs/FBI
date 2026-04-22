@@ -78,6 +78,9 @@ describe('NewProjectPage', () => {
         git_author_email: 'bot@example.com',
         marketplaces: ['https://example.com/mp'],
         plugins: ['myplugin@https://example.com/mp'],
+        mem_mb: null,
+        cpus: null,
+        pids_limit: null,
       });
     });
   });
