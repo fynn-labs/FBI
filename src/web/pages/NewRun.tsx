@@ -1,6 +1,7 @@
 import { useState, type FormEvent } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { api } from '../lib/api.js';
+import { RecentPromptsDropdown } from '../components/RecentPromptsDropdown.js';
 
 export function NewRunPage() {
   const { id } = useParams();
@@ -31,6 +32,7 @@ export function NewRunPage() {
   return (
     <form onSubmit={submit} className="max-w-3xl space-y-4">
       <h1 className="text-2xl font-semibold">New Run</h1>
+      <RecentPromptsDropdown projectId={pid} onPick={setPrompt} />
       <textarea
         value={prompt}
         onChange={(e) => setPrompt(e.target.value)}
