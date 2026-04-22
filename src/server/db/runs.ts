@@ -4,7 +4,7 @@ import type { Run, RunState } from '../../shared/types.js';
 export interface CreateRunInput {
   project_id: number;
   prompt: string;
-  branch_name_tmpl: (id: number) => string;
+  branch_hint?: string;
   log_path_tmpl: (id: number) => string;
 }
 
@@ -13,6 +13,7 @@ export interface FinishInput {
   exit_code?: number | null;
   error?: string | null;
   head_commit?: string | null;
+  branch_name?: string | null;
 }
 
 export class RunsRepo {
@@ -21,18 +22,18 @@ export class RunsRepo {
   create(input: CreateRunInput): Run {
     return this.db.transaction(() => {
       const now = Date.now();
+      const branchHint = input.branch_hint ?? '';
       const stub = this.db
         .prepare(
           `INSERT INTO runs (project_id, prompt, branch_name, state, log_path, created_at)
-           VALUES (?, ?, '', 'queued', '', ?)`
+           VALUES (?, ?, ?, 'queued', '', ?)`
         )
-        .run(input.project_id, input.prompt, now);
+        .run(input.project_id, input.prompt, branchHint, now);
       const id = Number(stub.lastInsertRowid);
-      const branch = input.branch_name_tmpl(id);
       const logPath = input.log_path_tmpl(id);
       this.db
-        .prepare('UPDATE runs SET branch_name = ?, log_path = ? WHERE id = ?')
-        .run(branch, logPath, id);
+        .prepare('UPDATE runs SET log_path = ? WHERE id = ?')
+        .run(logPath, id);
       return this.get(id)!;
     })();
   }
@@ -94,6 +95,11 @@ export class RunsRepo {
   }
 
   markFinished(id: number, f: FinishInput): void {
+    if (f.branch_name !== undefined && f.branch_name !== null && f.branch_name !== '') {
+      this.db
+        .prepare('UPDATE runs SET branch_name = ? WHERE id = ?')
+        .run(f.branch_name, id);
+    }
     this.db
       .prepare(
         `UPDATE runs SET state=?, container_id=NULL, exit_code=?, error=?,

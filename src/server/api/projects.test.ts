@@ -74,13 +74,11 @@ describe('projects routes', () => {
     runs.create({
       project_id: p.id,
       prompt: 'alpha',
-      branch_name_tmpl: (id) => `b-${id}`,
       log_path_tmpl: (id) => `/tmp/${id}.log`,
     });
     runs.create({
       project_id: p.id,
       prompt: 'beta',
-      branch_name_tmpl: (id) => `b-${id}`,
       log_path_tmpl: (id) => `/tmp/${id}.log`,
     });
     const res = await app.inject({
