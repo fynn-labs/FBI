@@ -192,6 +192,106 @@ export class Orchestrator {
   }
 
   private cancelled = new Set<number>();
+
+  /**
+   * Called at startup. For each run in state='running', try to reattach; if
+   * the container is gone, mark the run failed.
+   */
+  async recover(): Promise<void> {
+    const running = this.deps.runs.listByState('running');
+    for (const run of running) {
+      if (!run.container_id) {
+        this.deps.runs.markFinished(run.id, {
+          state: 'failed',
+          error: 'orchestrator lost container (no container_id recorded)',
+        });
+        continue;
+      }
+      try {
+        const container = this.deps.docker.getContainer(run.container_id);
+        await container.inspect();
+        this.reattach(run.id, container).catch((err) => {
+          const msg = err instanceof Error ? err.message : String(err);
+          this.deps.runs.markFinished(run.id, {
+            state: 'failed',
+            error: `reattach failed: ${msg}`,
+          });
+        });
+      } catch {
+        this.deps.runs.markFinished(run.id, {
+          state: 'failed',
+          error: 'orchestrator lost container (container gone on restart)',
+        });
+      }
+    }
+  }
+
+  private async reattach(runId: number, container: Docker.Container): Promise<void> {
+    const run = this.deps.runs.get(runId);
+    if (!run) return;
+    const store = new LogStore(run.log_path);
+    const broadcaster = this.deps.streams.getOrCreate(runId);
+    const onBytes = (chunk: Uint8Array) => {
+      store.append(chunk);
+      broadcaster.publish(chunk);
+    };
+
+    onBytes(Buffer.from(`\n[fbi] reattached after orchestrator restart\n`));
+
+    // Output: follow container.logs from where we left off.
+    const sinceSec = Math.floor((run.started_at ?? Date.now()) / 1000);
+    const logsStream = (await container.logs({
+      follow: true,
+      stdout: true,
+      stderr: true,
+      since: sinceSec,
+    })) as unknown as NodeJS.ReadableStream;
+    logsStream.on('data', (c: Buffer) => onBytes(c));
+
+    // Stdin: fresh attach with only stdin.
+    const attachStream = await container.attach({
+      stream: true,
+      stdin: true,
+      stdout: false,
+      stderr: false,
+      hijack: true,
+    });
+    this.active.set(runId, { container, attachStream });
+
+    const waitRes = await container.wait();
+    const wasCancelled = this.cancelled.delete(runId);
+    const resultText = await readFileFromContainer(
+      container,
+      '/tmp/result.json'
+    ).catch(() => '');
+    const parsed = parseResultJson(resultText);
+
+    const state: 'succeeded' | 'failed' | 'cancelled' = wasCancelled
+      ? 'cancelled'
+      : waitRes.StatusCode === 0 && parsed && parsed.push_exit === 0
+        ? 'succeeded'
+        : 'failed';
+
+    this.deps.runs.markFinished(runId, {
+      state,
+      exit_code: parsed?.exit_code ?? waitRes.StatusCode,
+      head_commit: parsed?.head_sha ?? null,
+      error:
+        state === 'failed' && parsed
+          ? parsed.push_exit !== 0
+            ? `git push failed (code ${parsed.push_exit})`
+            : `agent exit ${parsed.exit_code}`
+          : state === 'failed'
+            ? `container exit ${waitRes.StatusCode}`
+            : null,
+    });
+
+    await container.remove({ force: true, v: true }).catch(() => {});
+    this.active.delete(runId);
+    store.close();
+    broadcaster.end();
+    this.deps.streams.release(runId);
+  }
 }
 
 async function readFileFromContainer(
