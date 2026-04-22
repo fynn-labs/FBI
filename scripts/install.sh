@@ -63,6 +63,10 @@ GIT_AUTHOR_EMAIL=you@example.com
 # HOST_SSH_AUTH_SOCK=/run/user/1000/ssh-agent.sock
 # HOST_CLAUDE_DIR=/home/fbi/.claude
 WEB_DIR=/opt/fbi/dist/web
+# Claude Code plugins installed in every run container.
+# Comma- or newline-separated. Projects can add more in the UI.
+FBI_DEFAULT_MARKETPLACES=anthropics/claude-plugins-official
+FBI_DEFAULT_PLUGINS=superpowers@claude-plugins-official
 ENV
   chmod 640 /etc/default/fbi
 fi

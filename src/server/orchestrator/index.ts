@@ -63,6 +63,16 @@ export class Orchestrator {
       const authorName = project.git_author_name ?? this.deps.config.gitAuthorName;
       const authorEmail = project.git_author_email ?? this.deps.config.gitAuthorEmail;
 
+      // Plugins: global defaults + per-project additions (dedup, preserve order).
+      const marketplaces = uniq([
+        ...this.deps.config.defaultMarketplaces,
+        ...project.marketplaces,
+      ]);
+      const plugins = uniq([
+        ...this.deps.config.defaultPlugins,
+        ...project.plugins,
+      ]);
+
       onBytes(Buffer.from(`[fbi] starting container\n`));
       const container = await this.deps.docker.createContainer({
         Image: imageTag,
@@ -75,6 +85,8 @@ export class Orchestrator {
           `BRANCH_NAME=${run.branch_name}`,
           `GIT_AUTHOR_NAME=${authorName}`,
           `GIT_AUTHOR_EMAIL=${authorEmail}`,
+          `FBI_MARKETPLACES=${marketplaces.join('\n')}`,
+          `FBI_PLUGINS=${plugins.join('\n')}`,
           ...Object.entries(auth.env()).map(([k, v]) => `${k}=${v}`),
           ...Object.entries(projectSecrets).map(([k, v]) => `${k}=${v}`),
         ],
@@ -86,10 +98,8 @@ export class Orchestrator {
           AutoRemove: false,
           Binds: [
             `${SUPERVISOR}:/usr/local/bin/supervisor.sh:ro`,
-            `${this.deps.config.hostClaudeDir}:/home/agent/.claude`,
-            // Also mount at the original host path so plugin metadata absolute paths resolve.
-            `${this.deps.config.hostClaudeDir}:${this.deps.config.hostClaudeDir}:ro`,
-            // Mount .claude.json (settings/config) if present alongside .claude/
+            // OAuth credentials live in ~/.claude.json; ~/.claude itself is
+            // not mounted so each container gets a clean plugin state.
             ...claudeJsonMount(this.deps.config.hostClaudeDir),
             ...auth.mounts().map((m) =>
               `${m.source}:${m.target}${m.readOnly ? ':ro' : ''}`
@@ -303,6 +313,10 @@ function claudeJsonMount(hostClaudeDir: string): string[] {
   return fs.existsSync(hostJson)
     ? [`${hostJson}:/home/agent/.claude.json`]
     : [];
+}
+
+function uniq(xs: string[]): string[] {
+  return [...new Set(xs)];
 }
 
 async function injectFiles(

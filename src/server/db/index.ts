@@ -17,5 +17,19 @@ export function openDb(dbPath: string): DB {
   db.pragma('foreign_keys = ON');
   const schema = fs.readFileSync(SCHEMA_PATH, 'utf8');
   db.exec(schema);
+  migrate(db);
   return db;
+}
+
+function migrate(db: DB): void {
+  const cols = new Set(
+    (db.prepare("PRAGMA table_info(projects)").all() as Array<{ name: string }>)
+      .map((r) => r.name)
+  );
+  if (!cols.has('marketplaces_json')) {
+    db.exec("ALTER TABLE projects ADD COLUMN marketplaces_json TEXT NOT NULL DEFAULT '[]'");
+  }
+  if (!cols.has('plugins_json')) {
+    db.exec("ALTER TABLE projects ADD COLUMN plugins_json TEXT NOT NULL DEFAULT '[]'");
+  }
 }

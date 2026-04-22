@@ -14,6 +14,8 @@ export interface Project {
   instructions: string | null;
   git_author_name: string | null;
   git_author_email: string | null;
+  marketplaces: string[];
+  plugins: string[];
   created_at: number;
   updated_at: number;
 }

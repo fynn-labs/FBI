@@ -23,6 +23,8 @@ export function NewProjectPage() {
         devcontainer_override_json: null,
         git_author_name: null,
         git_author_email: null,
+        marketplaces: [],
+        plugins: [],
       });
       nav(`/projects/${p.id}`);
     } catch (err) {

@@ -19,6 +19,8 @@ export function registerProjectRoutes(app: FastifyInstance, deps: Deps): void {
       instructions?: string | null;
       git_author_name?: string | null;
       git_author_email?: string | null;
+      marketplaces?: string[];
+      plugins?: string[];
     };
     const created = deps.projects.create({
       name: body.name,
@@ -28,6 +30,8 @@ export function registerProjectRoutes(app: FastifyInstance, deps: Deps): void {
       instructions: body.instructions ?? null,
       git_author_name: body.git_author_name ?? null,
       git_author_email: body.git_author_email ?? null,
+      marketplaces: body.marketplaces ?? [],
+      plugins: body.plugins ?? [],
     });
     reply.code(201);
     return created;

@@ -4,17 +4,37 @@
 # Required env vars (set by orchestrator):
 #   RUN_ID, REPO_URL, DEFAULT_BRANCH, BRANCH_NAME,
 #   GIT_AUTHOR_NAME, GIT_AUTHOR_EMAIL
-# Optional: any project secret, injected as env var.
+# Optional:
+#   FBI_MARKETPLACES  newline-separated plugin marketplace sources
+#   FBI_PLUGINS       newline-separated plugin specs (name@marketplace)
+#   Any project secret, injected as env var.
 # Required mounts:
 #   /ssh-agent              (host ssh-agent socket, RW)
-#   /home/agent/.claude     (host ~/.claude, RO)
-#   /fbi                    (host tmpdir with instructions.txt + prompt.txt)
+#   /home/agent/.claude.json (host ~/.claude.json, RW — OAuth)
+#   /fbi                    (injected via putArchive: instructions.txt + prompt.txt)
 #
 # Contract: at end, write /tmp/result.json with exit_code, push_exit, head_sha.
 
 set -euo pipefail
 
 export SSH_AUTH_SOCK=/ssh-agent
+
+# Install plugin marketplaces and plugins. Failures are non-fatal so a bad
+# entry doesn't block the run — the agent just won't have that plugin.
+if [ -n "${FBI_MARKETPLACES:-}" ]; then
+    while IFS= read -r mkt; do
+        [ -z "$mkt" ] && continue
+        echo "[fbi] adding marketplace: $mkt"
+        claude plugin marketplace add "$mkt" || echo "[fbi] warn: marketplace add failed: $mkt"
+    done <<< "$FBI_MARKETPLACES"
+fi
+if [ -n "${FBI_PLUGINS:-}" ]; then
+    while IFS= read -r plug; do
+        [ -z "$plug" ] && continue
+        echo "[fbi] installing plugin: $plug"
+        claude plugin install "$plug" || echo "[fbi] warn: plugin install failed: $plug"
+    done <<< "$FBI_PLUGINS"
+fi
 
 cd /workspace
 

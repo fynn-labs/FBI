@@ -7,6 +7,8 @@ CREATE TABLE IF NOT EXISTS projects (
   instructions TEXT,
   git_author_name TEXT,
   git_author_email TEXT,
+  marketplaces_json TEXT NOT NULL DEFAULT '[]',
+  plugins_json TEXT NOT NULL DEFAULT '[]',
   created_at INTEGER NOT NULL,
   updated_at INTEGER NOT NULL
 );

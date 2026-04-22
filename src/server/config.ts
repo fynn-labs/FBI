@@ -19,6 +19,16 @@ export interface Config {
   gitAuthorName: string;
   gitAuthorEmail: string;
   webDir: string;
+  defaultMarketplaces: string[];
+  defaultPlugins: string[];
+}
+
+function parseList(v: string | undefined): string[] {
+  if (!v) return [];
+  return v
+    .split(/[,\n]/)
+    .map((s) => s.trim())
+    .filter((s) => s.length > 0);
 }
 
 export function loadConfig(): Config {
@@ -34,5 +44,7 @@ export function loadConfig(): Config {
     gitAuthorName: required('GIT_AUTHOR_NAME'),
     gitAuthorEmail: required('GIT_AUTHOR_EMAIL'),
     webDir: process.env.WEB_DIR ?? path.resolve('dist/web'),
+    defaultMarketplaces: parseList(process.env.FBI_DEFAULT_MARKETPLACES),
+    defaultPlugins: parseList(process.env.FBI_DEFAULT_PLUGINS),
   };
 }
