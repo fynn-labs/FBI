@@ -6,6 +6,11 @@ import { LoadingState } from '@ui/patterns/LoadingState.js';
 import { RunHeader } from '../features/runs/RunHeader.js';
 import { RunTerminal } from '../features/runs/RunTerminal.js';
 import { RunSidePanel } from '../features/runs/RunSidePanel.js';
+import { RunDrawer } from '../features/runs/RunDrawer.js';
+import { FilesTab } from '../features/runs/FilesTab.js';
+import { PromptTab } from '../features/runs/PromptTab.js';
+import { GithubTab } from '../features/runs/GithubTab.js';
+import { useKeyBinding } from '@ui/shell/KeyMap.js';
 
 export function RunDetailPage() {
   const params = useParams();
@@ -14,8 +19,12 @@ export function RunDetailPage() {
   const [run, setRun] = useState<Run | null>(null);
   const [gh, setGh] = useState<Awaited<ReturnType<typeof api.getRunGithub>> | null>(null);
   const [siblings, setSiblings] = useState<Run[]>([]);
-  const [, setProject] = useState<Project | null>(null);
+  const [project, setProject] = useState<Project | null>(null);
   const [creatingPr, setCreatingPr] = useState(false);
+  const [drawerOpen, setDrawerOpen] = useState(true);
+  const [diff, setDiff] = useState<Awaited<ReturnType<typeof api.getRunDiff>> | null>(null);
+
+  useKeyBinding({ chord: 'mod+j', handler: () => setDrawerOpen((v) => !v), description: 'Toggle run drawer' }, []);
 
   useEffect(() => {
     let alive = true;
@@ -49,6 +58,14 @@ export function RunDetailPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [run?.id, run?.state]);
 
+  useEffect(() => {
+    if (!run || run.state !== 'succeeded') return;
+    let alive = true;
+    void api.getRunDiff(run.id).then((d) => { if (alive) setDiff(d); }).catch(() => {});
+    return () => { alive = false; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [run?.id, run?.state]);
+
   if (!run) return <LoadingState label="Loading run…" />;
   const interactive = run.state === 'running' || run.state === 'queued';
 
@@ -75,6 +92,15 @@ export function RunDetailPage() {
       <div className="flex-1 min-h-0 flex">
         <div className="flex-1 min-w-0 flex flex-col">
           <RunTerminal runId={run.id} interactive={interactive} />
+          <RunDrawer
+            open={drawerOpen}
+            onToggle={setDrawerOpen}
+            filesCount={diff?.files.length ?? 0}
+          >
+            {(t) => t === 'files' ? <FilesTab diff={diff} project={project} />
+                 : t === 'prompt' ? <PromptTab prompt={run.prompt} />
+                 : <GithubTab github={gh} />}
+          </RunDrawer>
         </div>
         <RunSidePanel run={run} siblings={siblings} github={gh} onCreatePr={createPr} creatingPr={creatingPr} />
       </div>
