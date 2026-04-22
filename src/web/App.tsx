@@ -98,8 +98,9 @@ export function App() {
     <Shell>
       <Routes>
         <Route path="/" element={<Navigate to="/runs" replace />} />
-        <Route path="/projects" element={<ProjectsPage />} />
-        <Route path="/projects/new" element={<NewProjectPage />} />
+        <Route path="/projects" element={<ProjectsPage />}>
+          <Route path="new" element={<NewProjectPage />} />
+        </Route>
         <Route path="/projects/:id" element={<ProjectDetailPage />}>
           <Route path="runs/:rid" element={<RunDetailPage />} />
           <Route path="runs/new" element={<NewRunPage />} />
