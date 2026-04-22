@@ -155,4 +155,60 @@ describe('WaitingMonitor', () => {
     expect(entered).toBe(1);
     mon.stop();
   });
+
+  it('does not re-enter within idleMs after exit', () => {
+    let time = 0;
+    let entered = 0, exited = 0;
+    const mon = new WaitingMonitor({
+      mountDir: dir,
+      warmupMs: 20_000, idleMs: 8_000, checkMs: 2_000,
+      onEnter: () => { entered++; }, onExit: () => { exited++; },
+      now: () => time,
+    });
+    touch();
+    mon.start();
+    mon.feedLog(PROMPT_BYTES);
+
+    time = 30_000; mon.checkNow();
+    expect(entered).toBe(1);
+
+    time = 32_000; touch(); mon.checkNow();      // user typed; exit
+    expect(exited).toBe(1);
+
+    // A fresh prompt frame arrives shortly after exit.
+    time = 33_000; mon.feedLog(PROMPT_BYTES); mon.checkNow();
+    expect(entered).toBe(1);                      // only ~1s idle since exit; stays out
+    time = 39_000; mon.checkNow();
+    expect(entered).toBe(1);                      // 7s idle; still short of idleMs
+    time = 41_100; mon.checkNow();
+    expect(entered).toBe(2);                      // 9.1s idle; re-enters
+
+    mon.stop();
+  });
+
+  it('does not re-enter waiting after exit without a fresh prompt in the buffer', () => {
+    let time = 0;
+    let entered = 0, exited = 0;
+    const mon = new WaitingMonitor({
+      mountDir: dir,
+      warmupMs: 20_000, idleMs: 8_000, checkMs: 2_000,
+      onEnter: () => { entered++; }, onExit: () => { exited++; },
+      now: () => time,
+    });
+    touch();
+    mon.start();
+    mon.feedLog(PROMPT_BYTES);
+
+    time = 30_000; mon.checkNow();
+    expect(entered).toBe(1);
+
+    time = 32_000; touch(); mon.checkNow();      // user typed; exit
+    expect(exited).toBe(1);
+
+    // Advance well past idleMs with NO new feedLog.
+    time = 50_000; mon.checkNow();
+    expect(entered).toBe(1);                      // buf was cleared on exit; no fresh prompt → no re-enter
+
+    mon.stop();
+  });
 });
