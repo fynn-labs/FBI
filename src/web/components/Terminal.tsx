@@ -24,28 +24,60 @@ export function Terminal({ runId, interactive }: Props) {
   const hostRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
-    if (!hostRef.current) return;
+    const host = hostRef.current;
+    if (!host) return;
     const term = new Xterm({
       convertEol: true,
       fontFamily:
         'ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace',
       fontSize: 13,
       theme: readTheme(),
+      cursorBlink: true,
     });
     const fit = new FitAddon();
     term.loadAddon(fit);
-    term.open(hostRef.current);
-    fit.fit();
+    term.open(host);
+
+    const safeFit = () => {
+      // Skip if the host has no real size yet — xterm's fit divides by cell
+      // dimensions and will produce NaN cols/rows if the element is 0×0,
+      // which manifests as malformed rendering.
+      const rect = host.getBoundingClientRect();
+      if (rect.width < 4 || rect.height < 4) return false;
+      try { fit.fit(); return true; } catch { return false; }
+    };
+
+    // Defer first fit + replay until after layout settles. xterm's FitAddon
+    // uses getBoundingClientRect which can return stale/zero values during
+    // the first paint, especially when the parent SplitPane just mounted.
+    let disposed = false;
+    const raf1 = requestAnimationFrame(() => {
+      if (disposed) return;
+      const raf2 = requestAnimationFrame(() => {
+        if (disposed) return;
+        safeFit();
+        // Replay buffered bytes AFTER fit, so they render at the correct size.
+        for (const chunk of getBuffer(runId)) term.write(chunk);
+        if (interactive) term.focus();
+      });
+      // Cache inside the outer closure so cleanup can cancel it.
+      (safeFit as unknown as { _raf?: number })._raf = raf2;
+    });
 
     const observer = new MutationObserver(() => {
       term.options.theme = readTheme();
     });
     observer.observe(document.documentElement, { attributes: true, attributeFilter: ['class'] });
 
+    // Refit whenever the pane resizes (not just window resize). The SplitPane
+    // divider drag or sidebar toggle changes the host's width without a
+    // window resize event.
     const shell = acquireShell(runId);
 
-    // Replay buffered bytes before subscribing to live data.
-    for (const chunk of getBuffer(runId)) term.write(chunk);
+    const ro = new ResizeObserver(() => {
+      if (safeFit() && interactive) shell.resize(term.cols, term.rows);
+    });
+    ro.observe(host);
 
     const unsubBytes = shell.onBytes((data) => term.write(data));
     const unsubEv = shell.onTypedEvent<{ type: string; snapshot?: unknown }>((msg) => {
@@ -55,22 +87,27 @@ export function Terminal({ runId, interactive }: Props) {
     });
 
     const onResize = () => {
-      fit.fit();
-      if (interactive) shell.resize(term.cols, term.rows);
+      if (safeFit() && interactive) shell.resize(term.cols, term.rows);
     };
     window.addEventListener('resize', onResize);
 
     // Send initial size once socket opens.
     shell.onOpen(() => {
-      fit.fit();
-      if (interactive) shell.resize(term.cols, term.rows);
+      if (safeFit() && interactive) shell.resize(term.cols, term.rows);
     });
 
     if (interactive) {
       term.onData((d) => shell.send(new TextEncoder().encode(d)));
+      // Click anywhere in the pane focuses the terminal so typing registers.
+      host.addEventListener('click', () => term.focus());
     }
 
     return () => {
+      disposed = true;
+      cancelAnimationFrame(raf1);
+      const raf2 = (safeFit as unknown as { _raf?: number })._raf;
+      if (raf2 !== undefined) cancelAnimationFrame(raf2);
+      ro.disconnect();
       observer.disconnect();
       window.removeEventListener('resize', onResize);
       unsubBytes();

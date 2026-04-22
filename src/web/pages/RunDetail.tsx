@@ -17,6 +17,7 @@ import { subscribeState } from '../features/runs/usageBus.js';
 export function RunDetailPage() {
   const params = useParams();
   const runId = Number(params.rid ?? params.id);
+  const urlPid = params.id && params.rid ? Number(params.id) : null;
   const nav = useNavigate();
   const [run, setRun] = useState<Run | null>(null);
   const [gh, setGh] = useState<Awaited<ReturnType<typeof api.getRunGithub>> | null>(null);
@@ -58,6 +59,16 @@ export function RunDetailPage() {
     void api.getProject(run.project_id).then(setProject).catch(() => {});
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [run?.id]);
+
+  // If the URL says this run belongs to project X but the server says it
+  // belongs to project Y, bounce to the canonical URL so the header and
+  // run list match the run being shown.
+  useEffect(() => {
+    if (!run) return;
+    if (urlPid == null) return;
+    if (run.project_id === urlPid) return;
+    nav(`/projects/${run.project_id}/runs/${run.id}`, { replace: true });
+  }, [run?.id, run?.project_id, urlPid, nav]);
 
   useEffect(() => {
     return subscribeState((id, frame) => {
@@ -124,9 +135,9 @@ export function RunDetailPage() {
             onToggle={setDrawerOpen}
             filesCount={diff?.files.length ?? 0}
           >
-            {(t) => t === 'files' ? <FilesTab diff={diff} project={project} />
+            {(t) => t === 'files' ? <FilesTab diff={diff} project={project} runState={run.state} />
                  : t === 'prompt' ? <PromptTab prompt={run.prompt} />
-                 : <GithubTab github={gh} />}
+                 : <GithubTab github={gh} runState={run.state} />}
           </RunDrawer>
         </div>
         <RunSidePanel run={run} siblings={siblings} github={gh} onCreatePr={createPr} creatingPr={creatingPr} />

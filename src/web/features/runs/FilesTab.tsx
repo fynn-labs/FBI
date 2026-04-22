@@ -1,15 +1,21 @@
 import { DiffRow } from '@ui/data/DiffRow.js';
 import { LoadingState } from '@ui/patterns/LoadingState.js';
 import { parseGitHubRepo } from '@shared/parseGitHubRepo.js';
-import type { Project } from '@shared/types.js';
+import type { Project, RunState } from '@shared/types.js';
 
 export interface FilesTabProps {
   diff: { github_available: boolean; head: string; files: Array<{ status: string; filename: string; additions: number; deletions: number }> } | null;
   project: Project | null;
+  runState: RunState;
 }
 
-export function FilesTab({ diff, project }: FilesTabProps) {
-  if (!diff) return <LoadingState label="Loading diff…" />;
+export function FilesTab({ diff, project, runState }: FilesTabProps) {
+  if (!diff) {
+    if (runState !== 'succeeded') {
+      return <p className="p-3 text-[12px] text-text-faint">No diff — run has not succeeded.</p>;
+    }
+    return <LoadingState label="Loading diff…" />;
+  }
   if (!diff.github_available) return <p className="p-3 text-[12px] text-text-faint">GitHub CLI not available or non-GitHub remote.</p>;
   if (diff.files.length === 0) return <p className="p-3 text-[12px] text-text-faint">No files changed.</p>;
   const repo = project ? parseGitHubRepo(project.repo_url) : null;
