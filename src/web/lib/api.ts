@@ -43,6 +43,21 @@ export const api = {
 
   listRuns: (state?: 'queued' | 'running' | 'succeeded' | 'failed' | 'cancelled') =>
     request<Run[]>(state ? `/api/runs?state=${state}` : '/api/runs'),
+  listRunsPaged: (params: {
+    state?: 'queued' | 'running' | 'succeeded' | 'failed' | 'cancelled';
+    project_id?: number;
+    q?: string;
+    limit: number;
+    offset: number;
+  }) => {
+    const qs = new URLSearchParams();
+    if (params.state) qs.set('state', params.state);
+    if (typeof params.project_id === 'number') qs.set('project_id', String(params.project_id));
+    if (params.q) qs.set('q', params.q);
+    qs.set('limit', String(params.limit));
+    qs.set('offset', String(params.offset));
+    return request<{ items: Run[]; total: number }>(`/api/runs?${qs.toString()}`);
+  },
   listProjectRuns: (projectId: number) =>
     request<Run[]>(`/api/projects/${projectId}/runs`),
   getRun: (id: number) => request<Run>(`/api/runs/${id}`),
