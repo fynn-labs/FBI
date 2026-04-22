@@ -8,3 +8,6 @@ export * from './Tag.js';
 export * from './Input.js';
 export * from './Textarea.js';
 export * from './FieldLabel.js';
+export * from './Toggle.js';
+export * from './Checkbox.js';
+export * from './Select.js';
