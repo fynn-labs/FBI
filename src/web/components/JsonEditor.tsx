@@ -1,6 +1,49 @@
 import { useState, useEffect } from 'react';
-import CodeMirror, { oneDark } from '@uiw/react-codemirror';
+import CodeMirror, { createTheme } from '@uiw/react-codemirror';
 import { json } from '@codemirror/lang-json';
+import { tags as t } from '@lezer/highlight';
+
+const lightTheme = createTheme({
+  theme: 'light',
+  settings: {
+    background: '#ffffff',
+    foreground: '#111827',
+    caret: '#111827',
+    selection: '#dbeafe',
+    selectionMatch: '#dbeafe',
+    lineHighlight: 'transparent',
+    gutterBackground: '#f9fafb',
+    gutterForeground: '#9ca3af',
+  },
+  styles: [
+    { tag: t.propertyName, color: '#1d4ed8' },
+    { tag: t.string, color: '#15803d' },
+    { tag: t.number, color: '#b45309' },
+    { tag: t.bool, color: '#7c3aed' },
+    { tag: t.null, color: '#7c3aed' },
+  ],
+});
+
+const darkTheme = createTheme({
+  theme: 'dark',
+  settings: {
+    background: '#1f2937',
+    foreground: '#f3f4f6',
+    caret: '#f3f4f6',
+    selection: '#374151',
+    selectionMatch: '#374151',
+    lineHighlight: 'transparent',
+    gutterBackground: '#111827',
+    gutterForeground: '#6b7280',
+  },
+  styles: [
+    { tag: t.propertyName, color: '#93c5fd' },
+    { tag: t.string, color: '#86efac' },
+    { tag: t.number, color: '#fdba74' },
+    { tag: t.bool, color: '#c4b5fd' },
+    { tag: t.null, color: '#c4b5fd' },
+  ],
+});
 
 interface JsonEditorProps {
   label: string;
@@ -31,7 +74,8 @@ export function JsonEditor({ label, value, onChange }: JsonEditorProps) {
           value={value}
           onChange={onChange}
           extensions={[json()]}
-          theme={isDark ? oneDark : undefined}
+          theme={isDark ? darkTheme : lightTheme}
+          minHeight="112px"
           className="text-sm"
         />
       </div>

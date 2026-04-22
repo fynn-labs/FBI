@@ -4,15 +4,15 @@ import userEvent from '@testing-library/user-event';
 import { JsonEditor } from './JsonEditor.js';
 
 vi.mock('@uiw/react-codemirror', () => ({
-  default: ({ value, onChange, theme }: { value: string; onChange?: (v: string) => void; theme?: unknown }) => (
+  default: ({ value, onChange, theme }: { value: string; onChange?: (v: string) => void; theme?: { _isDark: boolean } }) => (
     <textarea
       data-testid="codemirror"
-      data-theme={theme ? 'dark' : 'light'}
+      data-theme={theme?._isDark ? 'dark' : 'light'}
       value={value}
       onChange={(e) => onChange?.(e.target.value)}
     />
   ),
-  oneDark: { name: 'oneDark' },
+  createTheme: ({ theme }: { theme: string }) => ({ _isDark: theme === 'dark' }),
 }));
 
 vi.mock('@codemirror/lang-json', () => ({
@@ -62,14 +62,14 @@ describe('JsonEditor', () => {
   it('switches to dark theme via MutationObserver when dark class is added', async () => {
     render(<JsonEditor label="JSON" value="" onChange={() => {}} />);
     expect(screen.getByTestId('codemirror')).toHaveAttribute('data-theme', 'light');
-    act(() => {
+    await act(async () => {
       document.documentElement.classList.add('dark');
+      await new Promise((r) => setTimeout(r, 0));
     });
-    await waitFor(() => {
-      expect(screen.getByTestId('codemirror')).toHaveAttribute('data-theme', 'dark');
-    });
-    act(() => {
+    expect(screen.getByTestId('codemirror')).toHaveAttribute('data-theme', 'dark');
+    await act(async () => {
       document.documentElement.classList.remove('dark');
+      await new Promise((r) => setTimeout(r, 0));
     });
   });
 });
