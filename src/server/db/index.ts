@@ -32,6 +32,15 @@ function migrate(db: DB): void {
   if (!cols.has('plugins_json')) {
     db.exec("ALTER TABLE projects ADD COLUMN plugins_json TEXT NOT NULL DEFAULT '[]'");
   }
+  if (!cols.has('mem_mb')) {
+    db.exec('ALTER TABLE projects ADD COLUMN mem_mb INTEGER');
+  }
+  if (!cols.has('cpus')) {
+    db.exec('ALTER TABLE projects ADD COLUMN cpus REAL');
+  }
+  if (!cols.has('pids_limit')) {
+    db.exec('ALTER TABLE projects ADD COLUMN pids_limit INTEGER');
+  }
   db.prepare(
     "INSERT OR IGNORE INTO settings (id, global_prompt, updated_at) VALUES (1, '', ?)"
   ).run(Date.now());
