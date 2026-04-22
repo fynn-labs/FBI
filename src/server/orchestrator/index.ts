@@ -84,12 +84,13 @@ export class Orchestrator {
       const authorEmail = project.git_author_email ?? this.deps.config.gitAuthorEmail;
 
       // Plugins: global defaults + per-project additions (dedup, preserve order).
+      const settingsData = this.deps.settings.get();
       const marketplaces = uniq([
-        ...this.deps.config.defaultMarketplaces,
+        ...settingsData.global_marketplaces,
         ...project.marketplaces,
       ]);
       const plugins = uniq([
-        ...this.deps.config.defaultPlugins,
+        ...settingsData.global_plugins,
         ...project.plugins,
       ]);
 
