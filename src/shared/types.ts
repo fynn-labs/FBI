@@ -43,6 +43,13 @@ export interface Run {
   next_resume_at: number | null;
   claude_session_id: string | null;
   last_limit_reset_at: number | null;
+  // Usage totals (see docs/superpowers/specs/2026-04-22-claude-usage-design.md)
+  tokens_input: number;
+  tokens_output: number;
+  tokens_cache_read: number;
+  tokens_cache_create: number;
+  tokens_total: number;
+  usage_parse_errors: number;
 }
 
 export interface SecretName {
@@ -84,3 +91,53 @@ export type RunWsStateMessage = {
   resume_attempts: number;
   last_limit_reset_at: number | null;
 };
+
+export interface UsageSnapshot {
+  model: string;
+  input_tokens: number;
+  output_tokens: number;
+  cache_read_tokens: number;
+  cache_create_tokens: number;
+}
+
+export interface RateLimitSnapshot {
+  requests_remaining: number | null;
+  requests_limit: number | null;
+  tokens_remaining: number | null;
+  tokens_limit: number | null;
+  reset_at: number | null;
+}
+
+export interface RateLimitState {
+  requests_remaining: number | null;
+  requests_limit: number | null;
+  tokens_remaining: number | null;
+  tokens_limit: number | null;
+  reset_at: number | null;
+  observed_at: number | null;
+  observed_from_run_id: number | null;
+  percent_used: number | null;
+  reset_in_seconds: number | null;
+  observed_seconds_ago: number | null;
+}
+
+export interface DailyUsage {
+  date: string;
+  tokens_total: number;
+  tokens_input: number;
+  tokens_output: number;
+  tokens_cache_read: number;
+  tokens_cache_create: number;
+  run_count: number;
+}
+
+export interface RunUsageBreakdownRow {
+  model: string;
+  input: number;
+  output: number;
+  cache_read: number;
+  cache_create: number;
+}
+
+export type RunWsUsageMessage = { type: 'usage'; snapshot: UsageSnapshot };
+export type RunWsRateLimitMessage = { type: 'rate_limit'; snapshot: RateLimitState };

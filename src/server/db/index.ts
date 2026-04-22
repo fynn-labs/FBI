@@ -93,6 +93,14 @@ function migrate(db: DB): void {
   if (!settingsCols.has('auto_resume_max_attempts')) {
     db.exec('ALTER TABLE settings ADD COLUMN auto_resume_max_attempts INTEGER NOT NULL DEFAULT 5');
   }
+  for (const c of [
+    'tokens_input', 'tokens_output', 'tokens_cache_read',
+    'tokens_cache_create', 'tokens_total', 'usage_parse_errors',
+  ]) {
+    if (!runCols.has(c)) {
+      db.exec(`ALTER TABLE runs ADD COLUMN ${c} INTEGER NOT NULL DEFAULT 0`);
+    }
+  }
   db.prepare(
     "INSERT OR IGNORE INTO settings (id, global_prompt, notifications_enabled, concurrency_warn_at, image_gc_enabled, updated_at) VALUES (1, '', 1, 3, 0, ?)"
   ).run(Date.now());
