@@ -50,6 +50,8 @@ export interface Run {
   tokens_cache_create: number;
   tokens_total: number;
   usage_parse_errors: number;
+  title: string | null;
+  title_locked: 0 | 1;
 }
 
 export interface SecretName {
@@ -141,3 +143,8 @@ export interface RunUsageBreakdownRow {
 
 export type RunWsUsageMessage = { type: 'usage'; snapshot: UsageSnapshot };
 export type RunWsRateLimitMessage = { type: 'rate_limit'; snapshot: RateLimitState };
+export type RunWsTitleMessage = {
+  type: 'title';
+  title: string | null;
+  title_locked: 0 | 1;
+};
