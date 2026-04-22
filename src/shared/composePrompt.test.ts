@@ -15,7 +15,8 @@ describe('composePrompt', () => {
     expect(composePrompt({ preamble: '', globalPrompt: 'G', instructions: 'I', runPrompt: 'R' })).toBe('G\n\n---\n\nI\n\n---\n\nR');
   });
 
-  it('treats whitespace-only sections as empty', () => {
-    expect(composePrompt({ preamble: '  \n', globalPrompt: '', instructions: '', runPrompt: 'R' })).toBe('R');
+  it('keeps whitespace-only sections (parity with supervisor.sh -s predicate)', () => {
+    expect(composePrompt({ preamble: '  \n', globalPrompt: '', instructions: '', runPrompt: 'R' }))
+      .toBe('  \n\n\n---\n\nR');
   });
 });

@@ -172,9 +172,7 @@ export function RunDetailPage() {
               </thead>
               <tbody>
                 {diff.files.map((f) => {
-                  const repo = (() => {
-                    try { return new URL(gh?.pr?.url ?? '').pathname.split('/').slice(1, 3).join('/'); } catch { return null; }
-                  })();
+                  const repo = project ? parseGitHubRepo(project.repo_url) : null;
                   const href = repo ? `https://github.com/${repo}/blob/${diff.head}/${f.filename}` : '#';
                   return (
                     <tr key={f.filename}>

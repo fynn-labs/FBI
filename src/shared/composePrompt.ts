@@ -7,7 +7,7 @@ export interface ComposePromptInput {
 
 export function composePrompt(input: ComposePromptInput): string {
   const parts = [input.preamble, input.globalPrompt, input.instructions]
-    .filter((s) => s.trim().length > 0);
+    .filter((s) => s.length > 0);
   parts.push(input.runPrompt);
   return parts.join('\n\n---\n\n');
 }
