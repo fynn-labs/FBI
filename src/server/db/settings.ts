@@ -41,7 +41,7 @@ export class SettingsRepo {
       global_marketplaces: JSON.parse(row.global_marketplaces_json || '[]') as string[],
       global_plugins: JSON.parse(row.global_plugins_json || '[]') as string[],
       auto_resume_enabled: row.auto_resume_enabled === 1,
-      auto_resume_max_attempts: row.auto_resume_max_attempts,
+      auto_resume_max_attempts: row.auto_resume_max_attempts ?? 5,
       updated_at: row.updated_at,
     };
   }
