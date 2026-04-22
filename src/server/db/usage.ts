@@ -1,5 +1,5 @@
 import type { DB } from './index.js';
-import type { UsageSnapshot, RateLimitSnapshot, RateLimitState } from '../../shared/types.js';
+import type { UsageSnapshot, RateLimitSnapshot, RateLimitState, DailyUsage, RunUsageBreakdownRow } from '../../shared/types.js';
 
 export interface InsertUsageEventInput {
   run_id: number;
@@ -86,6 +86,48 @@ export class UsageRepo {
         s.tokens_remaining, s.tokens_limit, s.reset_at,
         input.observed_at, input.observed_from_run_id
       );
+  }
+
+  listDailyUsage(input: { days: number; now: number }): DailyUsage[] {
+    const days = Math.max(1, Math.min(90, input.days));
+    const sinceMs = input.now - days * 24 * 60 * 60 * 1000;
+    const rows = this.db
+      .prepare(
+        `SELECT DATE(ts/1000, 'unixepoch', 'localtime') AS date,
+                SUM(input_tokens + output_tokens + cache_read_tokens + cache_create_tokens) AS tokens_total,
+                SUM(input_tokens)        AS tokens_input,
+                SUM(output_tokens)       AS tokens_output,
+                SUM(cache_read_tokens)   AS tokens_cache_read,
+                SUM(cache_create_tokens) AS tokens_cache_create,
+                COUNT(DISTINCT run_id)   AS run_count
+           FROM run_usage_events
+          WHERE ts >= ?
+          GROUP BY date
+          ORDER BY date ASC`
+      )
+      .all(sinceMs) as Array<{
+        date: string;
+        tokens_total: number; tokens_input: number; tokens_output: number;
+        tokens_cache_read: number; tokens_cache_create: number;
+        run_count: number;
+      }>;
+    return rows;
+  }
+
+  getRunBreakdown(runId: number): RunUsageBreakdownRow[] {
+    return this.db
+      .prepare(
+        `SELECT model,
+                SUM(input_tokens)        AS input,
+                SUM(output_tokens)       AS output,
+                SUM(cache_read_tokens)   AS cache_read,
+                SUM(cache_create_tokens) AS cache_create
+           FROM run_usage_events
+          WHERE run_id = ?
+          GROUP BY model
+          ORDER BY model ASC`
+      )
+      .all(runId) as RunUsageBreakdownRow[];
   }
 
   getRateLimitState(now: number): RateLimitState {

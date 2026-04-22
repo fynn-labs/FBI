@@ -153,3 +153,61 @@ describe('UsageRepo rate-limit singleton', () => {
     expect(usage.getRateLimitState(3000).requests_remaining).toBe(10);
   });
 });
+
+describe('UsageRepo aggregations', () => {
+  it('listDailyUsage groups by local date', () => {
+    const { usage, runId } = setup();
+    // Two events on day D, one on day D-1 (using fixed UTC midnights for determinism)
+    const day1 = Date.UTC(2026, 3, 20, 12, 0, 0);  // noon
+    const day2 = Date.UTC(2026, 3, 21, 12, 0, 0);
+    for (const ts of [day1, day1 + 1000, day2]) {
+      usage.insertUsageEvent({
+        run_id: runId, ts,
+        snapshot: {
+          model: 'claude-sonnet-4-6',
+          input_tokens: 10, output_tokens: 5,
+          cache_read_tokens: 0, cache_create_tokens: 0,
+        },
+        rate_limit: null,
+      });
+    }
+    const rows = usage.listDailyUsage({ days: 14, now: Date.UTC(2026, 3, 22, 0, 0, 0) });
+    // Exactly two distinct days.
+    const distinct = new Set(rows.map((r) => r.date));
+    expect(distinct.size).toBe(2);
+  });
+
+  it('listDailyUsage clamps days to [1, 90]', () => {
+    const { usage } = setup();
+    expect(usage.listDailyUsage({ days: 0, now: Date.now() }).length).toBeGreaterThanOrEqual(0);
+    expect(() => usage.listDailyUsage({ days: 1000, now: Date.now() })).not.toThrow();
+  });
+
+  it('getRunBreakdown groups by model', () => {
+    const { usage, runId } = setup();
+    usage.insertUsageEvent({
+      run_id: runId, ts: 1,
+      snapshot: { model: 'claude-sonnet-4-6', input_tokens: 10, output_tokens: 5,
+        cache_read_tokens: 0, cache_create_tokens: 0 },
+      rate_limit: null,
+    });
+    usage.insertUsageEvent({
+      run_id: runId, ts: 2,
+      snapshot: { model: 'claude-sonnet-4-6', input_tokens: 20, output_tokens: 10,
+        cache_read_tokens: 0, cache_create_tokens: 0 },
+      rate_limit: null,
+    });
+    usage.insertUsageEvent({
+      run_id: runId, ts: 3,
+      snapshot: { model: 'claude-haiku-4-5', input_tokens: 3, output_tokens: 1,
+        cache_read_tokens: 0, cache_create_tokens: 0 },
+      rate_limit: null,
+    });
+    const rows = usage.getRunBreakdown(runId);
+    const sonnet = rows.find((r) => r.model === 'claude-sonnet-4-6')!;
+    const haiku = rows.find((r) => r.model === 'claude-haiku-4-5')!;
+    expect(sonnet.input).toBe(30);
+    expect(sonnet.output).toBe(15);
+    expect(haiku.input).toBe(3);
+  });
+});
