@@ -26,4 +26,21 @@ describe('parseResultJson', () => {
     expect(r).not.toBeNull();
     expect(r?.branch).toBeUndefined();
   });
+  it('extracts a title when present', () => {
+    const r = parseResultJson(JSON.stringify({ exit_code: 0, push_exit: 0, head_sha: 'abc', title: 'Fix auth race' }));
+    expect(r?.title).toBe('Fix auth race');
+  });
+  it('trims and truncates title to 80 chars', () => {
+    const r = parseResultJson(JSON.stringify({ exit_code: 0, push_exit: 0, head_sha: 'abc', title: '   ' + 'x'.repeat(200) + '   ' }));
+    expect(r?.title).toHaveLength(80);
+  });
+  it('omits title when empty or whitespace', () => {
+    const r = parseResultJson(JSON.stringify({ exit_code: 0, push_exit: 0, head_sha: 'abc', title: '  ' }));
+    expect(r?.title).toBeUndefined();
+  });
+  it('parses successfully when title is absent', () => {
+    const r = parseResultJson(JSON.stringify({ exit_code: 0, push_exit: 0, head_sha: 'abc' }));
+    expect(r).not.toBeNull();
+    expect(r?.title).toBeUndefined();
+  });
 });
