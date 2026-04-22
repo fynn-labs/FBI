@@ -30,6 +30,14 @@ describe('resumeDetector.classify', () => {
     expect(v.reset_at).toBe(Date.UTC(2026, 3, 22, 22, 0, 0));
   });
 
+  it('parses the "You\'ve hit your limit · resets <time>" form', () => {
+    // NOW = 2026-04-22T12:00:00Z; "2pm (UTC)" → 14:00 UTC same day.
+    const v = classify(fx('hit-limit-2pm-utc.log'), null, NOW);
+    expect(v.kind).toBe('rate_limit');
+    expect(v.source).toBe('log_text');
+    expect(v.reset_at).toBe(Date.UTC(2026, 3, 22, 14, 0, 0));
+  });
+
   it('parses the human reset form without zone (uses host tz)', () => {
     // Source and reset_at depend on the host timezone; only assert that we
     // get a rate_limit result with a numeric timestamp (not 'other').

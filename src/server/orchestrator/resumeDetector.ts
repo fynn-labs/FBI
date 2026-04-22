@@ -19,7 +19,11 @@ const TAIL_BYTES = 8 * 1024;
 
 const RE_PIPE_EPOCH = /Claude usage limit reached\|(\d+)/;
 const RE_HUMAN = /Claude usage limit reached\. Your limit will reset at ([^.]+)\./;
-const RE_LENIENT = /(?:usage limit|rate limit)/i;
+// Newer Claude Code wording, e.g. "You've hit your limit · resets 2pm (UTC)".
+// The separator between "limit" and "resets" is a middle dot in practice; we
+// allow any non-letter run so minor punctuation/whitespace changes still match.
+const RE_HUMAN_NEW = /hit your limit[^A-Za-z\n]+resets?\s+(\d{1,2}(?::\d{2})?\s*[ap]m(?:\s*\([^)\n]+\))?)/i;
+const RE_LENIENT = /(?:usage limit|rate limit|hit your limit)/i;
 
 export function classify(
   logTail: string,
@@ -35,8 +39,8 @@ export function classify(
     return sanityClamp(ms, 'log_epoch', now);
   }
 
-  // 2. Human reset string.
-  const mHuman = tail.match(RE_HUMAN);
+  // 2. Human reset string (legacy + new wording).
+  const mHuman = tail.match(RE_HUMAN) ?? tail.match(RE_HUMAN_NEW);
   if (mHuman) {
     const parsed = parseHumanResetTime(mHuman[1], now);
     if (parsed !== null) return sanityClamp(parsed, 'log_text', now);
@@ -139,8 +143,10 @@ function resolveLocalTimeToUtc(
   minute: number,
   tz: string | undefined,
 ): number | null {
-  // Host-local path.
-  if (!tz || !tz.includes('/')) {
+  // Host-local path: anything Intl can't resolve (PDT, EST, etc.).
+  // IANA names contain '/', and UTC/GMT are accepted by Intl directly.
+  const isResolvable = !!tz && (tz.includes('/') || tz === 'UTC' || tz === 'GMT');
+  if (!isResolvable) {
     const d = new Date(now);
     d.setHours(hour, minute, 0, 0);
     return d.getTime();
