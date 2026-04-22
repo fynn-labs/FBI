@@ -28,11 +28,11 @@ const lightTheme = createTheme({
 const darkTheme = createTheme({
   theme: 'dark',
   settings: {
-    background: '#1f2937',
+    background: '#111827',
     foreground: '#f3f4f6',
     caret: '#f3f4f6',
-    selection: '#374151',
-    selectionMatch: '#374151',
+    selection: '#1f2937',
+    selectionMatch: '#1f2937',
     lineHighlight: 'transparent',
     gutterBackground: '#111827',
     gutterForeground: '#6b7280',
