@@ -46,7 +46,13 @@ fi
 cd /workspace
 
 git clone --recurse-submodules "$REPO_URL" . || { echo "clone failed"; exit 10; }
-git checkout "$DEFAULT_BRANCH" || { echo "checkout failed"; exit 11; }
+if [ -n "${FBI_CHECKOUT_BRANCH:-}" ]; then
+    git checkout "$FBI_CHECKOUT_BRANCH" \
+      || { echo "[fbi] warn: branch $FBI_CHECKOUT_BRANCH not found on remote; using $DEFAULT_BRANCH"; \
+           git checkout "$DEFAULT_BRANCH" || { echo "checkout failed"; exit 11; }; }
+else
+    git checkout "$DEFAULT_BRANCH" || { echo "checkout failed"; exit 11; }
+fi
 git config user.name  "$GIT_AUTHOR_NAME"
 git config user.email "$GIT_AUTHOR_EMAIL"
 

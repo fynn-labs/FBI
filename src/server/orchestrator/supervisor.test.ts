@@ -40,13 +40,24 @@ function makeSandbox(): Sandbox {
     { mode: 0o755 },
   );
   // Stub git — tolerates the commands supervisor runs and produces the
-  // outputs it reads back.
+  // outputs it reads back. Records `checkout` calls to a log file.
   fs.writeFileSync(
     path.join(bin, 'git'),
     `#!/bin/sh
 case "$1" in
   clone) exit 0 ;;
-  checkout) exit 0 ;;
+  checkout)
+    shift
+    # Emit the final branch argument (last non-flag token) to the log.
+    branch=""
+    for a in "$@"; do
+      case "$a" in -*) ;; *) branch="$a" ;; esac
+    done
+    echo "$branch" >> "${tmpOut}/checkouts.log"
+    # Treat a branch named 'does-not-exist' as a missing ref.
+    if [ "$branch" = "does-not-exist" ]; then exit 1; fi
+    exit 0
+    ;;
   config) exit 0 ;;
   add) exit 0 ;;
   commit) exit 0 ;;
@@ -127,5 +138,30 @@ describe('supervisor.sh', () => {
     // Composed prompt should contain the run prompt.
     const composed = fs.readFileSync(path.join(sb.tmpOut, 'prompt.txt'), 'utf8');
     expect(composed).toContain('do the thing');
+  });
+
+  it('checks out FBI_CHECKOUT_BRANCH when set', () => {
+    fs.writeFileSync(path.join(sb.fbi, 'prompt.txt'), 'hi');
+    const res = run(sb, { FBI_CHECKOUT_BRANCH: 'feature/x' });
+    expect(res.status).toBe(0);
+    const checkouts = fs.readFileSync(path.join(sb.tmpOut, 'checkouts.log'), 'utf8').trim().split('\n');
+    expect(checkouts[0]).toBe('feature/x');
+  });
+
+  it('falls through to DEFAULT_BRANCH when the requested branch is missing on remote', () => {
+    fs.writeFileSync(path.join(sb.fbi, 'prompt.txt'), 'hi');
+    const res = run(sb, { FBI_CHECKOUT_BRANCH: 'does-not-exist' });
+    expect(res.status).toBe(0);
+    const checkouts = fs.readFileSync(path.join(sb.tmpOut, 'checkouts.log'), 'utf8').trim().split('\n');
+    expect(checkouts[0]).toBe('does-not-exist');
+    expect(checkouts[1]).toBe('main');
+  });
+
+  it('checks out DEFAULT_BRANCH when FBI_CHECKOUT_BRANCH is unset', () => {
+    fs.writeFileSync(path.join(sb.fbi, 'prompt.txt'), 'hi');
+    const res = run(sb, {});
+    expect(res.status).toBe(0);
+    const checkouts = fs.readFileSync(path.join(sb.tmpOut, 'checkouts.log'), 'utf8').trim().split('\n');
+    expect(checkouts[0]).toBe('main');
   });
 });
