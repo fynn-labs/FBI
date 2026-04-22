@@ -27,21 +27,21 @@ Work through categories one at a time: brainstorm → spec → plan → implemen
 
 ## A. Run iteration & reuse
 
-**Status:** specing (P1s) · todo (P2)
+**Status:** shipped (P1s) · todo (P2)
 **Spec:** [`2026-04-21-p1-improvements-design.md`](superpowers/specs/2026-04-21-p1-improvements-design.md) §2, §3 (P1s only)
 
-- [ ] **(P1) Follow-up run on the same branch.** Reframed during brainstorming: Claude owns branch naming, follow-up collapses to "new run with pre-filled branch field." See spec §2.
-- [ ] **(P1) Prompt history / templates.** Spec'd as history-only: "Recent prompts" dropdown on NewRun, top N distinct prompts per project, no new table. See spec §3.
+- [x] **(P1) Follow-up run on the same branch.** Reframed during brainstorming: Claude owns branch naming, follow-up collapses to "new run with pre-filled branch field." See spec §2.
+- [x] **(P1) Prompt history / templates.** Spec'd as history-only: "Recent prompts" dropdown on NewRun, top N distinct prompts per project, no new table. See spec §3.
 - [ ] **(P2) Run comparison.** Two runs from the same prompt → no side-by-side of what each did.
 
 ---
 
 ## B. Visibility & post-run signal
 
-**Status:** specing (P1) · todo (P2, P3)
+**Status:** shipped (P1) · todo (P2, P3)
 **Spec:** [`2026-04-21-p1-improvements-design.md`](superpowers/specs/2026-04-21-p1-improvements-design.md) §4 (P1 only)
 
-- [ ] **(P1) Run-completion notification.** Spec'd: Browser Notification API + tab title prefix + favicon dot, global watcher via 5s poll, Settings toggle. See spec §4.
+- [x] **(P1) Run-completion notification.** Spec'd: Browser Notification API + tab title prefix + favicon dot, global watcher via 5s poll, Settings toggle. See spec §4.
 - [ ] **(P2) "What's running now" on the home page.** `/` lists projects with name+repo; no visibility into which projects have active runs without clicking through.
 - [ ] **(P2) PR / CI / branch-status surfacing.** No "did CI pass on the pushed branch?" or "has a PR been opened against this branch?" Post-run lives entirely on GitHub.
 - [ ] **(P2) File-level diff summary on the run page.** You go click out to GitHub for every post-mortem.
@@ -61,10 +61,10 @@ Work through categories one at a time: brainstorm → spec → plan → implemen
 
 ## D. Safety & limits
 
-**Status:** specing (P1) · todo (P2)
+**Status:** shipped (P1) · todo (P2)
 **Spec:** [`2026-04-21-p1-improvements-design.md`](superpowers/specs/2026-04-21-p1-improvements-design.md) §5 (P1 only)
 
-- [ ] **(P1) Resource caps per container** (cpu/mem/pids). Spec'd: global env defaults + nullable per-project override, enforced via Docker HostConfig, OOM surfaced as a specific error. See spec §5.
+- [x] **(P1) Resource caps per container** (cpu/mem/pids). Spec'd: global env defaults + nullable per-project override, enforced via Docker HostConfig, OOM surfaced as a specific error. See spec §5.
 - [ ] **(P2) Concurrency / queue cap.** Spec §3 explicitly says no cap in v1 — a choice, not a bug — but a soft cap ("you already have 5 running — are you sure?") is cheap protection.
 - [ ] **(P2) Image GC.** Listed as future work. Over months, disk fills silently.
 
@@ -120,3 +120,4 @@ Spec §2 and §11 mark these out-of-scope. Listed here so they're one place to f
 
 - 2026-04-21 — doc created; findings from post-v1 evaluation
 - 2026-04-21 — all four P1s spec'd in `superpowers/specs/2026-04-21-p1-improvements-design.md` (A: branch autonomy + recent prompts; B: completion notifications; D: resource caps)
+- 2026-04-21 — P1 pack shipped; branch autonomy, recent prompts, notifications, and resource caps live.
