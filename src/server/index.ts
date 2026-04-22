@@ -43,7 +43,7 @@ async function main() {
   });
   app.get('/api/health', async () => ({ ok: true }));
 
-  registerProjectRoutes(app, { projects, secrets });
+  registerProjectRoutes(app, { projects, secrets, runs });
   registerSecretsRoutes(app, { secrets });
   registerRunsRoutes(app, {
     runs,
