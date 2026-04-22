@@ -18,7 +18,7 @@ export SSH_AUTH_SOCK=/ssh-agent
 
 cd /workspace
 
-git clone "$REPO_URL" . || { echo "clone failed"; exit 10; }
+git clone --recurse-submodules "$REPO_URL" . || { echo "clone failed"; exit 10; }
 git checkout -b "$BRANCH_NAME" "origin/$DEFAULT_BRANCH" || { echo "checkout failed"; exit 11; }
 git config user.name  "$GIT_AUTHOR_NAME"
 git config user.email "$GIT_AUTHOR_EMAIL"
