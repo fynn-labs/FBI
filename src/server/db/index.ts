@@ -50,6 +50,12 @@ function migrate(db: DB): void {
       'ALTER TABLE settings ADD COLUMN notifications_enabled INTEGER NOT NULL DEFAULT 1'
     );
   }
+  if (!settingsCols.has('global_marketplaces_json')) {
+    db.exec("ALTER TABLE settings ADD COLUMN global_marketplaces_json TEXT NOT NULL DEFAULT '[]'");
+  }
+  if (!settingsCols.has('global_plugins_json')) {
+    db.exec("ALTER TABLE settings ADD COLUMN global_plugins_json TEXT NOT NULL DEFAULT '[]'");
+  }
   db.prepare(
     "INSERT OR IGNORE INTO settings (id, global_prompt, notifications_enabled, updated_at) VALUES (1, '', 1, ?)"
   ).run(Date.now());

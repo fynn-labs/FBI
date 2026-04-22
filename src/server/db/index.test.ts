@@ -14,6 +14,7 @@ describe('openDb', () => {
       .prepare("SELECT name FROM sqlite_master WHERE type='table' ORDER BY name")
       .all();
     expect(tables).toEqual([
+      { name: 'mcp_servers' },
       { name: 'project_secrets' },
       { name: 'projects' },
       { name: 'runs' },

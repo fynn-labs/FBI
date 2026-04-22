@@ -51,3 +51,16 @@ CREATE TABLE IF NOT EXISTS settings (
   updated_at INTEGER NOT NULL
 );
 INSERT OR IGNORE INTO settings (id, global_prompt, updated_at) VALUES (1, '', 0);
+
+CREATE TABLE IF NOT EXISTS mcp_servers (
+  id INTEGER PRIMARY KEY,
+  project_id INTEGER REFERENCES projects(id) ON DELETE CASCADE,
+  name TEXT NOT NULL,
+  type TEXT NOT NULL CHECK(type IN ('stdio','sse')),
+  command TEXT,
+  args_json TEXT NOT NULL DEFAULT '[]',
+  url TEXT,
+  env_json TEXT NOT NULL DEFAULT '{}',
+  created_at INTEGER NOT NULL,
+  UNIQUE(project_id, name)
+);
