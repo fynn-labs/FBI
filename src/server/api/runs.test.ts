@@ -56,7 +56,7 @@ describe('runs routes', () => {
     expect((list as unknown[]).length).toBe(1);
   });
 
-  it('DELETE /api/runs/:id cancels a running run', async () => {
+  it('DELETE /api/runs/:id on queued run deletes without cancelling', async () => {
     const { app, projectId, cancelled } = setup();
     const r = (await app.inject({
       method: 'POST', url: `/api/projects/${projectId}/runs`, payload: { prompt: 'x' },
