@@ -17,6 +17,7 @@ describe('openDb', () => {
       { name: 'project_secrets' },
       { name: 'projects' },
       { name: 'runs' },
+      { name: 'settings' },
     ]);
     db1.close();
     db2.close();

@@ -32,4 +32,7 @@ function migrate(db: DB): void {
   if (!cols.has('plugins_json')) {
     db.exec("ALTER TABLE projects ADD COLUMN plugins_json TEXT NOT NULL DEFAULT '[]'");
   }
+  db.prepare(
+    "INSERT OR IGNORE INTO settings (id, global_prompt, updated_at) VALUES (1, '', ?)"
+  ).run(Date.now());
 }

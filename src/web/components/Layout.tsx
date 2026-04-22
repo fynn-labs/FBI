@@ -9,6 +9,7 @@ export function Layout({ children }: { children: ReactNode }) {
       <nav aria-label="Main" className="bg-white border-b px-6 py-3 flex gap-6 items-center">
         <Link to="/" className="font-bold text-lg">FBI</Link>
         <Link to="/runs" className="text-gray-700 hover:text-gray-900">Runs</Link>
+        <Link to="/settings" className="text-gray-700 hover:text-gray-900 ml-auto">Settings</Link>
       </nav>
       <main className="flex-1 p-6">{children}</main>
       {VERSION && (

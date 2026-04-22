@@ -1,4 +1,4 @@
-import type { Project, Run, SecretName } from '@shared/types.js';
+import type { Project, Run, SecretName, Settings } from '@shared/types.js';
 
 async function request<T>(url: string, init?: RequestInit): Promise<T> {
   let res: Response;
@@ -51,4 +51,8 @@ export const api = {
       body: JSON.stringify({ prompt }),
     }),
   deleteRun: (id: number) => request<void>(`/api/runs/${id}`, { method: 'DELETE' }),
+
+  getSettings: () => request<Settings>('/api/settings'),
+  updateSettings: (patch: { global_prompt?: string }) =>
+    request<Settings>('/api/settings', { method: 'PATCH', body: JSON.stringify(patch) }),
 };

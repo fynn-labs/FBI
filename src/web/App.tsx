@@ -7,6 +7,7 @@ import { EditProjectPage } from './pages/EditProject.js';
 import { NewRunPage } from './pages/NewRun.js';
 import { RunsPage } from './pages/Runs.js';
 import { RunDetailPage } from './pages/RunDetail.js';
+import { SettingsPage } from './pages/Settings.js';
 
 export function App() {
   return (
@@ -19,6 +20,7 @@ export function App() {
         <Route path="/projects/:id/runs/new" element={<NewRunPage />} />
         <Route path="/runs" element={<RunsPage />} />
         <Route path="/runs/:id" element={<RunDetailPage />} />
+        <Route path="/settings" element={<SettingsPage />} />
         <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>
     </Layout>

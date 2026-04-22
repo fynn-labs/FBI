@@ -40,3 +40,8 @@ export interface SecretName {
   name: string;
   created_at: number;
 }
+
+export interface Settings {
+  global_prompt: string;
+  updated_at: number;
+}

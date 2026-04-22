@@ -5,6 +5,7 @@ import { fileURLToPath } from 'node:url';
 import type { RunsRepo } from '../db/runs.js';
 import type { ProjectsRepo } from '../db/projects.js';
 import type { SecretsRepo } from '../db/secrets.js';
+import type { SettingsRepo } from '../db/settings.js';
 import type { Config } from '../config.js';
 import type { RunStreamRegistry } from '../logs/registry.js';
 import { LogStore } from '../logs/store.js';
@@ -21,6 +22,7 @@ export interface OrchestratorDeps {
   projects: ProjectsRepo;
   runs: RunsRepo;
   secrets: SecretsRepo;
+  settings: SettingsRepo;
   streams: RunStreamRegistry;
 }
 
@@ -110,9 +112,11 @@ export class Orchestrator {
 
       // Inject prompt files directly into the container filesystem so we
       // don't depend on directory bind mounts (which fail silently on some hosts).
+      const globalPrompt = this.deps.settings.get().global_prompt;
       await injectFiles(container, '/fbi', {
         'prompt.txt': run.prompt ?? '',
         'instructions.txt': project.instructions ?? '',
+        'global.txt': globalPrompt,
       });
 
       // Inject a sanitized ~/.claude.json: strip the host-specific installMethod

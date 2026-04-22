@@ -43,12 +43,14 @@ git checkout -b "$BRANCH_NAME" "origin/$DEFAULT_BRANCH" || { echo "checkout fail
 git config user.name  "$GIT_AUTHOR_NAME"
 git config user.email "$GIT_AUTHOR_EMAIL"
 
-# Compose the final prompt: project instructions + run prompt.
+# Compose the final prompt: global + project instructions + run prompt.
 : > /tmp/prompt.txt
-if [ -s /fbi/instructions.txt ]; then
-    cat /fbi/instructions.txt >> /tmp/prompt.txt
-    printf '\n\n---\n\n' >> /tmp/prompt.txt
-fi
+for section in global.txt instructions.txt; do
+    if [ -s "/fbi/$section" ]; then
+        cat "/fbi/$section" >> /tmp/prompt.txt
+        printf '\n\n---\n\n' >> /tmp/prompt.txt
+    fi
+done
 [ -f /fbi/prompt.txt ] || { echo "prompt.txt not found in /fbi"; exit 12; }
 cat /fbi/prompt.txt >> /tmp/prompt.txt
 

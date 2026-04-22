@@ -40,3 +40,10 @@ CREATE TABLE IF NOT EXISTS runs (
 
 CREATE INDEX IF NOT EXISTS idx_runs_project ON runs(project_id);
 CREATE INDEX IF NOT EXISTS idx_runs_state ON runs(state);
+
+CREATE TABLE IF NOT EXISTS settings (
+  id INTEGER PRIMARY KEY CHECK (id = 1),
+  global_prompt TEXT NOT NULL DEFAULT '',
+  updated_at INTEGER NOT NULL
+);
+INSERT OR IGNORE INTO settings (id, global_prompt, updated_at) VALUES (1, '', 0);
