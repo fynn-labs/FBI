@@ -46,5 +46,6 @@ export interface SecretName {
 
 export interface Settings {
   global_prompt: string;
+  notifications_enabled: boolean;
   updated_at: number;
 }

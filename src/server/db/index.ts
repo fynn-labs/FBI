@@ -41,7 +41,16 @@ function migrate(db: DB): void {
   if (!cols.has('pids_limit')) {
     db.exec('ALTER TABLE projects ADD COLUMN pids_limit INTEGER');
   }
+  const settingsCols = new Set(
+    (db.prepare("PRAGMA table_info(settings)").all() as Array<{ name: string }>)
+      .map((r) => r.name)
+  );
+  if (!settingsCols.has('notifications_enabled')) {
+    db.exec(
+      'ALTER TABLE settings ADD COLUMN notifications_enabled INTEGER NOT NULL DEFAULT 1'
+    );
+  }
   db.prepare(
-    "INSERT OR IGNORE INTO settings (id, global_prompt, updated_at) VALUES (1, '', ?)"
+    "INSERT OR IGNORE INTO settings (id, global_prompt, notifications_enabled, updated_at) VALUES (1, '', 1, ?)"
   ).run(Date.now());
 }
