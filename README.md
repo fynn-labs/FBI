@@ -55,6 +55,11 @@ sudo systemctl restart fbi
 
 Open the service URL over Tailscale (port 3000 by default).
 
+`npm run build` (invoked by `install.sh`) also cross-compiles the
+`fbi-tunnel` helper for darwin/linux × amd64/arm64 via a one-shot
+`golang:1.22-alpine` container. No Go toolchain required on the host;
+Docker must be running.
+
 ## Design system
 
 The UI is built on a reusable primitive library at `src/web/ui/`. See:
