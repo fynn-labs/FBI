@@ -1,11 +1,12 @@
-import { useEffect, useState } from 'react';
-import { Outlet, useLocation, useParams } from 'react-router-dom';
+import { useEffect, useRef, useState } from 'react';
+import { Outlet, useLocation, useNavigate, useParams } from 'react-router-dom';
 import { SplitPane } from '@ui/patterns/SplitPane.js';
 import { EmptyState, LoadingState, ErrorState } from '@ui/patterns/index.js';
 import type { Project, Run } from '@shared/types.js';
 import { api } from '../lib/api.js';
 import { RunsList } from '../features/runs/RunsList.js';
 import { ProjectHeader } from '../features/projects/ProjectHeader.js';
+import { getLastRunForProject, setLastRunForProject } from '../features/runs/lastRun.js';
 
 export function ProjectDetailPage() {
   const { id, rid } = useParams();
@@ -16,6 +17,8 @@ export function ProjectDetailPage() {
   const [project, setProject] = useState<Project | null>(null);
   const [runs, setRuns] = useState<Run[] | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const nav = useNavigate();
+  const redirectedRef = useRef(false);
 
   useEffect(() => {
     let cancelled = false;
@@ -56,6 +59,23 @@ export function ProjectDetailPage() {
     intervalId = setInterval(loadRuns, 5000);
     return () => { cancelled = true; if (intervalId !== null) clearInterval(intervalId); };
   }, [pid]);
+
+  // Remember the current run id whenever it changes.
+  useEffect(() => {
+    if (rid) setLastRunForProject(pid, Number(rid));
+  }, [pid, rid]);
+
+  // Auto-redirect to the last-viewed run when no run is selected.
+  useEffect(() => {
+    if (redirectedRef.current) return;
+    if (hasChildRoute) return;
+    if (!runs || runs.length === 0) return;
+    const lastId = getLastRunForProject(pid);
+    if (lastId == null) return;
+    if (!runs.some((r) => r.id === lastId)) return;
+    redirectedRef.current = true;
+    nav(`/projects/${pid}/runs/${lastId}`, { replace: true });
+  }, [runs, hasChildRoute, pid, nav]);
 
   if (error) return <ErrorState message={error} />;
   if (!project || !runs) return <LoadingState label="Loading project…" />;

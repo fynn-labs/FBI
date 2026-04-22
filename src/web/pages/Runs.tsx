@@ -1,16 +1,19 @@
-import { useEffect, useState } from 'react';
-import { Outlet, useParams } from 'react-router-dom';
+import { useEffect, useRef, useState } from 'react';
+import { Outlet, useNavigate, useParams } from 'react-router-dom';
 import { SplitPane } from '@ui/patterns/SplitPane.js';
 import { EmptyState, LoadingState, ErrorState } from '@ui/patterns/index.js';
 import { KeyboardHint } from '@ui/patterns/KeyboardHint.js';
 import type { Run } from '@shared/types.js';
 import { api } from '../lib/api.js';
 import { RunsList } from '../features/runs/RunsList.js';
+import { getLastRunGlobal, setLastRunGlobal } from '../features/runs/lastRun.js';
 
 export function RunsPage() {
   const [runs, setRuns] = useState<Run[] | null>(null);
   const [error, setError] = useState<string | null>(null);
   const params = useParams();
+  const nav = useNavigate();
+  const redirectedRef = useRef(false);
 
   useEffect(() => {
     let cancelled = false;
@@ -21,6 +24,23 @@ export function RunsPage() {
     const t = setInterval(load, 5000);
     return () => { cancelled = true; clearInterval(t); };
   }, []);
+
+  // Remember the current run id whenever it changes.
+  useEffect(() => {
+    if (params.id) setLastRunGlobal(Number(params.id));
+  }, [params.id]);
+
+  // Auto-redirect to the last-viewed run when no run is selected.
+  useEffect(() => {
+    if (redirectedRef.current) return;
+    if (params.id) return;
+    if (!runs || runs.length === 0) return;
+    const lastId = getLastRunGlobal();
+    if (lastId == null) return;
+    if (!runs.some((r) => r.id === lastId)) return;
+    redirectedRef.current = true;
+    nav(`/runs/${lastId}`, { replace: true });
+  }, [runs, params.id, nav]);
 
   if (error) return <ErrorState message={error} />;
   if (!runs) return <LoadingState label="Loading runs…" />;
