@@ -47,7 +47,7 @@ async function main() {
   const docker = new Docker();
 
   const orchestrator = new Orchestrator({
-    docker, config, projects, runs, secrets, settings, streams,
+    docker, config, projects, runs, secrets, settings, mcpServers, streams,
   });
 
   const app = Fastify({ logger: true });
