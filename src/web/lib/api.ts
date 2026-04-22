@@ -22,7 +22,7 @@ async function request<T>(url: string, init?: RequestInit): Promise<T> {
   return res.json() as Promise<T>;
 }
 
-type McpServerInput = {
+export type McpServerInput = {
   name: string;
   type: 'stdio' | 'sse';
   command?: string | null;
