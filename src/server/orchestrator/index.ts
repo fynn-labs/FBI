@@ -21,6 +21,7 @@ import { ImageGc } from './imageGc.js';
 import { parseResultJson } from './result.js';
 import { SshAgentForwarding, type GitAuth } from './gitAuth.js';
 import { classify, type RateLimitStateInput } from './resumeDetector.js';
+import type { RateLimitSnapshot } from '../../shared/types.js';
 import { ResumeScheduler } from './resumeScheduler.js';
 import { scanSessionId, runMountDir, runStateDir } from './sessionId.js';
 import { TitleWatcher } from './titleWatcher.js';
@@ -28,6 +29,7 @@ import type { RateLimitStateRepo } from '../db/rateLimitState.js';
 import type { UsageRepo } from '../db/usage.js';
 import { UsageTailer } from './usageTailer.js';
 import { LimitMonitor } from './limitMonitor.js';
+import { WaitingMonitor } from './waitingMonitor.js';
 import { nudgeClaudeToExit } from './nudgeClaude.js';
 import { checkContinueEligibility } from './continueEligibility.js';
 
@@ -53,6 +55,7 @@ export interface OrchestratorDeps {
   streams: RunStreamRegistry;
   rateLimitState: RateLimitStateRepo;
   usage: UsageRepo;
+  poller: { nudge: () => Promise<void> };
 }
 
 export class Orchestrator {
@@ -123,12 +126,18 @@ export class Orchestrator {
   private publishState(runId: number): void {
     const run = this.deps.runs.get(runId);
     if (!run) return;
-    this.deps.streams.getOrCreateState(runId).publish({
-      type: 'state',
+    const frame = {
+      type: 'state' as const,
       state: run.state,
       next_resume_at: run.next_resume_at,
       resume_attempts: run.resume_attempts,
       last_limit_reset_at: run.last_limit_reset_at,
+    };
+    this.deps.streams.getOrCreateState(runId).publish(frame);
+    this.deps.streams.getGlobalStates().publish({
+      ...frame,
+      run_id: runId,
+      project_id: run.project_id,
     });
   }
 
@@ -255,6 +264,7 @@ export class Orchestrator {
     let tailer: UsageTailer | null = null;
     let titleWatcher: TitleWatcher | null = null;
     let limitMonitor: LimitMonitor | null = null;
+    let waitingMonitor: WaitingMonitor | null = null;
 
     try {
       const { container, projectSecrets } = await this.createContainerForRun(
@@ -282,9 +292,15 @@ export class Orchestrator {
         stream: true, stdin: true, stdout: true, stderr: true, hijack: true,
       });
       limitMonitor = this.makeLimitMonitor(runId, container, attach, onBytes);
-      attach.on('data', (c: Buffer) => { limitMonitor!.feedLog(c); onBytes(c); });
+      waitingMonitor = this.makeWaitingMonitor(runId, onBytes);
+      attach.on('data', (c: Buffer) => {
+        limitMonitor!.feedLog(c);
+        waitingMonitor!.feedLog(c);
+        onBytes(c);
+      });
       await container.start();
       limitMonitor.start();
+      waitingMonitor.start();
       this.active.set(runId, { container, attachStream: attach });
       this.deps.runs.markStarted(runId, container.id);
       this.publishState(runId);
@@ -298,9 +314,11 @@ export class Orchestrator {
           events.publish({ type: 'usage', snapshot });
         },
         onRateLimit: (snapshot) => {
-          this.deps.usage.upsertRateLimitState({ observed_at: Date.now(), observed_from_run_id: runId, snapshot });
-          const state = this.deps.usage.getRateLimitState(Date.now());
-          events.publish({ type: 'rate_limit', snapshot: state });
+          this.lastRateLimit.set(runId, snapshot);
+          if (snapshot.reset_at != null) {
+            this.deps.runs.updateLastLimitResetAt(runId, snapshot.reset_at);
+          }
+          // No global rate_limit_state write; poller owns that.
         },
         onError: () => { this.deps.usage.bumpParseErrors(runId); },
       });
@@ -312,6 +330,7 @@ export class Orchestrator {
         onError: () => { /* swallow — best effort */ },
       });
       titleWatcher.start();
+      void this.deps.poller.nudge();
 
       await this.awaitAndComplete(runId, container, onBytes, store, broadcaster);
     } catch (err) {
@@ -327,6 +346,7 @@ export class Orchestrator {
       if (tailer) await tailer.stop();
       if (titleWatcher) await titleWatcher.stop();
       if (limitMonitor) limitMonitor.stop();
+      if (waitingMonitor) waitingMonitor.stop();
     }
   }
 
@@ -337,107 +357,112 @@ export class Orchestrator {
     store: LogStore,
     broadcaster: ReturnType<RunStreamRegistry['getOrCreate']>,
   ): Promise<void> {
-    const waitRes = await container.wait();
-    const inspect = await container.inspect().catch(() => null);
-    const oomKilled = Boolean(inspect?.State?.OOMKilled);
-    const wasCancelled = this.cancelled.delete(runId);
-    const resultText = await readFileFromContainer(container, '/tmp/result.json').catch(() => '');
-    const parsed = parseResultJson(resultText);
+    try {
+      const waitRes = await container.wait();
+      const inspect = await container.inspect().catch(() => null);
+      const oomKilled = Boolean(inspect?.State?.OOMKilled);
+      const wasCancelled = this.cancelled.delete(runId);
+      const resultText = await readFileFromContainer(container, '/tmp/result.json').catch(() => '');
+      const parsed = parseResultJson(resultText);
 
-    // Capture Claude session id from the mount (idempotent on repeat runs).
-    const sessionId = scanSessionId(this.mountDirFor(runId));
-    if (sessionId) this.deps.runs.setClaudeSessionId(runId, sessionId);
+      // Capture Claude session id from the mount (idempotent on repeat runs).
+      const sessionId = scanSessionId(this.mountDirFor(runId));
+      if (sessionId) this.deps.runs.setClaudeSessionId(runId, sessionId);
 
-    const failedNormally =
-      !(waitRes.StatusCode === 0 && parsed && parsed.push_exit === 0);
-    const settings = this.deps.settings.get();
+      const failedNormally =
+        !(waitRes.StatusCode === 0 && parsed && parsed.push_exit === 0);
+      const settings = this.deps.settings.get();
 
-    if (failedNormally && !wasCancelled && settings.auto_resume_enabled) {
-      const logTail = Buffer.from(LogStore.readAll(this.deps.runs.get(runId)!.log_path)).toString('utf8');
-      const rls = this.deps.rateLimitState.get();
-      const rlsInput: RateLimitStateInput | null = rls ? {
-        requests_remaining: rls.requests_remaining,
-        requests_limit: rls.requests_limit,
-        tokens_remaining: rls.tokens_remaining,
-        tokens_limit: rls.tokens_limit,
-        reset_at: rls.reset_at,
-      } : null;
-      const verdict = classify(logTail, rlsInput, Date.now());
+      if (failedNormally && !wasCancelled && settings.auto_resume_enabled) {
+        const logTail = Buffer.from(LogStore.readAll(this.deps.runs.get(runId)!.log_path)).toString('utf8');
+        const snap = this.lastRateLimit.get(runId) ?? null;
+        const rlsInput: RateLimitStateInput | null = snap ? {
+          requests_remaining: snap.requests_remaining,
+          requests_limit: snap.requests_limit,
+          tokens_remaining: snap.tokens_remaining,
+          tokens_limit: snap.tokens_limit,
+          reset_at: snap.reset_at,
+        } : null;
+        const verdict = classify(logTail, rlsInput, Date.now());
 
-      if (verdict.kind === 'rate_limit' && verdict.reset_at !== null) {
-        const run = this.deps.runs.get(runId)!;
-        if (run.resume_attempts + 1 > settings.auto_resume_max_attempts) {
-          onBytes(Buffer.from(
-            `\n[fbi] rate limited; exceeded auto-resume cap (${settings.auto_resume_max_attempts} attempts)\n`,
-          ));
-          this.deps.runs.markFinished(runId, {
-            state: 'failed',
-            error: `rate limited; exceeded auto-resume cap (${settings.auto_resume_max_attempts} attempts)`,
-          });
-          if (parsed?.title) {
-            this.publishTitleUpdate(runId, parsed.title);
+        if (verdict.kind === 'rate_limit' && verdict.reset_at !== null) {
+          const run = this.deps.runs.get(runId)!;
+          if (run.resume_attempts + 1 > settings.auto_resume_max_attempts) {
+            onBytes(Buffer.from(
+              `\n[fbi] rate limited; exceeded auto-resume cap (${settings.auto_resume_max_attempts} attempts)\n`,
+            ));
+            this.deps.runs.markFinished(runId, {
+              state: 'failed',
+              error: `rate limited; exceeded auto-resume cap (${settings.auto_resume_max_attempts} attempts)`,
+            });
+            if (parsed?.title) {
+              this.publishTitleUpdate(runId, parsed.title);
+            }
+            this.publishState(runId);
+          } else {
+            this.deps.runs.markAwaitingResume(runId, {
+              next_resume_at: verdict.reset_at,
+              last_limit_reset_at: verdict.reset_at,
+            });
+            onBytes(Buffer.from(
+              `\n[fbi] awaiting resume until ${new Date(verdict.reset_at).toISOString()}\n`,
+            ));
+            this.publishState(runId);
+            this.scheduler.schedule(runId, verdict.reset_at);
+            await container.remove({ force: true, v: true }).catch(() => {});
+            this.active.delete(runId);
+            // Close and re-open on resume — resume() opens in append mode.
+            store.close(); broadcaster.end();
+            return;
           }
-          this.publishState(runId);
-        } else {
-          this.deps.runs.markAwaitingResume(runId, {
-            next_resume_at: verdict.reset_at,
-            last_limit_reset_at: verdict.reset_at,
-          });
-          onBytes(Buffer.from(
-            `\n[fbi] awaiting resume until ${new Date(verdict.reset_at).toISOString()}\n`,
-          ));
-          this.publishState(runId);
-          this.scheduler.schedule(runId, verdict.reset_at);
           await container.remove({ force: true, v: true }).catch(() => {});
           this.active.delete(runId);
-          // Close and re-open on resume — resume() opens in append mode.
           store.close(); broadcaster.end();
+          this.deps.streams.release(runId);
           return;
         }
-        await container.remove({ force: true, v: true }).catch(() => {});
-        this.active.delete(runId);
-        store.close(); broadcaster.end();
-        this.deps.streams.release(runId);
-        return;
+        if (verdict.kind === 'rate_limit') {
+          onBytes(Buffer.from(`\n[fbi] rate limited but no reset time available; failing\n`));
+        }
       }
-      if (verdict.kind === 'rate_limit') {
-        onBytes(Buffer.from(`\n[fbi] rate limited but no reset time available; failing\n`));
-      }
-    }
 
-    // Normal terminal path.
-    const state: 'succeeded' | 'failed' | 'cancelled' = wasCancelled
-      ? 'cancelled'
-      : waitRes.StatusCode === 0 && parsed && parsed.push_exit === 0
-        ? 'succeeded'
-        : 'failed';
-    const branchFromResult =
-      parsed?.branch && parsed.branch.length > 0 ? parsed.branch : null;
-    const memMb = this.deps.projects.get(this.deps.runs.get(runId)!.project_id)?.mem_mb ?? this.deps.config.containerMemMb;
-    this.deps.runs.markFinished(runId, {
-      state,
-      exit_code: parsed?.exit_code ?? waitRes.StatusCode,
-      head_commit: parsed?.head_sha ?? null,
-      branch_name: branchFromResult,
-      error: state === 'failed'
-        ? oomKilled
-          ? `container OOM (memory cap ${memMb} MB)`
-          : parsed
-            ? parsed.push_exit !== 0
-              ? `git push failed (code ${parsed.push_exit})`
-              : `agent exit ${parsed.exit_code}`
-            : `container exit ${waitRes.StatusCode}`
-        : null,
-    });
-    if (parsed?.title) {
-      this.publishTitleUpdate(runId, parsed.title);
+      // Normal terminal path.
+      const state: 'succeeded' | 'failed' | 'cancelled' = wasCancelled
+        ? 'cancelled'
+        : waitRes.StatusCode === 0 && parsed && parsed.push_exit === 0
+          ? 'succeeded'
+          : 'failed';
+      const branchFromResult =
+        parsed?.branch && parsed.branch.length > 0 ? parsed.branch : null;
+      const memMb = this.deps.projects.get(this.deps.runs.get(runId)!.project_id)?.mem_mb ?? this.deps.config.containerMemMb;
+      this.deps.runs.markFinished(runId, {
+        state,
+        exit_code: parsed?.exit_code ?? waitRes.StatusCode,
+        head_commit: parsed?.head_sha ?? null,
+        branch_name: branchFromResult,
+        error: state === 'failed'
+          ? oomKilled
+            ? `container OOM (memory cap ${memMb} MB)`
+            : parsed
+              ? parsed.push_exit !== 0
+                ? `git push failed (code ${parsed.push_exit})`
+                : `agent exit ${parsed.exit_code}`
+              : `container exit ${waitRes.StatusCode}`
+          : null,
+      });
+      if (parsed?.title) {
+        this.publishTitleUpdate(runId, parsed.title);
+      }
+      onBytes(Buffer.from(`\n[fbi] run ${state}\n`));
+      this.publishState(runId);
+      await container.remove({ force: true, v: true }).catch(() => {});
+      this.active.delete(runId);
+      store.close(); broadcaster.end();
+      this.deps.streams.release(runId);
+    } finally {
+      this.lastRateLimit.delete(runId);
+      void this.deps.poller.nudge();
     }
-    onBytes(Buffer.from(`\n[fbi] run ${state}\n`));
-    this.publishState(runId);
-    await container.remove({ force: true, v: true }).catch(() => {});
-    this.active.delete(runId);
-    store.close(); broadcaster.end();
-    this.deps.streams.release(runId);
   }
 
   async resume(runId: number): Promise<void> {
@@ -505,9 +530,11 @@ export class Orchestrator {
         stream: true, stdin: true, stdout: true, stderr: true, hijack: true,
       });
       const limitMonitor = this.makeLimitMonitor(runId, container, attach, onBytes);
-      attach.on('data', (c: Buffer) => { limitMonitor.feedLog(c); onBytes(c); });
+      const waitingMonitor = this.makeWaitingMonitor(runId, onBytes);
+      attach.on('data', (c: Buffer) => { limitMonitor.feedLog(c); waitingMonitor.feedLog(c); onBytes(c); });
       await container.start();
       limitMonitor.start();
+      waitingMonitor.start();
       this.active.set(runId, { container, attachStream: attach });
       this.deps.runs.markResuming(runId, container.id);
       this.publishState(runId);
@@ -525,6 +552,7 @@ export class Orchestrator {
       } finally {
         await titleWatcher.stop();
         limitMonitor.stop();
+        waitingMonitor.stop();
       }
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
@@ -571,9 +599,11 @@ export class Orchestrator {
         stream: true, stdin: true, stdout: true, stderr: true, hijack: true,
       });
       const limitMonitor = this.makeLimitMonitor(runId, container, attach, onBytes);
-      attach.on('data', (c: Buffer) => { limitMonitor.feedLog(c); onBytes(c); });
+      const waitingMonitor = this.makeWaitingMonitor(runId, onBytes);
+      attach.on('data', (c: Buffer) => { limitMonitor.feedLog(c); waitingMonitor.feedLog(c); onBytes(c); });
       await container.start();
       limitMonitor.start();
+      waitingMonitor.start();
       this.active.set(runId, { container, attachStream: attach });
       this.deps.runs.markContinuing(runId, container.id);
       this.publishState(runId);
@@ -591,6 +621,7 @@ export class Orchestrator {
       } finally {
         await titleWatcher.stop();
         limitMonitor.stop();
+        waitingMonitor.stop();
       }
     } catch (err) {
       if (err instanceof ContinueNotEligibleError) throw err;
@@ -632,11 +663,31 @@ export class Orchestrator {
     });
   }
 
+  private makeWaitingMonitor(
+    runId: number,
+    onBytes: (chunk: Uint8Array) => void,
+  ): WaitingMonitor {
+    return new WaitingMonitor({
+      mountDir: this.mountDirFor(runId),
+      onEnter: () => {
+        this.deps.runs.markWaiting(runId);
+        this.publishState(runId);
+        onBytes(Buffer.from('\n[fbi] waiting for user input\n'));
+      },
+      onExit: () => {
+        this.deps.runs.markRunningFromWaiting(runId);
+        this.publishState(runId);
+        onBytes(Buffer.from('\n[fbi] user responded; resuming\n'));
+      },
+    });
+  }
+
   // Active run bookkeeping.
   private active = new Map<
     number,
     { container: Docker.Container; attachStream: NodeJS.ReadWriteStream }
   >();
+  private lastRateLimit = new Map<number, RateLimitSnapshot>();
 
   /** Forward stdin bytes from the UI to the container. */
   writeStdin(runId: number, bytes: Uint8Array): void {
@@ -694,8 +745,11 @@ export class Orchestrator {
    * the container is gone, mark the run failed.
    */
   async recover(): Promise<void> {
-    const running = this.deps.runs.listByState('running');
-    for (const run of running) {
+    const live = [
+      ...this.deps.runs.listByState('running'),
+      ...this.deps.runs.listByState('waiting'),
+    ];
+    for (const run of live) {
       if (!run.container_id) {
         this.deps.runs.markFinished(run.id, {
           state: 'failed',
@@ -754,6 +808,7 @@ export class Orchestrator {
     // same LimitMonitor used by fresh launches so a pre-existing container
     // stuck on the in-TUI rate-limit message also gets nudged out.
     const limitMonitor = this.makeLimitMonitor(runId, container, attachStream, onBytes);
+    const waitingMonitor = this.makeWaitingMonitor(runId, onBytes);
     const sinceSec = Math.floor((run.started_at ?? Date.now()) / 1000);
     const logsStream = (await container.logs({
       follow: true,
@@ -761,8 +816,9 @@ export class Orchestrator {
       stderr: true,
       since: sinceSec,
     })) as unknown as NodeJS.ReadableStream;
-    logsStream.on('data', (c: Buffer) => { limitMonitor.feedLog(c); onBytes(c); });
+    logsStream.on('data', (c: Buffer) => { limitMonitor.feedLog(c); waitingMonitor.feedLog(c); onBytes(c); });
     limitMonitor.start();
+    waitingMonitor.start();
     const events = this.deps.streams.getOrCreateEvents(runId);
     const tailer = new UsageTailer({
       dir: claudeProjectsDir,
@@ -774,13 +830,11 @@ export class Orchestrator {
         events.publish({ type: 'usage', snapshot });
       },
       onRateLimit: (snapshot) => {
-        this.deps.usage.upsertRateLimitState({
-          observed_at: Date.now(),
-          observed_from_run_id: runId,
-          snapshot,
-        });
-        const state = this.deps.usage.getRateLimitState(Date.now());
-        events.publish({ type: 'rate_limit', snapshot: state });
+        this.lastRateLimit.set(runId, snapshot);
+        if (snapshot.reset_at != null) {
+          this.deps.runs.updateLastLimitResetAt(runId, snapshot.reset_at);
+        }
+        // No global rate_limit_state write; poller owns that.
       },
       onError: () => { this.deps.usage.bumpParseErrors(runId); },
     });
@@ -845,8 +899,10 @@ export class Orchestrator {
       await tailer.stop();
       await titleWatcher.stop();
       limitMonitor.stop();
+      waitingMonitor.stop();
       events.end();
       this.active.delete(runId);
+      this.lastRateLimit.delete(runId);
       store.close();
       broadcaster.end();
       this.deps.streams.release(runId);

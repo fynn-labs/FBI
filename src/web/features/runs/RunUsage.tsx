@@ -37,21 +37,30 @@ export function RunUsage({ run }: RunUsageProps) {
     });
   }, [run.id, run.tokens_input, run.tokens_output, run.tokens_cache_read, run.tokens_cache_create]);
 
-  const totalTokens = live
-    ? live.input + live.output + live.cache_read + live.cache_create
-    : run.tokens_total;
+  const billable = live
+    ? live.input + live.output
+    : run.tokens_input + run.tokens_output;
+  const cached = live
+    ? live.cache_read + live.cache_create
+    : run.tokens_cache_read + run.tokens_cache_create;
 
-  if (totalTokens === 0) return null;
+  if (billable === 0 && cached === 0) return null;
 
   return (
     <section className="mb-3">
       <h3 className="text-[12px] font-semibold uppercase tracking-[0.08em] text-text-faint pb-1 border-b border-border mb-1">Usage</h3>
       <div className="flex items-center gap-1 text-[13px] text-text-dim py-0.5">
-        <span className="text-text-faint">total</span>
-        <span className="ml-auto font-mono">{fmt(totalTokens)}</span>
+        <span className="text-text-faint">billable</span>
+        <span className="ml-auto font-mono">{fmt(billable)}</span>
       </div>
+      {cached > 0 && (
+        <div className="flex items-center gap-1 text-[12px] text-text-faint py-0.5">
+          <span>cached</span>
+          <span className="ml-auto font-mono">{fmt(cached)}</span>
+        </div>
+      )}
       {rows && rows.length > 0 && rows.map((r) => {
-        const sum = r.input + r.output + r.cache_read + r.cache_create;
+        const sum = r.input + r.output;
         return (
           <div key={r.model} className="flex items-center gap-1 text-[13px] text-text-dim py-0.5">
             <span className="text-text-faint truncate">{r.model}</span>

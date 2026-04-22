@@ -1,7 +1,7 @@
 import type { HTMLAttributes } from 'react';
 import { cn } from '../cn.js';
 
-export type DotTone = 'ok' | 'run' | 'fail' | 'warn';
+export type DotTone = 'ok' | 'run' | 'attn' | 'fail' | 'warn';
 
 export interface StatusDotProps extends HTMLAttributes<HTMLSpanElement> {
   tone: DotTone;
@@ -10,6 +10,7 @@ export interface StatusDotProps extends HTMLAttributes<HTMLSpanElement> {
 const DOT: Record<DotTone, string> = {
   ok: 'bg-ok',
   run: 'bg-run shadow-[0_0_6px_var(--run)] animate-pulse',
+  attn: 'bg-attn shadow-[0_0_6px_var(--attn)] animate-pulse',
   fail: 'bg-fail',
   warn: 'bg-warn',
 };

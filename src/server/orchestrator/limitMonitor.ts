@@ -1,6 +1,5 @@
-import fs from 'node:fs';
-import path from 'node:path';
 import { containsLimitSignal, stripAnsi } from './resumeDetector.js';
+import { sumJsonlSizes } from './mountActivity.js';
 
 export interface LimitMonitorOptions {
   /** Dir to watch for Claude Code's session JSONL writes (activity signal). */
@@ -105,19 +104,4 @@ export class LimitMonitor {
   private currentMountSize(): number {
     return sumJsonlSizes(this.opts.mountDir);
   }
-}
-
-function sumJsonlSizes(root: string): number {
-  let total = 0;
-  let entries: fs.Dirent[];
-  try { entries = fs.readdirSync(root, { withFileTypes: true }); }
-  catch { return 0; }
-  for (const e of entries) {
-    const full = path.join(root, e.name);
-    if (e.isDirectory()) { total += sumJsonlSizes(full); continue; }
-    if (e.isFile() && e.name.endsWith('.jsonl')) {
-      try { total += fs.statSync(full).size; } catch { /* missing */ }
-    }
-  }
-  return total;
 }

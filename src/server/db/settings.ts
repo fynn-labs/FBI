@@ -14,6 +14,7 @@ interface SettingsRow {
   global_plugins_json: string;
   auto_resume_enabled: number;
   auto_resume_max_attempts: number;
+  usage_notifications_enabled: number;
   updated_at: number;
 }
 
@@ -42,6 +43,7 @@ export class SettingsRepo {
       global_plugins: JSON.parse(row.global_plugins_json || '[]') as string[],
       auto_resume_enabled: row.auto_resume_enabled === 1,
       auto_resume_max_attempts: row.auto_resume_max_attempts ?? 5,
+      usage_notifications_enabled: row.usage_notifications_enabled === 1,
       updated_at: row.updated_at,
     };
   }
@@ -55,6 +57,7 @@ export class SettingsRepo {
     global_plugins?: string[];
     auto_resume_enabled?: boolean;
     auto_resume_max_attempts?: number;
+    usage_notifications_enabled?: boolean;
   }): Settings {
     const existing = this.get();
     const merged = {
@@ -66,6 +69,7 @@ export class SettingsRepo {
       global_plugins: patch.global_plugins ?? existing.global_plugins,
       auto_resume_enabled: patch.auto_resume_enabled ?? existing.auto_resume_enabled,
       auto_resume_max_attempts: patch.auto_resume_max_attempts ?? existing.auto_resume_max_attempts,
+      usage_notifications_enabled: patch.usage_notifications_enabled ?? existing.usage_notifications_enabled,
     };
     const now = Date.now();
     this.db.prepare(
@@ -74,6 +78,7 @@ export class SettingsRepo {
         concurrency_warn_at = ?, image_gc_enabled = ?,
         global_marketplaces_json = ?, global_plugins_json = ?,
         auto_resume_enabled = ?, auto_resume_max_attempts = ?,
+        usage_notifications_enabled = ?,
         updated_at = ?
        WHERE id = 1`
     ).run(
@@ -85,6 +90,7 @@ export class SettingsRepo {
       JSON.stringify(merged.global_plugins),
       merged.auto_resume_enabled ? 1 : 0,
       merged.auto_resume_max_attempts,
+      merged.usage_notifications_enabled ? 1 : 0,
       now,
     );
     return this.get();

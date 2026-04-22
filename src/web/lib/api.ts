@@ -1,4 +1,4 @@
-import type { DailyUsage, McpServer, Project, RateLimitState, Run, RunUsageBreakdownRow, SecretName, Settings } from '@shared/types.js';
+import type { DailyUsage, McpServer, Project, Run, RunUsageBreakdownRow, SecretName, Settings, UsageState } from '@shared/types.js';
 
 async function request<T>(url: string, init?: RequestInit): Promise<T> {
   let res: Response;
@@ -50,10 +50,10 @@ export const api = {
   removeSecret: (projectId: number, name: string) =>
     request<void>(`/api/projects/${projectId}/secrets/${name}`, { method: 'DELETE' }),
 
-  listRuns: (state?: 'queued' | 'running' | 'awaiting_resume' | 'succeeded' | 'failed' | 'cancelled') =>
+  listRuns: (state?: 'queued' | 'running' | 'waiting' | 'awaiting_resume' | 'succeeded' | 'failed' | 'cancelled') =>
     request<Run[]>(state ? `/api/runs?state=${state}` : '/api/runs'),
   listRunsPaged: (params: {
-    state?: 'queued' | 'running' | 'awaiting_resume' | 'succeeded' | 'failed' | 'cancelled';
+    state?: 'queued' | 'running' | 'waiting' | 'awaiting_resume' | 'succeeded' | 'failed' | 'cancelled';
     project_id?: number;
     q?: string;
     limit: number;
@@ -101,6 +101,7 @@ export const api = {
     global_plugins?: string[];
     auto_resume_enabled?: boolean;
     auto_resume_max_attempts?: number;
+    usage_notifications_enabled?: boolean;
   }) => request<Settings>('/api/settings', { method: 'PATCH', body: JSON.stringify(patch) }),
   runGc: () => request<{ deletedCount: number; deletedBytes: number }>(
     '/api/settings/run-gc', { method: 'POST', body: JSON.stringify({}) }),
@@ -126,8 +127,9 @@ export const api = {
 
   getRunSiblings: (id: number) => request<Run[]>(`/api/runs/${id}/siblings`),
 
-  getRateLimit: () => request<RateLimitState>('/api/usage/rate-limit'),
+  getUsage: () => request<UsageState>('/api/usage'),
   getDailyUsage: (days = 14) => request<DailyUsage[]>(`/api/usage/daily?days=${days}`),
+  listDailyUsage: (days = 14) => request<DailyUsage[]>(`/api/usage/daily?days=${days}`), // alias kept for UsagePage
   getRunUsageBreakdown: (runId: number) => request<RunUsageBreakdownRow[]>(`/api/usage/runs/${runId}`),
 
   // Global MCP servers

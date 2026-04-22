@@ -42,11 +42,13 @@ export function DesignPage() {
         <div className="flex items-center gap-2 flex-wrap">
           <Pill tone="ok">succeeded</Pill>
           <Pill tone="run">running</Pill>
+          <Pill tone="attn">waiting</Pill>
           <Pill tone="fail">failed</Pill>
           <Pill tone="warn">cancelled</Pill>
           <Pill tone="wait">queued</Pill>
           <StatusDot tone="ok" aria-label="ok" />
           <StatusDot tone="run" aria-label="run" />
+          <StatusDot tone="attn" aria-label="attn" />
           <Tag>main</Tag>
           <CodeBlock>feat/recent-prompts</CodeBlock>
           <Kbd>⌘</Kbd><Kbd>K</Kbd>

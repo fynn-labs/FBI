@@ -66,6 +66,7 @@ function setup() {
     dir, runs, p,
     makeOrchestrator: (docker: Docker) => new Orchestrator({
       docker, config, projects, runs, secrets, settings, mcpServers, streams, rateLimitState, usage,
+      poller: { nudge: async () => {} },
     }),
   };
 }

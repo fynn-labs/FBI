@@ -12,6 +12,7 @@ function fmt(n: number): string {
 const TONE: Record<Run['state'], PillTone> = {
   queued: 'wait',
   running: 'run',
+  waiting: 'attn',
   awaiting_resume: 'warn',
   succeeded: 'ok',
   failed: 'fail',
@@ -36,8 +37,8 @@ export function RunRow({ run, to }: RunRowProps) {
     >
       <span className="font-mono text-[13px] w-8 text-text-faint">#{run.id}</span>
       <span className="flex-1 min-w-0 truncate">{label}</span>
-      {run.tokens_total > 0 && (
-        <span className="font-mono text-[12px] text-text-faint">{fmt(run.tokens_total)}</span>
+      {run.tokens_input + run.tokens_output > 0 && (
+        <span className="font-mono text-[12px] text-text-faint">{fmt(run.tokens_input + run.tokens_output)}</span>
       )}
       <Pill tone={TONE[run.state]}>{run.state}</Pill>
       <TimestampRelative iso={new Date(run.created_at).toISOString()} />

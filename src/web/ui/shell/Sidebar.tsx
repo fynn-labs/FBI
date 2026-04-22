@@ -3,12 +3,14 @@ import { NavLink } from 'react-router-dom';
 import { cn } from '../cn.js';
 import { StatusDot } from '../primitives/StatusDot.js';
 import { sidebarRegistry, type SidebarView } from './sidebarRegistry.js';
+import { SidebarUsage } from '../../features/usage/SidebarUsage.js';
 
 export interface SidebarProject {
   id: number;
   name: string;
   runs: number;
   hasRunning: boolean;
+  hasWaiting: boolean;
 }
 
 export interface SidebarProps {
@@ -45,7 +47,9 @@ export function Sidebar({ projects, collapsed }: SidebarProps) {
             </span>
           ) : (
             <>
-              {p.hasRunning && <StatusDot tone="run" aria-label="running" />}
+              {p.hasWaiting ? <StatusDot tone="attn" aria-label="waiting for input" />
+               : p.hasRunning ? <StatusDot tone="run" aria-label="running" />
+               : null}
               <span className="truncate">{p.name}</span>
               <span className="ml-auto font-mono text-[12px] text-text-faint">{p.runs}</span>
             </>
@@ -73,6 +77,9 @@ export function Sidebar({ projects, collapsed }: SidebarProps) {
           )}
         </NavLink>
       ))}
+      <div className="mt-auto">
+        <SidebarUsage collapsed={collapsed} />
+      </div>
     </div>
   );
 }

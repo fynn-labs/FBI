@@ -1,6 +1,7 @@
 let unread = 0;
 const origTitle = typeof document !== 'undefined' ? document.title : 'FBI';
 let faviconLink: HTMLLinkElement | null = null;
+const waitingRuns = new Set<number>();     // runs currently waiting with hidden tab
 
 function getFaviconLink(): HTMLLinkElement | null {
   if (faviconLink) return faviconLink;
@@ -24,11 +25,12 @@ function drawFaviconWithDot(color: string): string {
 
 export async function ensurePermission(): Promise<NotificationPermission> {
   if (typeof Notification === 'undefined') return 'denied';
-  if (Notification.permission === 'default') {
-    return Notification.requestPermission();
-  }
+  if (Notification.permission === 'default') return Notification.requestPermission();
   return Notification.permission;
 }
+
+// Attention token's dark-palette hex, used to tint the favicon dot.
+const ATTN_COLOR = '#fbbf24';
 
 export async function notifyComplete(run: {
   id: number;
@@ -58,11 +60,46 @@ export async function notifyComplete(run: {
   if (link) link.href = drawFaviconWithDot(color);
 }
 
+export async function notifyWaiting(run: {
+  id: number;
+  project_name?: string;
+}): Promise<void> {
+  const perm = await ensurePermission();
+  if (perm === 'granted') {
+    new Notification(`⧖ Run #${run.id}`, {
+      body: run.project_name
+        ? `Waiting for input · ${run.project_name}`
+        : 'Waiting for input',
+      tag: `fbi-run-${run.id}-waiting`,
+    });
+  }
+
+  if (typeof document !== 'undefined' && document.visibilityState !== 'visible') {
+    if (!waitingRuns.has(run.id)) {
+      waitingRuns.add(run.id);
+      unread += 1;
+      document.title = `(${unread}) ${origTitle}`;
+    }
+  }
+
+  const link = getFaviconLink();
+  if (link) link.href = drawFaviconWithDot(ATTN_COLOR);
+}
+
+export function clearWaitingBadge(runId: number): void {
+  if (!waitingRuns.delete(runId)) return;
+  unread = Math.max(0, unread - 1);
+  if (typeof document !== 'undefined') {
+    document.title = unread > 0 ? `(${unread}) ${origTitle}` : origTitle;
+  }
+}
+
 export function installFocusReset(): () => void {
   if (typeof document === 'undefined') return () => {};
   const handler = () => {
     if (document.visibilityState === 'visible') {
       unread = 0;
+      waitingRuns.clear();
       document.title = origTitle;
       const link = getFaviconLink();
       if (link) link.href = '/favicon.ico';

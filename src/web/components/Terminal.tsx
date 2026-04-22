@@ -3,8 +3,8 @@ import { Terminal as Xterm } from '@xterm/xterm';
 import { FitAddon } from '@xterm/addon-fit';
 import '@xterm/xterm/css/xterm.css';
 import { acquireShell, releaseShell, getBuffer } from '../lib/shellRegistry.js';
-import { publishUsage, publishRateLimit, publishState, publishTitle } from '../features/runs/usageBus.js';
-import type { UsageSnapshot, RateLimitState, RunWsStateMessage, RunWsTitleMessage } from '@shared/types.js';
+import { publishUsage, publishState, publishTitle } from '../features/runs/usageBus.js';
+import type { UsageSnapshot, RunWsStateMessage, RunWsTitleMessage } from '@shared/types.js';
 
 interface Props {
   runId: number;
@@ -212,7 +212,6 @@ export function Terminal({ runId, interactive }: Props) {
 
     const unsubEv = shell.onTypedEvent<{ type: string; snapshot?: unknown }>((msg) => {
       if (msg.type === 'usage') publishUsage(runId, msg.snapshot as UsageSnapshot);
-      else if (msg.type === 'rate_limit') publishRateLimit(runId, msg.snapshot as RateLimitState);
       else if (msg.type === 'state') publishState(runId, msg as unknown as RunWsStateMessage);
       else if (msg.type === 'title') publishTitle(runId, msg as unknown as RunWsTitleMessage);
     });

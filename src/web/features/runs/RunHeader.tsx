@@ -7,7 +7,7 @@ import type { Run } from '@shared/types.js';
 import { api } from '../../lib/api.js';
 
 const TONE: Record<Run['state'], PillTone> = {
-  queued: 'wait', running: 'run', awaiting_resume: 'warn',
+  queued: 'wait', running: 'run', waiting: 'attn', awaiting_resume: 'warn',
   succeeded: 'ok', failed: 'fail', cancelled: 'warn',
 };
 
@@ -26,7 +26,7 @@ export function RunHeader({ run, onCancel, onDelete, onContinue, onRenamed }: Ru
 
   const display = run.title || run.branch_name || run.prompt.split('\n')[0] || 'untitled';
   const canFollowUp =
-    run.state !== 'running' && run.state !== 'queued' && run.state !== 'awaiting_resume' && !!run.branch_name;
+    run.state !== 'running' && run.state !== 'waiting' && run.state !== 'queued' && run.state !== 'awaiting_resume' && !!run.branch_name;
   const canContinue = run.state === 'failed' || run.state === 'cancelled' || run.state === 'succeeded';
   const continueDisabled = !run.claude_session_id;
 
@@ -107,14 +107,14 @@ export function RunHeader({ run, onCancel, onDelete, onContinue, onRenamed }: Ru
             Follow up
           </Button>
         )}
-        {(run.state === 'running' || run.state === 'awaiting_resume') && (
+        {(run.state === 'running' || run.state === 'waiting' || run.state === 'awaiting_resume') && (
           <Button variant="danger" size="sm" onClick={onCancel}>Cancel</Button>
         )}
         <Menu
           trigger={<Button variant="ghost" size="sm">More ▾</Button>}
           items={[
             { id: 'delete', label: 'Delete run', danger: true, onSelect: onDelete,
-              disabled: run.state === 'running' || run.state === 'awaiting_resume' },
+              disabled: run.state === 'running' || run.state === 'waiting' || run.state === 'awaiting_resume' },
           ]}
         />
       </div>
