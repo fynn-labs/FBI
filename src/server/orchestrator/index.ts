@@ -730,6 +730,13 @@ export class Orchestrator {
       ).catch(() => '');
       const parsed = parseResultJson(resultText);
 
+      // Capture Claude's session id from the mount dir — same post-mortem
+      // scan that launch()'s awaitAndComplete runs. Without this, any run
+      // that outlived an orchestrator restart loses its session id and
+      // cannot be continued later.
+      const sessionId = scanSessionId(this.mountDirFor(runId));
+      if (sessionId) this.deps.runs.setClaudeSessionId(runId, sessionId);
+
       const state: 'succeeded' | 'failed' | 'cancelled' = wasCancelled
         ? 'cancelled'
         : waitRes.StatusCode === 0 && parsed && parsed.push_exit === 0
