@@ -16,6 +16,9 @@ export interface Project {
   git_author_email: string | null;
   marketplaces: string[];
   plugins: string[];
+  mem_mb: number | null;
+  cpus: number | null;
+  pids_limit: number | null;
   created_at: number;
   updated_at: number;
 }
