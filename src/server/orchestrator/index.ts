@@ -76,6 +76,9 @@ export class Orchestrator {
       ]);
 
       onBytes(Buffer.from(`[fbi] starting container\n`));
+      const memMb = project.mem_mb ?? this.deps.config.containerMemMb;
+      const cpus = project.cpus ?? this.deps.config.containerCpus;
+      const pids = project.pids_limit ?? this.deps.config.containerPids;
       const container = await this.deps.docker.createContainer({
         Image: imageTag,
         name: `fbi-run-${runId}`,
@@ -98,6 +101,9 @@ export class Orchestrator {
         Entrypoint: ['/usr/local/bin/supervisor.sh'],
         HostConfig: {
           AutoRemove: false,
+          Memory: memMb * 1024 * 1024,
+          NanoCpus: Math.round(cpus * 1e9),
+          PidsLimit: pids,
           Binds: [
             `${SUPERVISOR}:/usr/local/bin/supervisor.sh:ro`,
             // Just the auth files — not the whole ~/.claude dir — so each
@@ -142,6 +148,8 @@ export class Orchestrator {
 
       // Wait for exit.
       const waitRes = await container.wait();
+      const inspect = await container.inspect().catch(() => null);
+      const oomKilled = Boolean(inspect?.State?.OOMKilled);
       const wasCancelled = this.cancelled.delete(runId);
       const resultText = await readFileFromContainer(
         container,
@@ -161,11 +169,13 @@ export class Orchestrator {
         head_commit: parsed?.head_sha ?? null,
         error:
           state === 'failed'
-            ? parsed
-              ? parsed.push_exit !== 0
-                ? `git push failed (code ${parsed.push_exit})`
-                : `agent exit ${parsed.exit_code}`
-              : `container exit ${waitRes.StatusCode}`
+            ? oomKilled
+              ? `container OOM (memory cap ${memMb} MB)`
+              : parsed
+                ? parsed.push_exit !== 0
+                  ? `git push failed (code ${parsed.push_exit})`
+                  : `agent exit ${parsed.exit_code}`
+                : `container exit ${waitRes.StatusCode}`
             : null,
       });
       onBytes(Buffer.from(`\n[fbi] run ${state}\n`));
@@ -253,6 +263,9 @@ export class Orchestrator {
   private async reattach(runId: number, container: Docker.Container): Promise<void> {
     const run = this.deps.runs.get(runId);
     if (!run) return;
+    const project = this.deps.projects.get(run.project_id);
+    const memMb =
+      project?.mem_mb ?? this.deps.config.containerMemMb;
     const store = new LogStore(run.log_path);
     const broadcaster = this.deps.streams.getOrCreate(runId);
     const onBytes = (chunk: Uint8Array) => {
@@ -283,6 +296,8 @@ export class Orchestrator {
     this.active.set(runId, { container, attachStream });
 
     const waitRes = await container.wait();
+    const inspect = await container.inspect().catch(() => null);
+    const oomKilled = Boolean(inspect?.State?.OOMKilled);
     const wasCancelled = this.cancelled.delete(runId);
     const resultText = await readFileFromContainer(
       container,
@@ -301,13 +316,15 @@ export class Orchestrator {
       exit_code: parsed?.exit_code ?? waitRes.StatusCode,
       head_commit: parsed?.head_sha ?? null,
       error:
-        state === 'failed' && parsed
-          ? parsed.push_exit !== 0
-            ? `git push failed (code ${parsed.push_exit})`
-            : `agent exit ${parsed.exit_code}`
-          : state === 'failed'
-            ? `container exit ${waitRes.StatusCode}`
-            : null,
+        state === 'failed'
+          ? oomKilled
+            ? `container OOM (memory cap ${memMb} MB)`
+            : parsed
+              ? parsed.push_exit !== 0
+                ? `git push failed (code ${parsed.push_exit})`
+                : `agent exit ${parsed.exit_code}`
+              : `container exit ${waitRes.StatusCode}`
+          : null,
     });
 
     await container.remove({ force: true, v: true }).catch(() => {});
