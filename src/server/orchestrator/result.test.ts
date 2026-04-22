@@ -13,4 +13,17 @@ describe('parseResultJson', () => {
   it('returns null for missing fields', () => {
     expect(parseResultJson('{"exit_code":0}')).toBeNull();
   });
+  it('parses optional branch field', () => {
+    const r = parseResultJson(
+      '{"exit_code":0,"push_exit":0,"head_sha":"abc","branch":"fix-login"}'
+    );
+    expect(r?.branch).toBe('fix-login');
+  });
+  it('accepts absence of branch field', () => {
+    const r = parseResultJson(
+      '{"exit_code":0,"push_exit":0,"head_sha":"abc"}'
+    );
+    expect(r).not.toBeNull();
+    expect(r?.branch).toBeUndefined();
+  });
 });
