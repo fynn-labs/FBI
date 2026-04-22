@@ -4,14 +4,15 @@ import userEvent from '@testing-library/user-event';
 import { JsonEditor } from './JsonEditor.js';
 
 vi.mock('@uiw/react-codemirror', () => ({
-  default: ({ value, onChange }: { value: string; onChange?: (v: string) => void }) => (
+  default: ({ value, onChange, theme }: { value: string; onChange?: (v: string) => void; theme?: unknown }) => (
     <textarea
       data-testid="codemirror"
+      data-theme={theme ? 'dark' : 'light'}
       value={value}
       onChange={(e) => onChange?.(e.target.value)}
     />
   ),
-  oneDark: {},
+  oneDark: { name: 'oneDark' },
 }));
 
 vi.mock('@codemirror/lang-json', () => ({
@@ -58,21 +59,17 @@ describe('JsonEditor', () => {
     expect(screen.getByText(/✓ valid json/i)).toBeInTheDocument();
   });
 
-  it('updates isDark state when dark class is toggled via MutationObserver', async () => {
+  it('switches to dark theme via MutationObserver when dark class is added', async () => {
     render(<JsonEditor label="JSON" value="" onChange={() => {}} />);
-    await act(async () => {
+    expect(screen.getByTestId('codemirror')).toHaveAttribute('data-theme', 'light');
+    act(() => {
       document.documentElement.classList.add('dark');
-      // Allow MutationObserver callback to fire
-      await new Promise(resolve => setTimeout(resolve, 0));
     });
     await waitFor(() => {
-      // component still renders correctly after toggle
-      expect(screen.getByText('JSON')).toBeInTheDocument();
+      expect(screen.getByTestId('codemirror')).toHaveAttribute('data-theme', 'dark');
     });
-    await act(async () => {
+    act(() => {
       document.documentElement.classList.remove('dark');
-      // Allow MutationObserver callback to fire
-      await new Promise(resolve => setTimeout(resolve, 0));
     });
   });
 });
