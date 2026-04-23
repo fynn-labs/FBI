@@ -243,10 +243,14 @@ export class Orchestrator {
           `${this.ensureStateDir(runId)}:/fbi-state/`,
           `${this.ensureUploadsDir(runId)}:/fbi/uploads:ro`,
           ...claudeAuthMounts(this.deps.config.hostClaudeDir),
+          ...dockerSocketMounts(this.deps.config.hostDockerSocket),
           ...auth.mounts().map((m) =>
             `${m.source}:${m.target}${m.readOnly ? ':ro' : ''}`
           ),
         ],
+        ...(this.deps.config.hostDockerGid !== null
+          ? { GroupAdd: [String(this.deps.config.hostDockerGid)] }
+          : {}),
       },
     });
 
@@ -973,6 +977,16 @@ function claudeAuthMounts(hostClaudeDir: string): string[] {
   const hostCreds = path.join(hostClaudeDir, '.credentials.json');
   return fs.existsSync(hostCreds)
     ? [`${hostCreds}:/home/agent/.claude/.credentials.json`]
+    : [];
+}
+
+// Forward the host docker socket so agents can run docker/compose commands.
+// Paired with HostConfig.GroupAdd on the host's docker GID so the non-root
+// `agent` user in the container has rw access without running as root.
+function dockerSocketMounts(hostSocket: string): string[] {
+  if (!hostSocket) return [];
+  return fs.existsSync(hostSocket)
+    ? [`${hostSocket}:/var/run/docker.sock`]
     : [];
 }
 

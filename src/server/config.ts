@@ -1,3 +1,4 @@
+import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 
@@ -7,6 +8,24 @@ function required(name: string): string {
   return v;
 }
 
+// Look up the host system's "docker" group GID from /etc/group. Used to give
+// the in-container agent user supplementary group membership matching the
+// owner of the forwarded docker socket — otherwise `docker` calls from inside
+// the run container hit EACCES on /var/run/docker.sock.
+function lookupHostDockerGid(): number | null {
+  try {
+    const text = fs.readFileSync('/etc/group', 'utf8');
+    for (const line of text.split('\n')) {
+      const [name, , gidStr] = line.split(':');
+      if (name === 'docker') {
+        const n = Number.parseInt(gidStr ?? '', 10);
+        if (Number.isFinite(n) && n > 0) return n;
+      }
+    }
+  } catch { /* /etc/group unreadable — leave unset */ }
+  return null;
+}
+
 export interface Config {
   port: number;
   dbPath: string;
@@ -14,6 +33,8 @@ export interface Config {
   draftUploadsDir: string;
   hostSshAuthSock: string;
   hostClaudeDir: string;
+  hostDockerSocket: string;
+  hostDockerGid: number | null;
   secretsKeyFile: string;
   gitAuthorName: string;
   gitAuthorEmail: string;
@@ -38,6 +59,15 @@ export function loadConfig(): Config {
       process.env.DRAFT_UPLOADS_DIR ?? '/var/lib/agent-manager/draft-uploads',
     hostSshAuthSock: process.env.HOST_SSH_AUTH_SOCK ?? process.env.SSH_AUTH_SOCK ?? '',
     hostClaudeDir: process.env.HOST_CLAUDE_DIR ?? path.join(os.homedir(), '.claude'),
+    hostDockerSocket: process.env.HOST_DOCKER_SOCKET ?? '/var/run/docker.sock',
+    hostDockerGid: (() => {
+      const override = process.env.HOST_DOCKER_GID;
+      if (override) {
+        const n = Number.parseInt(override, 10);
+        return Number.isFinite(n) && n >= 0 ? n : null;
+      }
+      return lookupHostDockerGid();
+    })(),
     secretsKeyFile: process.env.SECRETS_KEY_FILE ?? '/etc/agent-manager/secrets.key',
     gitAuthorName: required('GIT_AUTHOR_NAME'),
     gitAuthorEmail: required('GIT_AUTHOR_EMAIL'),
