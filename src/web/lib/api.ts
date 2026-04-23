@@ -158,6 +158,11 @@ export const api = {
   getRunCommitFiles: (id: number, sha: string) =>
     request<{ files: FilesHeadEntry[] }>(`/api/runs/${id}/commits/${encodeURIComponent(sha)}/files`),
 
+  getRunSubmoduleCommitFiles: (id: number, submodulePath: string, sha: string) =>
+    request<{ files: FilesHeadEntry[] }>(
+      `/api/runs/${id}/submodule/${submodulePath.split('/').map(encodeURIComponent).join('/')}/commits/${encodeURIComponent(sha)}/files`
+    ),
+
   postRunHistory: (id: number, op: HistoryOp) =>
     request<HistoryResult>(`/api/runs/${id}/history`, {
       method: 'POST',
