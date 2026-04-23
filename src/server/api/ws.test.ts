@@ -164,6 +164,7 @@ describe('WS shell', () => {
     const frame = {
       type: 'state' as const,
       state: 'awaiting_resume' as const,
+      state_entered_at: Date.now(),
       next_resume_at: 9999999,
       resume_attempts: 1,
       last_limit_reset_at: null,
@@ -208,6 +209,7 @@ describe('WS global state channel', () => {
       run_id: 42,
       project_id: 7,
       state: 'waiting',
+      state_entered_at: Date.now(),
       next_resume_at: null,
       resume_attempts: 0,
       last_limit_reset_at: null,

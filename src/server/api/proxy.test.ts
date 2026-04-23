@@ -137,7 +137,7 @@ describe('WS /api/runs/:id/proxy/:port', () => {
     const { runs, make } = setupRunsRepo();
     const run = make(); runs.markStarted(run.id, 'cid');
     const streams = new RunStreamRegistry();
-    streams.getOrCreateState(run.id).publish({ type: 'state', state: 'running', next_resume_at: null, resume_attempts: 0, last_limit_reset_at: null });
+    streams.getOrCreateState(run.id).publish({ type: 'state', state: 'running', state_entered_at: Date.now(), next_resume_at: null, resume_attempts: 0, last_limit_reset_at: null });
     const container: Container = {
       inspect: async () => ({
         State: { Pid: 1 },
@@ -167,7 +167,7 @@ describe('WS /api/runs/:id/proxy/:port', () => {
     const { runs, make } = setupRunsRepo();
     const run = make(); runs.markStarted(run.id, 'cid');
     const streams = new RunStreamRegistry();
-    streams.getOrCreateState(run.id).publish({ type: 'state', state: 'running', next_resume_at: null, resume_attempts: 0, last_limit_reset_at: null });
+    streams.getOrCreateState(run.id).publish({ type: 'state', state: 'running', state_entered_at: Date.now(), next_resume_at: null, resume_attempts: 0, last_limit_reset_at: null });
     const container: Container = {
       inspect: async () => ({
         State: { Pid: 1 },
@@ -194,7 +194,7 @@ describe('WS /api/runs/:id/proxy/:port', () => {
     const { runs, make } = setupRunsRepo();
     const run = make(); runs.markStarted(run.id, 'cid');
     const streams = new RunStreamRegistry();
-    streams.getOrCreateState(run.id).publish({ type: 'state', state: 'running', next_resume_at: null, resume_attempts: 0, last_limit_reset_at: null });
+    streams.getOrCreateState(run.id).publish({ type: 'state', state: 'running', state_entered_at: Date.now(), next_resume_at: null, resume_attempts: 0, last_limit_reset_at: null });
     const container: Container = {
       inspect: async () => ({
         State: { Pid: 1 },
@@ -206,7 +206,7 @@ describe('WS /api/runs/:id/proxy/:port', () => {
 
     const ws = new WebSocket(`ws://127.0.0.1:${r.port}/api/runs/${run.id}/proxy/${received.port}`);
     await new Promise<void>((resolve, reject) => { ws.once('open', () => resolve()); ws.once('error', reject); });
-    streams.getOrCreateState(run.id).publish({ type: 'state', state: 'succeeded', next_resume_at: null, resume_attempts: 0, last_limit_reset_at: null });
+    streams.getOrCreateState(run.id).publish({ type: 'state', state: 'succeeded', state_entered_at: Date.now(), next_resume_at: null, resume_attempts: 0, last_limit_reset_at: null });
     const code = await new Promise<number>((resolve) => ws.on('close', (c) => resolve(c)));
     expect(code).toBe(1001);
   });
@@ -271,7 +271,7 @@ describe('WS /api/runs/:id/proxy/:port', () => {
     const { runs, make } = setupRunsRepo();
     const run = make(); runs.markStarted(run.id, 'cid');
     const streams = new RunStreamRegistry();
-    streams.getOrCreateState(run.id).publish({ type: 'state', state: 'running', next_resume_at: null, resume_attempts: 0, last_limit_reset_at: null });
+    streams.getOrCreateState(run.id).publish({ type: 'state', state: 'running', state_entered_at: Date.now(), next_resume_at: null, resume_attempts: 0, last_limit_reset_at: null });
     const container: Container = {
       inspect: async () => ({
         State: { Pid: 1 },
@@ -283,7 +283,7 @@ describe('WS /api/runs/:id/proxy/:port', () => {
 
     const ws = new WebSocket(`ws://127.0.0.1:${r.port}/api/runs/${run.id}/proxy/${received.port}`);
     await new Promise<void>((resolve, reject) => { ws.once('open', () => resolve()); ws.once('error', reject); });
-    streams.getOrCreateState(run.id).publish({ type: 'state', state: 'awaiting_resume', next_resume_at: 0, resume_attempts: 1, last_limit_reset_at: 0 });
+    streams.getOrCreateState(run.id).publish({ type: 'state', state: 'awaiting_resume', state_entered_at: Date.now(), next_resume_at: 0, resume_attempts: 1, last_limit_reset_at: 0 });
     const code = await new Promise<number>((resolve) => ws.on('close', (c) => resolve(c)));
     expect(code).toBe(1001);
   });
@@ -304,7 +304,7 @@ describe('WS /api/runs/:id/proxy/:port', () => {
     // replay during subscribe should fire closeBoth and uninstall the listener.
     streams.getOrCreateState(run.id).publish({
       type: 'state', state: 'succeeded',
-      next_resume_at: null, resume_attempts: 0, last_limit_reset_at: null,
+      state_entered_at: Date.now(), next_resume_at: null, resume_attempts: 0, last_limit_reset_at: null,
     });
     const container: Container = {
       inspect: async () => ({
@@ -326,7 +326,7 @@ describe('WS /api/runs/:id/proxy/:port', () => {
     const bc = streams.getOrCreateState(run.id);
     bc.publish({
       type: 'state', state: 'failed',
-      next_resume_at: null, resume_attempts: 0, last_limit_reset_at: null,
+      state_entered_at: Date.now(), next_resume_at: null, resume_attempts: 0, last_limit_reset_at: null,
     });
     const subsField = (bc as unknown as { subs: Set<unknown> }).subs;
     expect(subsField.size).toBe(0);

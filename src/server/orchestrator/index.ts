@@ -129,6 +129,7 @@ export class Orchestrator {
     const frame = {
       type: 'state' as const,
       state: run.state,
+      state_entered_at: run.state_entered_at,
       next_resume_at: run.next_resume_at,
       resume_attempts: run.resume_attempts,
       last_limit_reset_at: run.last_limit_reset_at,

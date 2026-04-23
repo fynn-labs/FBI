@@ -40,6 +40,7 @@ export interface Run {
   started_at: number | null;
   finished_at: number | null;
   created_at: number;
+  state_entered_at: number;
   resume_attempts: number;
   next_resume_at: number | null;
   claude_session_id: string | null;
@@ -91,6 +92,7 @@ export interface McpServer {
 export type RunWsStateMessage = {
   type: 'state';
   state: RunState;
+  state_entered_at: number;
   next_resume_at: number | null;
   resume_attempts: number;
   last_limit_reset_at: number | null;
@@ -181,6 +183,7 @@ export interface GlobalStateMessage {
   run_id: number;
   project_id: number;
   state: RunState;
+  state_entered_at: number;
   next_resume_at: number | null;
   resume_attempts: number;
   last_limit_reset_at: number | null;

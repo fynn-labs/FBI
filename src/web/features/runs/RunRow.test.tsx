@@ -9,7 +9,8 @@ function mkRun(over: Partial<Run>): Run {
     id: 1, project_id: 1, prompt: 'do the thing', branch_name: 'branch-x',
     state: 'running', container_id: null, log_path: '/tmp/x', exit_code: null,
     error: null, head_commit: null, started_at: null, finished_at: null,
-    created_at: Date.now(), resume_attempts: 0, next_resume_at: null,
+    created_at: Date.now(), state_entered_at: Date.now(),
+    resume_attempts: 0, next_resume_at: null,
     claude_session_id: null, last_limit_reset_at: null,
     tokens_input: 0, tokens_output: 0, tokens_cache_read: 0, tokens_cache_create: 0,
     tokens_total: 0, usage_parse_errors: 0,
@@ -30,5 +31,20 @@ describe('RunRow label fallback', () => {
   it('falls back to first line of prompt when title and branch are empty', () => {
     render(<MemoryRouter><RunRow run={mkRun({ title: null, branch_name: '', prompt: 'first line\nsecond' })} to="/runs/1" /></MemoryRouter>);
     expect(screen.getByText('first line')).toBeInTheDocument();
+  });
+});
+
+describe('RunRow timestamp', () => {
+  it('uses state_entered_at for the rendered relative time', () => {
+    const fiveMinAgo = Date.now() - 5 * 60 * 1000;
+    render(
+      <MemoryRouter>
+        <RunRow run={mkRun({ state: 'running', state_entered_at: fiveMinAgo, created_at: Date.now() })} to="/runs/1" />
+      </MemoryRouter>,
+    );
+    const time = document.querySelector('time');
+    expect(time).not.toBeNull();
+    expect(time!.textContent).toMatch(/5m/);
+    expect(time!.getAttribute('title') ?? '').toContain('running');
   });
 });
