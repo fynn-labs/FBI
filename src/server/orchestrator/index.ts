@@ -771,6 +771,29 @@ export class Orchestrator {
     });
   }
 
+  /** Spawn a sub-run for merge-conflict resolution or commit polish.
+   *  Inherits parent's project + branch; launches normally via launch(). */
+  async spawnSubRun(parentRunId: number, kind: 'merge-conflict' | 'polish', argsJson: string): Promise<number> {
+    const parent = this.deps.runs.get(parentRunId);
+    if (!parent) throw new Error(`parent run ${parentRunId} not found`);
+    const args = JSON.parse(argsJson) as Record<string, unknown>;
+    const prompt = renderSubRunPrompt(kind, args);
+    const child = this.deps.runs.create({
+      project_id: parent.project_id,
+      prompt,
+      branch_hint: parent.branch_name || undefined,
+      log_path_tmpl: (id) => path.join(this.deps.config.runsDir, `${id}.log`),
+      parent_run_id: parent.id,
+      kind,
+      kind_args_json: argsJson,
+    });
+    // Fire-and-forget — matches POST /api/projects/:id/runs pattern.
+    void this.launch(child.id).catch(() => {
+      // swallow — the sub-run's log will record the failure
+    });
+    return child.id;
+  }
+
   /** Run a command inside the container backing `runId`. Throws if no
    *  container is active for this run. Used by API routes that need on-demand
    *  git output (e.g. per-file diffs). */
@@ -1006,6 +1029,37 @@ export class Orchestrator {
       this.deps.streams.release(runId);
     }
   }
+}
+
+function renderSubRunPrompt(kind: 'merge-conflict' | 'polish', args: Record<string, unknown>): string {
+  const branch = String(args.branch ?? '');
+  const def = String(args.default ?? 'main');
+  const strategy = String(args.strategy ?? 'merge');
+  if (kind === 'merge-conflict') {
+    return (
+      `Resolve a merge conflict and complete the merge.\n` +
+      `Branch: ${branch}\nTarget: ${def}\nStrategy: ${strategy}\n\n` +
+      `Steps:\n` +
+      `1. git fetch origin\n` +
+      `2. git checkout ${def}\n` +
+      `3. git pull --ff-only origin ${def}\n` +
+      `4. git merge --no-ff ${branch}  (or --squash / rebase per strategy)\n` +
+      `5. If conflicts: resolve them, git add, git commit.\n` +
+      `6. git push origin ${def}\n` +
+      `Report the final SHA when done.`
+    );
+  }
+  // polish
+  return (
+    `Polish the commits on branch ${branch}.\n\n` +
+    `Use git interactive rebase (GIT_SEQUENCE_EDITOR=cat git rebase -i origin/${def}) to:\n` +
+    `  1. Rewrite each commit's subject as a concise conventional-commits style summary.\n` +
+    `  2. Ensure each commit body explains the "why" (not just the "what").\n` +
+    `  3. Combine trivially-related "wip:" or "fix:" commits where appropriate.\n` +
+    `DO NOT change code — only commit metadata.\n\n` +
+    `Then: git push --force-with-lease origin ${branch}.\n` +
+    `Write a one-line summary of what you did to /fbi-state/session-name.`
+  );
 }
 
 // Bind-mount OAuth tokens. On Linux they live in ~/.claude/.credentials.json;
