@@ -272,8 +272,7 @@ export function RunDetailPage() {
           onHeightChange={setHeight}
         >
           {(t) =>
-            t === 'changes' ? <ChangesTab run={run} project={project} changes={changes}
-              onCreatePr={onCreatePr} creatingPr={creatingPr} onReload={onReload} /> :
+            t === 'changes' ? <ChangesTab run={run} project={project} changes={changes} /> :
             t === 'tunnel' ? <TunnelTab runId={run.id} runState={run.state} origin={window.location.origin} ports={ports} /> :
             <MetaTab run={run} siblings={siblings} />
           }

@@ -1,58 +1,58 @@
-import { ChangesHeader } from './ChangesHeader.js';
-import { IntegrationStrip } from './IntegrationStrip.js';
 import { CommitRow } from './CommitRow.js';
-import { useHistoryOp } from './useHistoryOp.js';
-import type { ChangesPayload, MergeStrategy, Project, Run } from '@shared/types.js';
+import { SubmoduleDirtyRow } from './SubmoduleDirtyRow.js';
+import type { ChangesPayload, Project, Run } from '@shared/types.js';
 
 export interface ChangesTabProps {
   run: Run;
   project: Project | null;
   changes: ChangesPayload | null;
-  onCreatePr: () => void;
-  creatingPr: boolean;
-  onReload: () => void;
 }
 
-export function ChangesTab({ run, project, changes, onCreatePr, creatingPr, onReload }: ChangesTabProps) {
-  const { busy, msg, run: runOp } = useHistoryOp(run.id, onReload);
-
+export function ChangesTab({ run, changes }: ChangesTabProps) {
   if (!changes) return <p className="p-3 text-[13px] text-text-faint">Loading changes…</p>;
   if (!changes.branch_name) return <p className="p-3 text-[13px] text-text-faint">This run didn't produce a branch.</p>;
 
-  const empty = changes.commits.length === 0 && changes.uncommitted.length === 0;
+  const ahead = changes.branch_base?.ahead ?? 0;
+  const behind = changes.branch_base?.behind ?? 0;
+  const base = changes.branch_base?.base ?? 'main';
+  const empty = changes.commits.length === 0 && changes.uncommitted.length === 0 && changes.dirty_submodules.length === 0;
 
   return (
     <div>
-      <ChangesHeader
-        run={run} project={project} changes={changes}
-        creatingPr={creatingPr} merging={busy}
-        onCreatePr={onCreatePr}
-        onMerge={(strategy?: MergeStrategy) => runOp({ op: 'merge', strategy })}
-        onSync={() => runOp({ op: 'sync' })}
-        onSquashLocal={(subject) => runOp({ op: 'squash-local', subject })}
-        onPolish={() => runOp({ op: 'polish' })}
-      />
-      <IntegrationStrip integrations={changes.integrations} />
-      {msg && <p className="px-3 py-1 text-[12px] text-text-dim bg-surface-raised border-b border-border">{msg}</p>}
+      <div className="flex items-center gap-3 px-3 py-2 border-b border-border bg-surface-raised text-[12px]">
+        <span className="font-mono text-text">{changes.branch_name}</span>
+        <span className="text-text-faint">·</span>
+        <span className="font-mono text-ok">{ahead} ahead</span>
+        <span className="font-mono text-text-faint">/</span>
+        <span className={`font-mono ${behind > 0 ? 'text-warn font-medium' : 'text-text-faint'}`}>{behind} behind</span>
+        <span className="font-mono text-text-faint">{base}</span>
+      </div>
 
       {empty ? (
         <p className="p-3 text-[13px] text-text-faint">No changes yet. The agent hasn't committed anything.</p>
       ) : (
         <div>
-          {changes.uncommitted.length > 0 && (
+          {(changes.uncommitted.length > 0 || changes.dirty_submodules.length > 0) && (
             <CommitRow
               runId={run.id}
               sha="uncommitted"
               shortSha={null}
               pushed={null}
-              subject={`Uncommitted (${changes.uncommitted.length})`}
-              fileCount={changes.uncommitted.length}
+              subject={`Uncommitted (${changes.uncommitted.length}${changes.dirty_submodules.length ? ` + ${changes.dirty_submodules.length} submodule${changes.dirty_submodules.length === 1 ? '' : 's'}` : ''})`}
+              fileCount={changes.uncommitted.length + changes.dirty_submodules.length}
               relativeTime="working tree"
               uncommitted
               defaultOpen
               initialFiles={changes.uncommitted}
               initialFilesLoaded
             />
+          )}
+          {changes.dirty_submodules.length > 0 && (
+            <div className="bg-surface-sunken">
+              {changes.dirty_submodules.map((s) => (
+                <SubmoduleDirtyRow key={s.path} submod={s} />
+              ))}
+            </div>
           )}
           {changes.commits.map((c) => (
             <CommitRow
@@ -66,6 +66,7 @@ export function ChangesTab({ run, project, changes, onCreatePr, creatingPr, onRe
               relativeTime={relativeTime(c.committed_at)}
               initialFiles={c.files_loaded ? c.files : undefined}
               initialFilesLoaded={c.files_loaded}
+              submoduleBumps={c.submodule_bumps}
             />
           ))}
         </div>
