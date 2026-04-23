@@ -62,7 +62,7 @@ git config user.email "$GIT_AUTHOR_EMAIL"
 mkdir -p .git/hooks
 cat > .git/hooks/post-commit <<'HOOK'
 #!/bin/sh
-( git push -u origin HEAD > /tmp/last-push.log 2>&1 || true ) &
+( git push --recurse-submodules=on-demand -u origin HEAD > /tmp/last-push.log 2>&1 || true ) &
 HOOK
 chmod +x .git/hooks/post-commit
 

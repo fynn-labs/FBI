@@ -51,7 +51,7 @@ trap cleanup EXIT
 # up-to-date. Important for live containers: post-commit pushed the branch
 # but the orchestrator's container doesn't have the remote-tracking ref
 # updated until we fetch.
-if ! out=$(git -C /workspace fetch --quiet origin '+refs/heads/*:refs/remotes/origin/*' 2>&1); then
+if ! out=$(git -C /workspace fetch --quiet --recurse-submodules=on-demand origin '+refs/heads/*:refs/remotes/origin/*' 2>&1); then
   emit_fail gh-error "fetch failed: $out"
   exit 0
 fi
@@ -74,7 +74,7 @@ run_merge() {
         emit_fail conflict "merge conflict: $out"
         exit 0
       fi
-      if ! out=$(git push origin "HEAD:refs/heads/$FBI_DEFAULT" 2>&1); then
+      if ! out=$(git push --recurse-submodules=on-demand origin "HEAD:refs/heads/$FBI_DEFAULT" 2>&1); then
         emit_fail gh-error "push failed: $out"
         exit 0
       fi
@@ -89,7 +89,7 @@ run_merge() {
         emit_fail conflict "rebase conflict: $out"
         exit 0
       fi
-      if ! out=$(git push --force-with-lease origin "HEAD:refs/heads/$FBI_BRANCH" 2>&1); then
+      if ! out=$(git push --recurse-submodules=on-demand --force-with-lease origin "HEAD:refs/heads/$FBI_BRANCH" 2>&1); then
         emit_fail gh-error "force-push branch failed: $out"
         exit 0
       fi
@@ -102,7 +102,7 @@ run_merge() {
         emit_fail gh-error "ff-merge failed: $out"
         exit 0
       fi
-      if ! out=$(git push origin "HEAD:refs/heads/$FBI_DEFAULT" 2>&1); then
+      if ! out=$(git push --recurse-submodules=on-demand origin "HEAD:refs/heads/$FBI_DEFAULT" 2>&1); then
         emit_fail gh-error "push failed: $out"
         exit 0
       fi
@@ -118,7 +118,7 @@ run_merge() {
         emit_fail gh-error "commit failed: $out"
         exit 0
       fi
-      if ! out=$(git push origin "HEAD:refs/heads/$FBI_DEFAULT" 2>&1); then
+      if ! out=$(git push --recurse-submodules=on-demand origin "HEAD:refs/heads/$FBI_DEFAULT" 2>&1); then
         emit_fail gh-error "push failed: $out"
         exit 0
       fi
@@ -142,7 +142,7 @@ run_sync() {
     emit_fail conflict "rebase conflict: $out"
     exit 0
   fi
-  if ! out=$(git push --force-with-lease origin "HEAD:refs/heads/$FBI_BRANCH" 2>&1); then
+  if ! out=$(git push --recurse-submodules=on-demand --force-with-lease origin "HEAD:refs/heads/$FBI_BRANCH" 2>&1); then
     emit_fail gh-error "force-push failed: $out"
     exit 0
   fi
@@ -168,7 +168,7 @@ run_squash_local() {
     emit_fail gh-error "commit failed: $out"
     exit 0
   fi
-  if ! out=$(git push --force-with-lease origin "HEAD:refs/heads/$FBI_BRANCH" 2>&1); then
+  if ! out=$(git push --recurse-submodules=on-demand --force-with-lease origin "HEAD:refs/heads/$FBI_BRANCH" 2>&1); then
     emit_fail gh-error "force-push failed: $out"
     exit 0
   fi
