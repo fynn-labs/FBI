@@ -7,7 +7,7 @@ const ALL_STATES: readonly RunState[] = [
   'running', 'waiting', 'awaiting_resume', 'queued', 'succeeded', 'failed', 'cancelled',
 ];
 
-const ACTIVE_STATES = new Set<RunState>(['running', 'waiting', 'awaiting_resume']);
+const ACTIVE_STATES = new Set<RunState>(['running', 'waiting', 'awaiting_resume', 'queued']);
 
 const STATE_SET = new Set<string>(ALL_STATES);
 

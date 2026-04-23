@@ -77,8 +77,8 @@ describe('applyRunsView', () => {
     const out = applyRunsView(runs, { filter: new Set(), groupByState: false });
     expect(out.mode).toBe('flat');
     if (out.mode !== 'flat') return;
-    expect(out.active.map((r) => r.id)).toEqual([6, 4, 2]);
-    expect(out.rest.map((r) => r.id)).toEqual([5, 3, 1]);
+    expect(out.active.map((r) => r.id)).toEqual([6, 5, 4, 2]);
+    expect(out.rest.map((r) => r.id)).toEqual([3, 1]);
   });
 
   it('grouped mode emits sections in fixed order with within-section created_at DESC', () => {

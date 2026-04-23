@@ -45,13 +45,22 @@ describe('RunsList', () => {
         <RunsList runs={runs()} toHref={(r) => `/runs/${r.id}`} />
       </MemoryRouter>,
     );
-    expect(screen.getByText(/Active · 3/)).toBeInTheDocument();
+    expect(screen.getByText(/Active · 4/)).toBeInTheDocument();
+    expect(screen.getByText(/Finished · 2/)).toBeInTheDocument();
   });
 
   it('does not render Active divider when no active runs', () => {
     const only = [mkRun(1, 'succeeded', 1), mkRun(2, 'failed', 2)];
     render(<MemoryRouter><RunsList runs={only} toHref={(r) => `/runs/${r.id}`} /></MemoryRouter>);
     expect(screen.queryByText(/Active · /)).toBeNull();
+    expect(screen.getByText(/Finished · 2/)).toBeInTheDocument();
+  });
+
+  it('does not render Finished divider when all runs are active', () => {
+    const activeOnly = [mkRun(1, 'running', 1), mkRun(2, 'waiting', 2), mkRun(3, 'queued', 3)];
+    render(<MemoryRouter><RunsList runs={activeOnly} toHref={(r) => `/runs/${r.id}`} /></MemoryRouter>);
+    expect(screen.getByText(/Active · 3/)).toBeInTheDocument();
+    expect(screen.queryByText(/Finished · /)).toBeNull();
   });
 
   it('groups by state in fixed order when grouping is on', () => {

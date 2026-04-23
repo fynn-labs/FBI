@@ -93,6 +93,11 @@ export function RunsList({ runs, toHref, currentId }: RunsListProps) {
               </div>
             )}
             {result.active.map((r) => <RunRow key={r.id} run={r} to={toHref(r)} />)}
+            {result.rest.length > 0 && (
+              <div className="px-3 py-1 text-[11px] uppercase tracking-[0.08em] text-text-faint border-b border-border">
+                Finished · {result.rest.length}
+              </div>
+            )}
             {result.rest.map((r) => <RunRow key={r.id} run={r} to={toHref(r)} />)}
           </>
         ) : (
