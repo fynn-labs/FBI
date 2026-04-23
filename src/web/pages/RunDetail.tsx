@@ -225,8 +225,8 @@ export function RunDetailPage() {
           <RunTerminal runId={run.id} interactive={interactive} />
           <div className="px-3 py-2 border-t border-border">
             <UploadTray
-              disabled={run.state !== 'waiting'}
-              disabledReason="Uploads are available while the agent is waiting for input."
+              disabled={run.state !== 'waiting' && run.state !== 'running'}
+              disabledReason="Uploads are available while the run is active."
               dropZoneRef={terminalPaneRef}
               attached={attached}
               upload={async (file) => {
