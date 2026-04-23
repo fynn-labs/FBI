@@ -107,6 +107,14 @@ export function migrate(db: DB): void {
   if (!runCols.has('title_locked')) {
     db.exec('ALTER TABLE runs ADD COLUMN title_locked INTEGER NOT NULL DEFAULT 0');
   }
+  if (!runCols.has('state_entered_at')) {
+    db.exec('ALTER TABLE runs ADD COLUMN state_entered_at INTEGER NOT NULL DEFAULT 0');
+    db.exec(
+      `UPDATE runs
+          SET state_entered_at = COALESCE(finished_at, started_at, created_at)
+        WHERE state_entered_at = 0`,
+    );
+  }
 
   // --- TokenEater usage migration ---
 
