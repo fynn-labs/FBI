@@ -1,5 +1,6 @@
 import { describe, it, expect, vi } from 'vitest';
 import { render, screen, fireEvent, waitFor } from '@testing-library/react';
+import { useRef } from 'react';
 import { UploadTray } from './UploadTray.js';
 
 function makeFile(name: string, size: number): File {
@@ -86,5 +87,69 @@ describe('UploadTray', () => {
     );
     fireEvent.click(screen.getByRole('button', { name: /remove foo.csv/i }));
     expect(onRemove).toHaveBeenCalledWith('foo.csv');
+  });
+
+  it('uploads a file dropped on the drop zone element', async () => {
+    const upload = vi.fn().mockResolvedValue({ filename: 'foo.csv', size: 5 });
+    const onUploaded = vi.fn();
+    function Harness() {
+      const ref = useRef<HTMLDivElement | null>(null);
+      return (
+        <>
+          <div ref={ref} data-testid="zone">drop here</div>
+          <UploadTray
+            dropZoneRef={ref}
+            upload={upload}
+            onUploaded={onUploaded}
+            attached={[]}
+            maxFileBytes={1e9}
+            maxTotalBytes={1e10}
+            totalBytes={0}
+          />
+        </>
+      );
+    }
+    render(<Harness />);
+    const zone = screen.getByTestId('zone');
+    const file = makeFile('foo.csv', 5);
+    // JSDOM's DataTransfer doesn't populate `types` or `files` reliably from
+    // items.add(), so mock the shape the component inspects.
+    const dt = { types: ['Files'], files: [file] };
+
+    fireEvent.dragEnter(zone, { dataTransfer: dt });
+    expect(zone.getAttribute('data-upload-drag-active')).toBe('true');
+    fireEvent.drop(zone, { dataTransfer: dt });
+    await waitFor(() => expect(upload).toHaveBeenCalledOnce());
+    expect(upload).toHaveBeenCalledWith(file);
+    expect(onUploaded).toHaveBeenCalledWith('foo.csv');
+    expect(zone.getAttribute('data-upload-drag-active')).toBeNull();
+  });
+
+  it('ignores drag events that do not carry files', () => {
+    const upload = vi.fn();
+    function Harness() {
+      const ref = useRef<HTMLDivElement | null>(null);
+      return (
+        <>
+          <div ref={ref} data-testid="zone">drop here</div>
+          <UploadTray
+            dropZoneRef={ref}
+            upload={upload}
+            onUploaded={() => {}}
+            attached={[]}
+            maxFileBytes={1e9}
+            maxTotalBytes={1e10}
+            totalBytes={0}
+          />
+        </>
+      );
+    }
+    render(<Harness />);
+    const zone = screen.getByTestId('zone');
+    const dt = { types: ['text/plain'], files: [] };
+    fireEvent.dragEnter(zone, { dataTransfer: dt });
+    expect(zone.getAttribute('data-upload-drag-active')).toBeNull();
+    fireEvent.drop(zone, { dataTransfer: dt });
+    expect(upload).not.toHaveBeenCalled();
   });
 });

@@ -1,4 +1,5 @@
-import { useCallback, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState, type RefObject } from 'react';
+import { IconButton } from '@ui/primitives/IconButton.js';
 
 export interface UploadTrayFile {
   filename: string;
@@ -17,6 +18,13 @@ export interface UploadTrayProps {
   maxFileBytes: number;
   maxTotalBytes: number;
   totalBytes: number;
+  /**
+   * Optional element to wire as a drag-and-drop target. When a file is
+   * dropped on this element the tray handles it the same way as the file
+   * picker. The element receives a `data-upload-drag-active="true"` attribute
+   * while a drag is in progress so the page can style a drop overlay.
+   */
+  dropZoneRef?: RefObject<HTMLElement | null>;
 }
 
 function humanSize(n: number): string {
@@ -24,6 +32,42 @@ function humanSize(n: number): string {
   if (n < 1024 * 1024) return `${(n / 1024).toFixed(1)} KB`;
   if (n < 1024 * 1024 * 1024) return `${(n / (1024 * 1024)).toFixed(1)} MB`;
   return `${(n / (1024 * 1024 * 1024)).toFixed(2)} GB`;
+}
+
+function PaperclipIcon() {
+  return (
+    <svg
+      viewBox="0 0 24 24"
+      width="16"
+      height="16"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.8"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden="true"
+    >
+      <path d="M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.49" />
+    </svg>
+  );
+}
+
+function RemoveIcon() {
+  return (
+    <svg
+      viewBox="0 0 24 24"
+      width="12"
+      height="12"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden="true"
+    >
+      <path d="M18 6L6 18M6 6l12 12" />
+    </svg>
+  );
 }
 
 export function UploadTray(props: UploadTrayProps) {
@@ -51,13 +95,58 @@ export function UploadTray(props: UploadTrayProps) {
     [props],
   );
 
+  // Attach drag-and-drop listeners to the opt-in drop zone element.
+  useEffect(() => {
+    const el = props.dropZoneRef?.current;
+    if (!el || props.disabled) return;
+    // Track dragenter/leave counter so nested elements don't flicker the overlay.
+    let depth = 0;
+
+    const hasFiles = (e: DragEvent) =>
+      !!e.dataTransfer && Array.from(e.dataTransfer.types).includes('Files');
+
+    const onDragEnter = (e: DragEvent) => {
+      if (!hasFiles(e)) return;
+      depth += 1;
+      el.setAttribute('data-upload-drag-active', 'true');
+    };
+    const onDragOver = (e: DragEvent) => {
+      if (!hasFiles(e)) return;
+      e.preventDefault();
+      if (e.dataTransfer) e.dataTransfer.dropEffect = 'copy';
+    };
+    const onDragLeave = (e: DragEvent) => {
+      if (!hasFiles(e)) return;
+      depth = Math.max(0, depth - 1);
+      if (depth === 0) el.removeAttribute('data-upload-drag-active');
+    };
+    const onDrop = (e: DragEvent) => {
+      if (!hasFiles(e)) return;
+      e.preventDefault();
+      depth = 0;
+      el.removeAttribute('data-upload-drag-active');
+      const file = e.dataTransfer?.files?.[0];
+      if (file) void handleFile(file);
+    };
+
+    el.addEventListener('dragenter', onDragEnter);
+    el.addEventListener('dragover', onDragOver);
+    el.addEventListener('dragleave', onDragLeave);
+    el.addEventListener('drop', onDrop);
+    return () => {
+      el.removeEventListener('dragenter', onDragEnter);
+      el.removeEventListener('dragover', onDragOver);
+      el.removeEventListener('dragleave', onDragLeave);
+      el.removeEventListener('drop', onDrop);
+      el.removeAttribute('data-upload-drag-active');
+    };
+  }, [props.dropZoneRef, props.disabled, handleFile]);
+
+  const title = props.disabled ? (props.disabledReason ?? '') : 'Attach a file';
+
   return (
     <div className="flex flex-col gap-2">
-      <label
-        title={props.disabled ? (props.disabledReason ?? '') : 'Attach a file'}
-        aria-disabled={props.disabled}
-        className="inline-flex items-center"
-      >
+      <div className="inline-flex items-center">
         <input
           ref={inputRef}
           data-testid="upload-input"
@@ -71,43 +160,51 @@ export function UploadTray(props: UploadTrayProps) {
           }}
           className="sr-only"
         />
-        <span className="cursor-pointer" role="button" aria-label="Attach a file">
-          📎
-        </span>
-      </label>
+        <IconButton
+          type="button"
+          aria-label="Attach a file"
+          title={title}
+          disabled={props.disabled}
+          onClick={() => inputRef.current?.click()}
+        >
+          <PaperclipIcon />
+        </IconButton>
+      </div>
       {error && (
         <div className="text-attn text-sm" role="alert">
           {error}
         </div>
       )}
-      <ul className="flex flex-wrap gap-2">
-        {props.attached.map((f) => (
-          <li
-            key={f.filename}
-            className="inline-flex items-center gap-2 rounded-md border border-border bg-surface px-2 py-1 text-sm"
-          >
-            <span>
-              {f.filename} · {humanSize(f.size)}
-            </span>
-            {f.uploading && <span aria-label="uploading">⟳</span>}
-            {f.error && (
-              <span className="text-attn" role="alert">
-                {f.error}
+      {props.attached.length > 0 && (
+        <ul className="flex flex-wrap gap-2">
+          {props.attached.map((f) => (
+            <li
+              key={f.filename}
+              className="inline-flex items-center gap-2 rounded-md border border-border bg-surface-raised px-2 py-1 text-sm text-text-dim"
+            >
+              <span className="text-text">
+                {f.filename} <span className="text-text-faint">· {humanSize(f.size)}</span>
               </span>
-            )}
-            {props.onRemove && (
-              <button
-                type="button"
-                aria-label={`remove ${f.filename}`}
-                onClick={() => props.onRemove?.(f.filename)}
-                className="text-text-dim"
-              >
-                ×
-              </button>
-            )}
-          </li>
-        ))}
-      </ul>
+              {f.uploading && <span aria-label="uploading">⟳</span>}
+              {f.error && (
+                <span className="text-attn" role="alert">
+                  {f.error}
+                </span>
+              )}
+              {props.onRemove && (
+                <button
+                  type="button"
+                  aria-label={`remove ${f.filename}`}
+                  onClick={() => props.onRemove?.(f.filename)}
+                  className="inline-flex items-center justify-center w-4 h-4 rounded hover:bg-surface hover:text-text transition-colors duration-fast ease-out"
+                >
+                  <RemoveIcon />
+                </button>
+              )}
+            </li>
+          ))}
+        </ul>
+      )}
     </div>
   );
 }

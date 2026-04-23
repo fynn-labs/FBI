@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import type { Project, Run } from '@shared/types.js';
 import { api } from '../lib/api.js';
@@ -33,6 +33,7 @@ export function RunDetailPage() {
   const [error, setError] = useState<string | null>(null);
   const [ports, setPorts] = useState<ListeningPort[]>([]);
   const [attached, setAttached] = useState<UploadTrayFile[]>([]);
+  const terminalPaneRef = useRef<HTMLDivElement | null>(null);
 
   const refreshUploads = useCallback(async () => {
     try {
@@ -217,12 +218,16 @@ export function RunDetailPage() {
     <div className="h-full flex flex-col min-h-0">
       <RunHeader run={run} onCancel={cancel} onDelete={remove} onContinue={kontinue} onRenamed={setRun} />
       <div className="flex-1 min-h-0 flex">
-        <div className="flex-1 min-w-0 flex flex-col">
+        <div
+          ref={terminalPaneRef}
+          className="flex-1 min-w-0 flex flex-col relative data-[upload-drag-active=true]:ring-2 data-[upload-drag-active=true]:ring-accent data-[upload-drag-active=true]:ring-inset transition-[box-shadow] duration-fast ease-out"
+        >
           <RunTerminal runId={run.id} interactive={interactive} />
           <div className="px-3 py-2 border-t border-border">
             <UploadTray
               disabled={run.state !== 'waiting'}
               disabledReason="Uploads are available while the agent is waiting for input."
+              dropZoneRef={terminalPaneRef}
               attached={attached}
               upload={async (file) => {
                 const res = await api.uploadRunFile(run.id, file);
