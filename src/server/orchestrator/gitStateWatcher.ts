@@ -57,10 +57,12 @@ export class GitStateWatcher {
       'printf "__LG__"; git log -1 --format=%H%x00%s 2>/dev/null',
       'printf "__SH__"; git show --numstat --format= HEAD 2>/dev/null',
       `printf "__AB__"; git rev-list --left-right --count refs/remotes/origin/${db}...HEAD 2>/dev/null`,
+      `printf "__SM_STATUS__"; git submodule status 2>/dev/null`,
+      `printf "__SM_INFO__"; git config --file .gitmodules --get-regexp '^submodule\\..*\\.\\(path\\|url\\)$' 2>/dev/null`,
       'exit 0',
     ].join('; ');
     const r = await dockerExec(c, ['bash', '-lc', script], { timeoutMs: 5000 });
-    const parts = splitMarkers(r.stdout, ['__Z__', '__NS__', '__LG__', '__SH__', '__AB__']);
+    const parts = splitMarkers(r.stdout, ['__Z__', '__NS__', '__LG__', '__SH__', '__AB__', '__SM_STATUS__', '__SM_INFO__']);
     const payload = parseGitState({
       zlist: parts['__Z__'] ?? '',
       numstat: parts['__NS__'] ?? '',
@@ -69,7 +71,18 @@ export class GitStateWatcher {
       aheadBehind: parts['__AB__'] ?? '',
       base: this.opts.defaultBranch,
     });
-    this.opts.onSnapshot({ ...payload, live: true });
+    const rawSubs = parseSubmoduleStatus(
+      parts['__SM_STATUS__'] ?? '',
+      parts['__SM_INFO__'] ?? '',
+    );
+    const dirtySubmodules: import('../../shared/types.js').SubmoduleDirty[] = rawSubs.map((s) => ({
+      path: s.path,
+      url: s.url,
+      dirty: [],
+      unpushed_commits: [],
+      unpushed_truncated: false,
+    }));
+    this.opts.onSnapshot({ ...payload, live: true, dirty_submodules: dirtySubmodules });
   }
 }
 
@@ -170,4 +183,42 @@ function mapPorcelain(code: string): FileStatus {
   if (nonSpace.includes('D')) return 'D';
   if (nonSpace.includes('R')) return 'R';
   return 'M';
+}
+
+export interface RawSubmoduleDirty {
+  path: string;
+  url: string | null;
+  dirty_paths: string[];
+}
+
+export function parseSubmoduleStatus(smStatus: string, smInfo: string): RawSubmoduleDirty[] {
+  // .gitmodules rows: "submodule.<name>.path foo" | "submodule.<name>.url https://..."
+  const byName: Record<string, { path?: string; url?: string }> = {};
+  for (const line of smInfo.split('\n')) {
+    if (!line) continue;
+    const m = line.match(/^submodule\.(.+?)\.(path|url) (.+)$/);
+    if (!m) continue;
+    byName[m[1]] = byName[m[1]] ?? {};
+    (byName[m[1]] as Record<string, string>)[m[2]] = m[3];
+  }
+  const urls = new Map<string, string | null>();
+  for (const info of Object.values(byName)) {
+    if (info.path) urls.set(info.path, info.url ?? null);
+  }
+
+  // `git submodule status` format:
+  //   [ +-]<sha> <path> [<description>]
+  //   ' ' = clean   '+' = differs from recorded   '-' = uninitialized
+  const out: RawSubmoduleDirty[] = [];
+  for (const line of smStatus.split('\n')) {
+    if (!line) continue;
+    const marker = line[0];
+    const rest = line.slice(42);  // 1 (marker) + 40 (sha) + 1 (space)
+    const path = rest.split(' ')[0];
+    if (!path) continue;
+    if (marker === '+' || marker === '-') {
+      out.push({ path, url: urls.get(path) ?? null, dirty_paths: [] });
+    }
+  }
+  return out;
 }

@@ -204,6 +204,7 @@ export interface FilesPayload {
   headFiles: FilesHeadEntry[];
   branchBase: { base: string; ahead: number; behind: number } | null;
   live: boolean;
+  dirty_submodules?: SubmoduleDirty[];
 }
 
 export type MergeStrategy = 'merge' | 'rebase' | 'squash';

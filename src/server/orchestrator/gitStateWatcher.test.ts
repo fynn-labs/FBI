@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { parseGitState } from './gitStateWatcher.js';
+import { parseGitState, parseSubmoduleStatus } from './gitStateWatcher.js';
 
 describe('parseGitState', () => {
   it('parses porcelain v1 -z with staged, unstaged, and untracked', () => {
@@ -48,5 +48,19 @@ describe('parseGitState', () => {
   it('maps ahead/behind with LEFT=behind RIGHT=ahead', () => {
     const r = parseGitState({ zlist: '', numstat: '', show: '', log: '', aheadBehind: '2\t5', base: 'main' });
     expect(r.branchBase).toEqual({ base: 'main', ahead: 5, behind: 2 });
+  });
+});
+
+describe('parseSubmoduleStatus', () => {
+  it('detects dirty submodules via + marker', () => {
+    const status = ' a0b1c2d3e4f5a6b7c8d9e0f1a2b3c4d5e6f7a8b9 docs (docs-a1)\n+abcdef0123456789abcdef0123456789abcdef01 cli/fbi-tunnel (fbi-tunnel-v1)\n';
+    const info = 'submodule.cli-tunnel.path cli/fbi-tunnel\nsubmodule.cli-tunnel.url https://github.com/x/y\nsubmodule.docs.path docs\nsubmodule.docs.url https://github.com/x/z\n';
+    const r = parseSubmoduleStatus(status, info);
+    expect(r).toEqual([
+      { path: 'cli/fbi-tunnel', url: 'https://github.com/x/y', dirty_paths: [] },
+    ]);
+  });
+  it('returns [] on empty input', () => {
+    expect(parseSubmoduleStatus('', '')).toEqual([]);
   });
 });
