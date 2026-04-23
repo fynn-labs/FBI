@@ -1,5 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import Fastify from 'fastify';
+import fastifyMultipart from '@fastify/multipart';
+import FormData from 'form-data';
 import fs from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
@@ -8,6 +10,7 @@ import { ProjectsRepo } from '../db/projects.js';
 import { RunsRepo } from '../db/runs.js';
 import { RunStreamRegistry } from '../logs/registry.js';
 import { registerRunsRoutes } from './runs.js';
+import { registerUploadsRoutes } from './uploads.js';
 
 const stubGh = {
   available: async () => true,
@@ -35,6 +38,7 @@ function setup() {
     runs, projects, gh: stubGh,
     streams,
     runsDir: dir,
+    draftUploadsDir: dir,
     launch: async (id: number) => {
       launched.push(id);
     },
@@ -45,6 +49,39 @@ function setup() {
     continueRun: async (_id: number) => {},
   });
   return { app, projectId: p.id, launched, cancelled, streams, runs };
+}
+
+function setupWithUploads() {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'fbi-'));
+  const runsDir = path.join(dir, 'runs');
+  const draftUploadsDir = path.join(dir, 'draft-uploads');
+  fs.mkdirSync(runsDir, { recursive: true });
+  fs.mkdirSync(draftUploadsDir, { recursive: true });
+  const db = openDb(path.join(dir, 'db.sqlite'));
+  const projects = new ProjectsRepo(db);
+  const runs = new RunsRepo(db);
+  const p = projects.create({
+    name: 'p', repo_url: 'r', default_branch: 'main',
+    devcontainer_override_json: null, instructions: null,
+    git_author_name: null, git_author_email: null,
+  });
+  const launched: number[] = [];
+  const app = Fastify();
+  void app.register(fastifyMultipart, {
+    limits: { fileSize: 100 * 1024 * 1024, files: 1, fields: 2 },
+  });
+  registerRunsRoutes(app, {
+    runs, projects, gh: stubGh,
+    streams: new RunStreamRegistry(),
+    runsDir,
+    draftUploadsDir,
+    launch: async (id: number) => { launched.push(id); },
+    cancel: async (_id: number) => {},
+    fireResumeNow: (_id: number) => {},
+    continueRun: async (_id: number) => {},
+  });
+  registerUploadsRoutes(app, { runs, runsDir, draftUploadsDir });
+  return { app, projectId: p.id, launched, runs, runsDir, draftUploadsDir };
 }
 
 function makeApp() {
@@ -58,6 +95,7 @@ function makeApp() {
     runs, projects, gh: stubGh,
     streams,
     runsDir: dir,
+    draftUploadsDir: dir,
     launch: async (_id: number) => {},
     cancel: async (_id: number) => {},
     fireResumeNow: (_id: number) => {},
@@ -165,6 +203,7 @@ describe('runs routes', () => {
       runs, projects, gh: stubGh,
       streams: new RunStreamRegistry(),
       runsDir: dir,
+      draftUploadsDir: dir,
       launch: async (_id: number) => {},
       cancel: async (_id: number) => {},
       fireResumeNow: (id: number) => { fired.push(id); },
@@ -207,6 +246,7 @@ describe('runs routes', () => {
     const app = Fastify();
     registerRunsRoutes(app, {
       runs, projects, gh: stubGh, streams: new RunStreamRegistry(), runsDir: dir,
+      draftUploadsDir: dir,
       launch: async () => {}, cancel: async () => {},
       fireResumeNow: () => {},
       continueRun: async (id: number) => { continued.push(id); },
@@ -246,6 +286,7 @@ describe('runs routes', () => {
     const app = Fastify();
     registerRunsRoutes(app, {
       runs, projects, gh: stubGh, streams: new RunStreamRegistry(), runsDir: dir,
+      draftUploadsDir: dir,
       launch: async () => {}, cancel: async () => {},
       fireResumeNow: () => {},
       continueRun: () => longContinue,
@@ -321,6 +362,7 @@ describe('runs routes', () => {
     const app = Fastify();
     registerRunsRoutes(app, {
       runs, projects, gh: stubGh, streams: new RunStreamRegistry(), runsDir: dir,
+      draftUploadsDir: dir,
       launch: async () => {}, cancel: async () => {},
       fireResumeNow: () => {},
       continueRun: async () => { throw new Error('should not be called'); },
@@ -330,5 +372,60 @@ describe('runs routes', () => {
     const body = res.json() as { code: string; message: string };
     expect(body.code).toBe('no_session');
     expect(body.message).toMatch(/session/i);
+  });
+
+  describe('draft_token integration', () => {
+    it('POST /api/projects/:id/runs with draft_token promotes uploads and still launches', async () => {
+      const { app, projectId, launched, runsDir } = setupWithUploads();
+
+      // Upload a draft file.
+      const form = new FormData();
+      form.append('file', Buffer.from('hi'), { filename: 'foo.csv' });
+      const up = await app.inject({
+        method: 'POST', url: '/api/draft-uploads',
+        headers: form.getHeaders(), payload: form.getBuffer(),
+      });
+      expect(up.statusCode).toBe(200);
+      const draft_token = (up.json() as { draft_token: string }).draft_token;
+
+      // Create the run with the token.
+      const res = await app.inject({
+        method: 'POST',
+        url: `/api/projects/${projectId}/runs`,
+        payload: { prompt: 'hi', draft_token },
+      });
+      expect(res.statusCode).toBe(201);
+      const body = res.json() as { id: number };
+      expect(launched).toEqual([body.id]);
+
+      // File landed in the run's uploads dir.
+      expect(fs.existsSync(
+        path.join(runsDir, String(body.id), 'uploads', 'foo.csv'),
+      )).toBe(true);
+    });
+
+    it('POST with an unknown draft_token returns 422 and does not create a run', async () => {
+      const { app, projectId, launched, runs } = setupWithUploads();
+      const res = await app.inject({
+        method: 'POST',
+        url: `/api/projects/${projectId}/runs`,
+        payload: { prompt: 'hi', draft_token: 'f'.repeat(32) },
+      });
+      expect(res.statusCode).toBe(422);
+      expect(res.json()).toEqual({ error: 'promotion_failed' });
+      expect(launched).toEqual([]);
+      expect(runs.listAll().length).toBe(0);
+    });
+
+    it('POST with a malformed draft_token returns 400', async () => {
+      const { app, projectId, launched } = setupWithUploads();
+      const res = await app.inject({
+        method: 'POST',
+        url: `/api/projects/${projectId}/runs`,
+        payload: { prompt: 'hi', draft_token: 'bogus' },
+      });
+      expect(res.statusCode).toBe(400);
+      expect(launched).toEqual([]);
+    });
   });
 });

@@ -104,6 +104,7 @@ async function main() {
     runs, projects, gh,
     streams,
     runsDir: config.runsDir,
+    draftUploadsDir: config.draftUploadsDir,
     launch: (id) => orchestrator.launch(id),
     cancel: (id) => orchestrator.cancel(id),
     fireResumeNow: (id) => orchestrator.fireResumeNow(id),

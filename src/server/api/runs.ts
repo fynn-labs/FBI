@@ -8,6 +8,8 @@ import { parseGitHubRepo } from '../../shared/parseGitHubRepo.js';
 import { LogStore } from '../logs/store.js';
 import type { RunStreamRegistry } from '../logs/registry.js';
 import { checkContinueEligibility } from '../orchestrator/continueEligibility.js';
+import { promoteDraft } from '../uploads/promote.js';
+import { isDraftToken } from '../uploads/token.js';
 
 interface GhDeps {
   available(): Promise<boolean>;
@@ -23,6 +25,7 @@ interface Deps {
   gh: GhDeps;
   streams: RunStreamRegistry;
   runsDir: string;
+  draftUploadsDir: string;
   launch: (runId: number) => Promise<void>;
   cancel: (runId: number) => Promise<void>;
   fireResumeNow: (runId: number) => void;
@@ -89,14 +92,36 @@ export function registerRunsRoutes(app: FastifyInstance, deps: Deps): void {
 
   app.post('/api/projects/:id/runs', async (req, reply) => {
     const { id } = req.params as { id: string };
-    const body = req.body as { prompt: string; branch?: string };
+    const body = req.body as { prompt: string; branch?: string; draft_token?: string };
     const hint = (body.branch ?? '').trim();
+    const token = typeof body.draft_token === 'string' ? body.draft_token : '';
+    if (token.length > 0 && !isDraftToken(token)) {
+      return reply.code(400).send({ error: 'invalid_token' });
+    }
     const run = deps.runs.create({
       project_id: Number(id),
       prompt: body.prompt,
       branch_hint: hint === '' ? undefined : hint,
       log_path_tmpl: (rid) => path.join(deps.runsDir, `${rid}.log`),
     });
+    if (token.length > 0) {
+      try {
+        await promoteDraft({
+          draftDir: deps.draftUploadsDir,
+          runsDir: deps.runsDir,
+          token,
+          runId: run.id,
+        });
+      } catch (err) {
+        // Rollback: delete the run row and its (possibly partial) uploads dir.
+        deps.runs.delete(run.id);
+        try {
+          fs.rmSync(path.join(deps.runsDir, String(run.id)), { recursive: true, force: true });
+        } catch { /* noop */ }
+        app.log.error({ err }, 'draft promotion failed');
+        return reply.code(422).send({ error: 'promotion_failed' });
+      }
+    }
     void deps.launch(run.id).catch((err) => app.log.error({ err }, 'launch failed'));
     reply.code(201);
     return run;
