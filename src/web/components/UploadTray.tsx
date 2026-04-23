@@ -30,10 +30,8 @@ export function UploadTray(props: UploadTrayProps) {
   const inputRef = useRef<HTMLInputElement | null>(null);
   const [error, setError] = useState<string | null>(null);
 
-  const handleFiles = useCallback(
-    async (files: FileList | null) => {
-      if (!files || files.length === 0) return;
-      const file = files[0];
+  const handleFile = useCallback(
+    async (file: File) => {
       if (file.size > props.maxFileBytes) {
         setError(`File too large (max ${humanSize(props.maxFileBytes)})`);
         return;
@@ -65,7 +63,12 @@ export function UploadTray(props: UploadTrayProps) {
           data-testid="upload-input"
           type="file"
           disabled={props.disabled}
-          onChange={(e) => void handleFiles(e.target.files)}
+          onChange={(e) => {
+            const file = e.target.files?.[0];
+            // Reset so picking the same file twice still fires onChange.
+            e.target.value = '';
+            if (file) void handleFile(file);
+          }}
           className="sr-only"
         />
         <span className="cursor-pointer" role="button" aria-label="Attach a file">
