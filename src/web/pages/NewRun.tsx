@@ -24,6 +24,7 @@ export function NewRunPage() {
   const [draftToken, setDraftToken] = useState<string | null>(null);
   const [attached, setAttached] = useState<UploadTrayFile[]>([]);
   const textareaRef = useRef<HTMLTextAreaElement | null>(null);
+  const dropZoneRef = useRef<HTMLDivElement | null>(null);
 
   function insertAtCursor(el: HTMLTextAreaElement | null, text: string): void {
     if (!el) return;
@@ -84,14 +85,20 @@ export function NewRunPage() {
         <Input className="w-full" value={branch} onChange={(e) => setBranch(e.target.value)} placeholder="feat/branch-name" />
       </FormRow>
       <FormRow label="Prompt">
-        <Textarea
-          ref={textareaRef}
-          className="w-full" rows={12} autoFocus
-          value={prompt} onChange={(e) => setPrompt(e.target.value)}
-          placeholder="Describe what Claude should do…"
-        />
+        <div
+          ref={dropZoneRef}
+          className="relative rounded-md data-[upload-drag-active=true]:ring-2 data-[upload-drag-active=true]:ring-accent transition-[box-shadow] duration-fast ease-out"
+        >
+          <Textarea
+            ref={textareaRef}
+            className="w-full" rows={12} autoFocus
+            value={prompt} onChange={(e) => setPrompt(e.target.value)}
+            placeholder="Describe what Claude should do…"
+          />
+        </div>
         <UploadTray
           attached={attached}
+          dropZoneRef={dropZoneRef}
           upload={async (file) => {
             const res = await api.uploadDraftFile(file, draftToken);
             setDraftToken(res.draft_token);
