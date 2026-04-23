@@ -406,6 +406,28 @@ export function registerRunsRoutes(app: FastifyInstance, deps: Deps): void {
     };
   });
 
+  app.get('/api/runs/:id/submodule/*', async (req, reply) => {
+    const rawPath = (req.params as { '*': string })['*'];
+    // expected: <submodule-path>/commits/<sha>/files
+    const m = rawPath.match(/^(.+)\/commits\/([0-9a-f]{7,40})\/files$/);
+    if (!m) return reply.code(404).send({ error: 'not found' });
+    const [, submodulePath, sha] = m;
+    if (submodulePath.includes('..')) return reply.code(400).send({ error: 'invalid path' });
+
+    const { id } = req.params as { id: string };
+    const runId = Number(id);
+    const run = deps.runs.get(runId);
+    if (!run) return reply.code(404).send({ error: 'not found' });
+
+    try {
+      const r = await deps.orchestrator.execInContainer(runId, [
+        'git', '-C', `/workspace/${submodulePath}`, 'show', '--numstat', '--format=', sha,
+      ], { timeoutMs: 5000 });
+      if (r.exitCode === 0) return { files: parseNumstat(r.stdout) };
+    } catch { /* no container */ }
+    return { files: [] };
+  });
+
   app.get('/api/runs/:id/file-diff', async (req, reply) => {
     const { id } = req.params as { id: string };
     const runId = Number(id);

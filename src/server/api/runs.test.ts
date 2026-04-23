@@ -411,6 +411,37 @@ describe('runs routes', () => {
     ]);
   });
 
+  it('GET /api/runs/:id/submodule/<path>/commits/<sha>/files returns numstat', async () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'fbi-'));
+    const db = openDb(path.join(dir, 'db.sqlite'));
+    const projects = new ProjectsRepo(db);
+    const runs = new RunsRepo(db);
+    const p = projects.create({ name: 'p', repo_url: 'https://github.com/me/foo.git', default_branch: 'main',
+      devcontainer_override_json: null, instructions: null,
+      git_author_name: null, git_author_email: null });
+    const r = runs.create({ project_id: p.id, prompt: 'x', branch_hint: 'feat/x', log_path_tmpl: (id) => `/tmp/${id}.log` });
+    runs.markStarted(r.id, 'c');
+    const run = runs.get(r.id)!;
+
+    const app = Fastify();
+    registerRunsRoutes(app, {
+      runs, projects, gh: stubGh, streams: new RunStreamRegistry(),
+      runsDir: dir, draftUploadsDir: dir,
+      launch: async () => {}, cancel: async () => {},
+      fireResumeNow: () => {}, continueRun: async () => {},
+      orchestrator: {
+        ...stubOrchestrator,
+        execInContainer: async () => ({ stdout: '3\t1\tfoo.ts\n', stderr: '', exitCode: 0 }),
+      },
+    });
+    const res = await app.inject({
+      method: 'GET',
+      url: `/api/runs/${run.id}/submodule/cli/my-sub/commits/abc1234/files`,
+    });
+    expect(res.statusCode).toBe(200);
+    expect(res.json()).toEqual({ files: [{ path: 'foo.ts', status: 'M', additions: 3, deletions: 1 }] });
+  });
+
   it('POST /api/runs/:id/continue returns 409 with code when ineligible', async () => {
     const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'fbi-'));
     const db = openDb(path.join(dir, 'db.sqlite'));
