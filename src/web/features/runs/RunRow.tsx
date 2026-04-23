@@ -16,7 +16,7 @@ const TONE: Record<Run['state'], PillTone> = {
   awaiting_resume: 'warn',
   succeeded: 'ok',
   failed: 'fail',
-  cancelled: 'warn',
+  cancelled: 'wait',
 };
 
 export interface RunRowProps {

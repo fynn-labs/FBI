@@ -8,7 +8,7 @@ import { RunUsage } from './RunUsage.js';
 
 const TONE: Record<Run['state'], PillTone> = {
   queued: 'wait', running: 'run', waiting: 'attn', awaiting_resume: 'warn',
-  succeeded: 'ok', failed: 'fail', cancelled: 'warn',
+  succeeded: 'ok', failed: 'fail', cancelled: 'wait',
 };
 
 function formatReset(ms: number | null): string | null {
