@@ -23,7 +23,8 @@ import { SshAgentForwarding, type GitAuth } from './gitAuth.js';
 import { classify, type RateLimitStateInput } from './resumeDetector.js';
 import type { RateLimitSnapshot } from '../../shared/types.js';
 import { ResumeScheduler } from './resumeScheduler.js';
-import { scanSessionId, runMountDir, runStateDir, runUploadsDir } from './sessionId.js';
+import { scanSessionId, runMountDir, runStateDir, runUploadsDir, runScriptsDir } from './sessionId.js';
+import { snapshotScripts } from './snapshotScripts.js';
 import { TitleWatcher } from './titleWatcher.js';
 import type { RateLimitStateRepo } from '../db/rateLimitState.js';
 import type { UsageRepo } from '../db/usage.js';
@@ -136,6 +137,12 @@ export class Orchestrator {
     return dir;
   }
 
+  private ensureScriptsDir(runId: number): string {
+    const dir = runScriptsDir(this.deps.config.runsDir, runId);
+    snapshotScripts(dir, SUPERVISOR, FINALIZE_BRANCH);
+    return dir;
+  }
+
   private publishState(runId: number): void {
     const run = this.deps.runs.get(runId);
     if (!run) return;
@@ -198,6 +205,7 @@ export class Orchestrator {
     const plugins = uniq([...settingsData.global_plugins, ...project.plugins]);
 
     const mountDir = this.ensureMountDir(runId);
+    const scriptsDir = this.ensureScriptsDir(runId);
 
     onBytes(Buffer.from(`[fbi] starting container\n`));
     const container = await this.deps.docker.createContainer({
@@ -228,8 +236,8 @@ export class Orchestrator {
         NanoCpus: Math.round(cpus * 1e9),
         PidsLimit: pids,
         Binds: [
-          `${SUPERVISOR}:/usr/local/bin/supervisor.sh:ro`,
-          `${FINALIZE_BRANCH}:/usr/local/bin/fbi-finalize-branch.sh:ro`,
+          `${path.join(scriptsDir, 'supervisor.sh')}:/usr/local/bin/supervisor.sh:ro`,
+          `${path.join(scriptsDir, 'finalizeBranch.sh')}:/usr/local/bin/fbi-finalize-branch.sh:ro`,
           `${mountDir}:/home/agent/.claude/projects/`,
           `${this.ensureStateDir(runId)}:/fbi-state/`,
           `${this.ensureUploadsDir(runId)}:/fbi/uploads:ro`,
