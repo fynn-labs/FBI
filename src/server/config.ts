@@ -11,6 +11,7 @@ export interface Config {
   port: number;
   dbPath: string;
   runsDir: string;
+  draftUploadsDir: string;
   hostSshAuthSock: string;
   hostClaudeDir: string;
   secretsKeyFile: string;
@@ -33,6 +34,8 @@ export function loadConfig(): Config {
     port: Number(process.env.PORT ?? 3000),
     dbPath: process.env.DB_PATH ?? '/var/lib/agent-manager/db.sqlite',
     runsDir: process.env.RUNS_DIR ?? '/var/lib/agent-manager/runs',
+    draftUploadsDir:
+      process.env.DRAFT_UPLOADS_DIR ?? '/var/lib/agent-manager/draft-uploads',
     hostSshAuthSock: process.env.HOST_SSH_AUTH_SOCK ?? process.env.SSH_AUTH_SOCK ?? '',
     hostClaudeDir: process.env.HOST_CLAUDE_DIR ?? path.join(os.homedir(), '.claude'),
     secretsKeyFile: process.env.SECRETS_KEY_FILE ?? '/etc/agent-manager/secrets.key',
