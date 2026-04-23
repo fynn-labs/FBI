@@ -64,7 +64,11 @@ export function registerUploadsRoutes(app: FastifyInstance, deps: Deps): void {
     const runId = Number((req.params as { id: string }).id);
     const run = deps.runs.get(runId);
     if (!run) return reply.code(404).send({ error: 'not_found' });
-    if (run.state !== 'waiting') return reply.code(409).send({ error: 'wrong_state' });
+    // Allowed while the container is live so users can attach files to
+    // queued prompts during a turn (matches Claude Code's queued-input UX).
+    if (run.state !== 'waiting' && run.state !== 'running') {
+      return reply.code(409).send({ error: 'wrong_state' });
+    }
 
     const dir = path.join(deps.runsDir, String(runId), 'uploads');
     await fsp.mkdir(dir, { recursive: true });
@@ -110,7 +114,9 @@ export function registerUploadsRoutes(app: FastifyInstance, deps: Deps): void {
     const runId = Number((req.params as { id: string }).id);
     const run = deps.runs.get(runId);
     if (!run) return reply.code(404).send({ error: 'not_found' });
-    if (run.state !== 'waiting') return reply.code(409).send({ error: 'wrong_state' });
+    if (run.state !== 'waiting' && run.state !== 'running') {
+      return reply.code(409).send({ error: 'wrong_state' });
+    }
 
     let filename: string;
     try {

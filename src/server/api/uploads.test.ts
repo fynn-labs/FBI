@@ -162,12 +162,13 @@ describe('POST /api/runs/:id/uploads', () => {
     expect(written).toBe('hi');
   });
 
-  it('returns 409 when state is running', async () => {
+  it('writes the file when state is running (allows queued-prompt uploads)', async () => {
     const s = setup();
     const run = makeRun(s, 'running');
     const res = await injectMultipart(s.app, `/api/runs/${run.id}/uploads`, 'foo.csv', Buffer.from('hi'));
-    expect(res.statusCode).toBe(409);
-    expect(res.json()).toEqual({ error: 'wrong_state' });
+    expect(res.statusCode).toBe(200);
+    const written = fs.readFileSync(path.join(s.runsDir, String(run.id), 'uploads', 'foo.csv'), 'utf8');
+    expect(written).toBe('hi');
   });
 
   it('returns 409 when state is succeeded', async () => {
@@ -175,6 +176,7 @@ describe('POST /api/runs/:id/uploads', () => {
     const run = makeRun(s, 'succeeded');
     const res = await injectMultipart(s.app, `/api/runs/${run.id}/uploads`, 'foo.csv', Buffer.from('hi'));
     expect(res.statusCode).toBe(409);
+    expect(res.json()).toEqual({ error: 'wrong_state' });
   });
 
   it('returns 404 when the run does not exist', async () => {
@@ -237,9 +239,20 @@ describe('DELETE /api/runs/:id/uploads/:filename', () => {
     expect(fs.existsSync(path.join(s.runsDir, String(run.id), 'uploads', 'foo.csv'))).toBe(false);
   });
 
-  it('returns 409 when state is not waiting', async () => {
+  it('removes the file when state is running', async () => {
     const s = setup();
     const run = makeRun(s, 'running');
+    const dir = path.join(s.runsDir, String(run.id), 'uploads');
+    fs.mkdirSync(dir, { recursive: true });
+    fs.writeFileSync(path.join(dir, 'foo.csv'), 'x');
+    const res = await s.app.inject({ method: 'DELETE', url: `/api/runs/${run.id}/uploads/foo.csv` });
+    expect(res.statusCode).toBe(204);
+    expect(fs.existsSync(path.join(dir, 'foo.csv'))).toBe(false);
+  });
+
+  it('returns 409 when state is succeeded', async () => {
+    const s = setup();
+    const run = makeRun(s, 'succeeded');
     const dir = path.join(s.runsDir, String(run.id), 'uploads');
     fs.mkdirSync(dir, { recursive: true });
     fs.writeFileSync(path.join(dir, 'foo.csv'), 'x');
