@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import type { Project, Run } from '@shared/types.js';
 import { api } from '../lib/api.js';
@@ -15,6 +15,8 @@ import { TunnelTab } from '../features/runs/TunnelTab.js';
 import type { ListeningPort } from '@shared/types.js';
 import { useKeyBinding } from '@ui/shell/KeyMap.js';
 import { subscribeState, subscribeTitle } from '../features/runs/usageBus.js';
+import { UploadTray, type UploadTrayFile } from '../components/UploadTray.js';
+import { acquireShell, releaseShell } from '../lib/shellRegistry.js';
 
 export function RunDetailPage() {
   const params = useParams();
@@ -30,6 +32,22 @@ export function RunDetailPage() {
   const [diff, setDiff] = useState<Awaited<ReturnType<typeof api.getRunDiff>> | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [ports, setPorts] = useState<ListeningPort[]>([]);
+  const [attached, setAttached] = useState<UploadTrayFile[]>([]);
+
+  const refreshUploads = useCallback(async () => {
+    try {
+      const { files } = await api.listRunUploads(runId);
+      setAttached(files.map(f => ({ filename: f.filename, size: f.size })));
+    } catch { /* silent */ }
+  }, [runId]);
+
+  useEffect(() => {
+    void refreshUploads();
+  }, [refreshUploads]);
+
+  useEffect(() => {
+    if (run?.state === 'waiting') void refreshUploads();
+  }, [run?.state, refreshUploads]);
 
   useKeyBinding({ chord: 'mod+j', handler: () => setDrawerOpen((v) => !v), description: 'Toggle run drawer' }, []);
 
@@ -200,6 +218,33 @@ export function RunDetailPage() {
       <div className="flex-1 min-h-0 flex">
         <div className="flex-1 min-w-0 flex flex-col">
           <RunTerminal runId={run.id} interactive={interactive} />
+          <div className="px-3 py-2 border-t border-border">
+            <UploadTray
+              disabled={run.state !== 'waiting'}
+              disabledReason="Uploads are available while the agent is waiting for input."
+              attached={attached}
+              upload={async (file) => {
+                const res = await api.uploadRunFile(run.id, file);
+                setAttached(prev => [...prev, { filename: res.filename, size: res.size }]);
+                return { filename: res.filename, size: res.size };
+              }}
+              onUploaded={(filename) => {
+                const text = `@/fbi/uploads/${filename} `;
+                const shell = acquireShell(run.id);
+                shell.send(new TextEncoder().encode(text));
+                releaseShell(run.id);
+              }}
+              onRemove={async (filename) => {
+                try {
+                  await api.deleteRunUpload(run.id, filename);
+                } catch { /* best-effort */ }
+                setAttached(prev => prev.filter(f => f.filename !== filename));
+              }}
+              maxFileBytes={100 * 1024 * 1024}
+              maxTotalBytes={1024 * 1024 * 1024}
+              totalBytes={attached.reduce((n, f) => n + f.size, 0)}
+            />
+          </div>
           <RunDrawer
             open={drawerOpen}
             onToggle={setDrawerOpen}
