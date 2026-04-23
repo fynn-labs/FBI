@@ -75,24 +75,4 @@ describe('GhClient', () => {
     expect(await gh.commitsOnBranch('me/foo', 'feat/x')).toEqual([]);
   });
 
-  it('mergeBranch returns merged:true with sha on success', async () => {
-    mockOk(JSON.stringify({ sha: 'deadbeef' }));
-    const gh = new GhClient();
-    const r = await gh.mergeBranch('me/foo', 'feat/x', 'main', 'msg');
-    expect(r).toEqual({ merged: true, sha: 'deadbeef' });
-  });
-
-  it('mergeBranch returns merged:false reason=conflict on 409', async () => {
-    mockErr(1, 'HTTP 409: Merge conflict');
-    const gh = new GhClient();
-    const r = await gh.mergeBranch('me/foo', 'feat/x', 'main', 'msg');
-    expect(r).toEqual({ merged: false, reason: 'conflict' });
-  });
-
-  it('mergeBranch returns reason=gh-error for unknown failures', async () => {
-    mockErr(1, 'HTTP 500: Something broke');
-    const gh = new GhClient();
-    const r = await gh.mergeBranch('me/foo', 'feat/x', 'main', 'msg');
-    expect(r).toEqual({ merged: false, reason: 'gh-error' });
-  });
 });

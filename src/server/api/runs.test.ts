@@ -19,7 +19,6 @@ const stubGh = {
   createPr: async () => ({ number: 1, url: 'u', state: 'OPEN' as const, title: 't' }),
   compareFiles: async () => [],
   commitsOnBranch: async () => [],
-  mergeBranch: async () => ({ merged: false as const, reason: 'gh-error' as const }),
 };
 
 const stubOrchestrator = {
@@ -410,73 +409,6 @@ describe('runs routes', () => {
       { path: 'src/a.ts', status: 'M', additions: 5, deletions: 2 },
       { path: 'img.png', status: 'M', additions: 0, deletions: 0 },
     ]);
-  });
-
-  describe('POST /api/runs/:id/github/merge', () => {
-    function setupRun(state: 'running' | 'succeeded') {
-      const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'fbi-'));
-      const db = openDb(path.join(dir, 'db.sqlite'));
-      const projects = new ProjectsRepo(db);
-      const runs = new RunsRepo(db);
-      const p = projects.create({ name: 'p', repo_url: 'https://github.com/me/foo.git', default_branch: 'main',
-        devcontainer_override_json: null, instructions: null,
-        git_author_name: null, git_author_email: null });
-      const r = runs.create({ project_id: p.id, prompt: 'x', branch_hint: 'feat/x', log_path_tmpl: (id) => `/tmp/${id}.log` });
-      runs.markStarted(r.id, 'c');
-      if (state === 'succeeded') runs.markFinished(r.id, { state: 'succeeded', branch_name: 'feat/x' });
-      return { dir, projects, runs, run: runs.get(r.id)! };
-    }
-
-    it('fast path: returns merged:true on gh success', async () => {
-      const { dir, projects, runs, run } = setupRun('succeeded');
-      const app = Fastify();
-      registerRunsRoutes(app, {
-        runs, projects, streams: new RunStreamRegistry(), runsDir: dir, draftUploadsDir: dir,
-        launch: async () => {}, cancel: async () => {},
-        fireResumeNow: () => {}, continueRun: async () => {},
-        gh: { ...stubGh, mergeBranch: async () => ({ merged: true as const, sha: 'deadbeef' }) },
-        orchestrator: stubOrchestrator,
-      });
-      const res = await app.inject({ method: 'POST', url: `/api/runs/${run.id}/github/merge` });
-      expect(res.statusCode).toBe(200);
-      expect(res.json()).toEqual({ merged: true, sha: 'deadbeef' });
-    });
-
-    it('conflict + running: delegates to agent via writeStdin', async () => {
-      const { dir, projects, runs, run } = setupRun('running');
-      const writes: Array<{ runId: number; text: string }> = [];
-      const app = Fastify();
-      registerRunsRoutes(app, {
-        runs, projects, streams: new RunStreamRegistry(), runsDir: dir, draftUploadsDir: dir,
-        launch: async () => {}, cancel: async () => {},
-        fireResumeNow: () => {}, continueRun: async () => {},
-        gh: { ...stubGh, mergeBranch: async () => ({ merged: false as const, reason: 'conflict' as const }) },
-        orchestrator: {
-          ...stubOrchestrator,
-          writeStdin: (runId, bytes) => writes.push({ runId, text: Buffer.from(bytes).toString('utf8') }),
-        },
-      });
-      const res = await app.inject({ method: 'POST', url: `/api/runs/${run.id}/github/merge` });
-      expect(res.statusCode).toBe(200);
-      expect(res.json()).toEqual({ merged: false, reason: 'conflict', agent: true });
-      expect(writes).toHaveLength(1);
-      expect(writes[0].text).toMatch(/Merge branch feat\/x/);
-    });
-
-    it('conflict + succeeded: returns 409 agent-busy', async () => {
-      const { dir, projects, runs, run } = setupRun('succeeded');
-      const app = Fastify();
-      registerRunsRoutes(app, {
-        runs, projects, streams: new RunStreamRegistry(), runsDir: dir, draftUploadsDir: dir,
-        launch: async () => {}, cancel: async () => {},
-        fireResumeNow: () => {}, continueRun: async () => {},
-        gh: { ...stubGh, mergeBranch: async () => ({ merged: false as const, reason: 'conflict' as const }) },
-        orchestrator: stubOrchestrator,
-      });
-      const res = await app.inject({ method: 'POST', url: `/api/runs/${run.id}/github/merge` });
-      expect(res.statusCode).toBe(409);
-      expect(res.json()).toEqual({ merged: false, reason: 'agent-busy' });
-    });
   });
 
   it('POST /api/runs/:id/continue returns 409 with code when ineligible', async () => {

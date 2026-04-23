@@ -12,7 +12,7 @@ import { promoteDraft } from '../uploads/promote.js';
 import { isDraftToken } from '../uploads/token.js';
 import type {
   FilesPayload, FilesHeadEntry, FileDiffPayload, FileDiffHunk,
-  GithubPayload, MergeResponse, HistoryOp, HistoryResult, MergeStrategy,
+  GithubPayload, HistoryOp, HistoryResult, MergeStrategy,
 } from '../../shared/types.js';
 import type { ChangesPayload, ChangeCommit } from '../../shared/types.js';
 import type { ParsedOpResult } from '../orchestrator/historyOp.js';
@@ -24,9 +24,6 @@ interface GhDeps {
   createPr(repo: string, p: { head: string; base: string; title: string; body: string }): Promise<{ number: number; url: string; state: 'OPEN' | 'CLOSED' | 'MERGED'; title: string }>;
   compareFiles(repo: string, base: string, head: string): Promise<Array<{ filename: string; additions: number; deletions: number; status: string }>>;
   commitsOnBranch(repo: string, branch: string): Promise<Array<{ sha: string; subject: string; committed_at: number; pushed: boolean }>>;
-  mergeBranch(repo: string, head: string, base: string, commit_message: string): Promise<
-    { merged: true; sha: string } | { merged: false; reason: 'conflict' | 'gh-error' | 'already-merged' }
-  >;
 }
 
 interface OrchestratorDep {
@@ -460,56 +457,4 @@ export function registerRunsRoutes(app: FastifyInstance, deps: Deps): void {
     return reply.code(500).send({ kind: 'invalid', message: result.message } satisfies HistoryResult);
   });
 
-  app.post('/api/runs/:id/github/merge', async (req, reply) => {
-    const { id } = req.params as { id: string };
-    const runId = Number(id);
-    const run = deps.runs.get(runId);
-    if (!run) return reply.code(404).send({ error: 'not found' });
-    const project = deps.projects.get(run.project_id);
-    const repo = project ? parseGitHubRepo(project.repo_url) : null;
-    if (!project || !repo) {
-      return reply.code(400).send({ merged: false, reason: 'not-github' } satisfies MergeResponse);
-    }
-    if (!run.branch_name) {
-      return reply.code(400).send({ merged: false, reason: 'no-branch' } satisfies MergeResponse);
-    }
-    if (!(await deps.gh.available())) {
-      return reply.code(503).send({ merged: false, reason: 'gh-not-available' } satisfies MergeResponse);
-    }
-
-    const commitMsg = `Merge branch '${run.branch_name}' (FBI run #${runId})`;
-    const r = await deps.gh.mergeBranch(repo, run.branch_name, project.default_branch, commitMsg);
-    if (r.merged) {
-      invalidate(runId);
-      return { merged: true, sha: r.sha } satisfies MergeResponse;
-    }
-    if (r.reason === 'already-merged') {
-      invalidate(runId);
-      return { merged: false, reason: 'already-merged' } satisfies MergeResponse;
-    }
-    if (r.reason !== 'conflict') {
-      return reply.code(500).send({ merged: false, reason: 'gh-error' } satisfies MergeResponse);
-    }
-
-    // Conflict. If the run's container is alive, inject a merge prompt via
-    // stdin so Claude resolves it. Otherwise the user needs a live container.
-    if (run.state !== 'running' && run.state !== 'waiting') {
-      return reply.code(409).send({ merged: false, reason: 'agent-busy' } satisfies MergeResponse);
-    }
-    const prompt =
-      `Merge branch ${run.branch_name} into ${project.default_branch}, ` +
-      `resolve conflicts, and push ${project.default_branch}. Steps:\n` +
-      `1. git fetch origin\n` +
-      `2. git checkout ${project.default_branch}\n` +
-      `3. git pull --ff-only origin ${project.default_branch}\n` +
-      `4. git merge --no-ff ${run.branch_name}\n` +
-      `5. If conflicts: resolve, git add, git commit.\n` +
-      `6. git push origin ${project.default_branch}\n`;
-    try {
-      deps.orchestrator.writeStdin(runId, Buffer.from(prompt + '\n'));
-      return { merged: false, reason: 'conflict', agent: true } satisfies MergeResponse;
-    } catch {
-      return reply.code(409).send({ merged: false, reason: 'agent-busy' } satisfies MergeResponse);
-    }
-  });
 }
