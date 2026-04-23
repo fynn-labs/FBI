@@ -515,6 +515,27 @@ describe('runs routes', () => {
       expect(res.json()).toEqual({ kind: 'agent', child_run_id: 88 });
       expect(spawned).toEqual([{ parent: run.id, kind: 'polish' }]);
     });
+
+    it('push-submodule routes to execHistoryOp', async () => {
+      const { dir, projects, runs, run } = setupRun();
+      let received: unknown = null;
+      const app = Fastify();
+      registerRunsRoutes(app, {
+        runs, projects, streams: new RunStreamRegistry(),
+        runsDir: dir, draftUploadsDir: dir,
+        launch: async () => {}, cancel: async () => {},
+        fireResumeNow: () => {}, continueRun: async () => {},
+        gh: stubGh,
+        orchestrator: {
+          ...stubOrchestrator,
+          execHistoryOp: async (_rid, op) => { received = op; return { kind: 'complete', sha: 'abc' }; },
+        },
+      });
+      const res = await app.inject({ method: 'POST', url: `/api/runs/${run.id}/history`,
+        payload: { op: 'push-submodule', path: 'foo' } });
+      expect(res.statusCode).toBe(200);
+      expect(received).toEqual({ op: 'push-submodule', path: 'foo' });
+    });
   });
 
   describe('draft_token integration', () => {

@@ -30,6 +30,7 @@ export interface HistoryOpEnv {
   FBI_STRATEGY?: string;
   FBI_SUBJECT?: string;
   FBI_RUN_ID?: string;
+  FBI_PATH?: string;
 }
 
 export function buildEnv(runId: number, branch: string, defaultBranch: string, op: HistoryOp): HistoryOpEnv {
@@ -44,6 +45,7 @@ export function buildEnv(runId: number, branch: string, defaultBranch: string, o
     env.FBI_SUBJECT = `Merge branch '${branch}' (FBI run #${runId})`;
   }
   if (op.op === 'squash-local') env.FBI_SUBJECT = op.subject;
+  if (op.op === 'push-submodule') env.FBI_PATH = op.path;
   return env;
 }
 
