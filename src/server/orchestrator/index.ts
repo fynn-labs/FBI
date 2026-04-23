@@ -24,6 +24,7 @@ import { classify, type RateLimitStateInput } from './resumeDetector.js';
 import type { RateLimitSnapshot } from '../../shared/types.js';
 import { ResumeScheduler } from './resumeScheduler.js';
 import { scanSessionId, runMountDir, runStateDir, runUploadsDir, runScriptsDir } from './sessionId.js';
+import { snapshotScripts } from './snapshotScripts.js';
 import { TitleWatcher } from './titleWatcher.js';
 import type { RateLimitStateRepo } from '../db/rateLimitState.js';
 import type { UsageRepo } from '../db/usage.js';
@@ -136,22 +137,9 @@ export class Orchestrator {
     return dir;
   }
 
-  // Snapshot the entrypoint scripts to a per-run dir and bind-mount *those*
-  // into the container. A live bind of the source paths breaks when the host
-  // file changes mid-run: bash reads the script by byte offset, so a rewrite
-  // while bash is blocked inside `claude` leaves its position pointing into
-  // the middle of a different line, producing a "syntax error near
-  // unexpected token" on the next command after claude exits. Copying once
-  // at container-create time pins the bytes for the life of the run.
   private ensureScriptsDir(runId: number): string {
     const dir = runScriptsDir(this.deps.config.runsDir, runId);
-    fs.mkdirSync(dir, { recursive: true });
-    const sup = path.join(dir, 'supervisor.sh');
-    const fin = path.join(dir, 'finalizeBranch.sh');
-    fs.copyFileSync(SUPERVISOR, sup);
-    fs.copyFileSync(FINALIZE_BRANCH, fin);
-    fs.chmodSync(sup, 0o755);
-    fs.chmodSync(fin, 0o755);
+    snapshotScripts(dir, SUPERVISOR, FINALIZE_BRANCH);
     return dir;
   }
 
