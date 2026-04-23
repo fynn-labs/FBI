@@ -358,61 +358,58 @@ describe('runs routes', () => {
     });
   });
 
-  describe('GET /api/runs/:id/files', () => {
-    it('returns the orchestrator snapshot when live', async () => {
-      const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'fbi-'));
-      const db = openDb(path.join(dir, 'db.sqlite'));
-      const projects = new ProjectsRepo(db);
-      const runs = new RunsRepo(db);
-      const p = projects.create({ name: 'p', repo_url: 'https://github.com/me/foo.git', default_branch: 'main',
-        devcontainer_override_json: null, instructions: null,
-        git_author_name: null, git_author_email: null });
-      const r = runs.create({ project_id: p.id, prompt: 'x', branch_hint: 'feat/x', log_path_tmpl: (id) => `/tmp/${id}.log` });
-      runs.markStarted(r.id, 'c');
+  it('changes endpoint caches for 10s', async () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'fbi-'));
+    const db = openDb(path.join(dir, 'db.sqlite'));
+    const projects = new ProjectsRepo(db);
+    const runs = new RunsRepo(db);
+    const p = projects.create({ name: 'p', repo_url: 'https://github.com/me/foo.git', default_branch: 'main',
+      devcontainer_override_json: null, instructions: null,
+      git_author_name: null, git_author_email: null });
+    const r = runs.create({ project_id: p.id, prompt: 'x', branch_hint: 'feat/x', log_path_tmpl: (id) => `/tmp/${id}.log` });
+    runs.markStarted(r.id, 'c');
 
-      const snap = {
-        dirty: [{ path: 'a.ts', status: 'M' as const, additions: 1, deletions: 0 }],
-        head: null, headFiles: [], branchBase: null, live: true,
-      };
-      const app = Fastify();
-      registerRunsRoutes(app, {
-        runs, projects, gh: stubGh, streams: new RunStreamRegistry(), runsDir: dir, draftUploadsDir: dir,
-        launch: async () => {}, cancel: async () => {},
-        fireResumeNow: () => {}, continueRun: async () => {},
-        orchestrator: { ...stubOrchestrator, getLastFiles: () => snap },
-      });
-      const res = await app.inject({ method: 'GET', url: `/api/runs/${r.id}/files` });
-      expect(res.statusCode).toBe(200);
-      expect(res.json()).toEqual(snap);
+    let ghCalls = 0;
+    const app = Fastify();
+    registerRunsRoutes(app, {
+      runs, projects, streams: new RunStreamRegistry(), runsDir: dir, draftUploadsDir: dir,
+      launch: async () => {}, cancel: async () => {},
+      fireResumeNow: () => {}, continueRun: async () => {},
+      gh: { ...stubGh, commitsOnBranch: async () => { ghCalls++; return []; } },
+      orchestrator: stubOrchestrator,
     });
+    await app.inject({ method: 'GET', url: `/api/runs/${r.id}/changes` });
+    await app.inject({ method: 'GET', url: `/api/runs/${r.id}/changes` });
+    expect(ghCalls).toBe(1);
+  });
 
-    it('falls back to gh compare when no live container', async () => {
-      const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'fbi-'));
-      const db = openDb(path.join(dir, 'db.sqlite'));
-      const projects = new ProjectsRepo(db);
-      const runs = new RunsRepo(db);
-      const p = projects.create({ name: 'p', repo_url: 'https://github.com/me/foo.git', default_branch: 'main',
-        devcontainer_override_json: null, instructions: null,
-        git_author_name: null, git_author_email: null });
-      const r = runs.create({ project_id: p.id, prompt: 'x', branch_hint: 'feat/x', log_path_tmpl: (id) => `/tmp/${id}.log` });
-      runs.markStarted(r.id, 'c');
-      runs.markFinished(r.id, { state: 'succeeded', branch_name: 'feat/x' });
-      const app = Fastify();
-      registerRunsRoutes(app, {
-        runs, projects, streams: new RunStreamRegistry(), runsDir: dir, draftUploadsDir: dir,
-        launch: async () => {}, cancel: async () => {},
-        fireResumeNow: () => {}, continueRun: async () => {},
-        gh: { ...stubGh,
-          compareFiles: async () => [{ filename: 'x.ts', additions: 3, deletions: 1, status: 'modified' }],
-        },
-        orchestrator: stubOrchestrator,
-      });
-      const res = await app.inject({ method: 'GET', url: `/api/runs/${r.id}/files` });
-      expect(res.statusCode).toBe(200);
-      const body = res.json() as { headFiles: Array<{ path: string; status: string }>; live: boolean };
-      expect(body.live).toBe(false);
-      expect(body.headFiles[0]).toMatchObject({ path: 'x.ts', status: 'M' });
+  it('GET /api/runs/:id/commits/:sha/files returns parsed numstat via container', async () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'fbi-'));
+    const db = openDb(path.join(dir, 'db.sqlite'));
+    const projects = new ProjectsRepo(db);
+    const runs = new RunsRepo(db);
+    const p = projects.create({ name: 'p', repo_url: 'r', default_branch: 'main',
+      devcontainer_override_json: null, instructions: null,
+      git_author_name: null, git_author_email: null });
+    const r = runs.create({ project_id: p.id, prompt: 'x', log_path_tmpl: (id) => `/tmp/${id}.log` });
+
+    const app = Fastify();
+    registerRunsRoutes(app, {
+      runs, projects, gh: stubGh, streams: new RunStreamRegistry(), runsDir: dir, draftUploadsDir: dir,
+      launch: async () => {}, cancel: async () => {},
+      fireResumeNow: () => {}, continueRun: async () => {},
+      orchestrator: {
+        ...stubOrchestrator,
+        execInContainer: async () => ({ stdout: '5\t2\tsrc/a.ts\n-\t-\timg.png\n', stderr: '', exitCode: 0 }),
+      },
     });
+    const res = await app.inject({ method: 'GET', url: `/api/runs/${r.id}/commits/abc1234/files` });
+    expect(res.statusCode).toBe(200);
+    const body = res.json() as { files: Array<{ path: string; status: string; additions: number; deletions: number }> };
+    expect(body.files).toEqual([
+      { path: 'src/a.ts', status: 'M', additions: 5, deletions: 2 },
+      { path: 'img.png', status: 'M', additions: 0, deletions: 0 },
+    ]);
   });
 
   describe('POST /api/runs/:id/github/merge', () => {

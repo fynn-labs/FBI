@@ -14,6 +14,7 @@ import type {
   FilesPayload, FilesHeadEntry, FileDiffPayload, FileDiffHunk,
   GithubPayload, MergeResponse, HistoryOp, HistoryResult, MergeStrategy,
 } from '../../shared/types.js';
+import type { ChangesPayload, ChangeCommit } from '../../shared/types.js';
 import type { ParsedOpResult } from '../orchestrator/historyOp.js';
 
 interface GhDeps {
@@ -63,6 +64,18 @@ function setCached(runId: number, value: GithubPayload): void {
 }
 function invalidate(runId: number): void { ghStatusCache.delete(runId); }
 
+const CHANGES_TTL_MS = 10_000;
+const changesCache = new Map<number, { value: ChangesPayload; expiresAt: number }>();
+function getChangesCached(runId: number): ChangesPayload | null {
+  const e = changesCache.get(runId);
+  if (!e || Date.now() > e.expiresAt) return null;
+  return e.value;
+}
+function setChangesCached(runId: number, value: ChangesPayload): void {
+  changesCache.set(runId, { value, expiresAt: Date.now() + CHANGES_TTL_MS });
+}
+function invalidateChanges(runId: number): void { changesCache.delete(runId); }
+
 function parseUnifiedDiff(raw: string, path: string, ref: string): FileDiffPayload {
   const MAX = 256 * 1024;
   const truncated = raw.length > MAX;
@@ -81,6 +94,20 @@ function parseUnifiedDiff(raw: string, path: string, ref: string): FileDiffPaylo
     else if (line.startsWith(' ')) current.lines.push({ kind: 'ctx', text: line.slice(1) });
   }
   return { path, ref: ref === 'worktree' ? 'worktree' : ref, hunks, truncated };
+}
+
+function parseNumstat(raw: string): import('../../shared/types.js').FilesHeadEntry[] {
+  const out: import('../../shared/types.js').FilesHeadEntry[] = [];
+  for (const line of raw.split('\n')) {
+    if (!line) continue;
+    const [a, d, p] = line.split('\t');
+    if (!p) continue;
+    const adds = a === '-' ? 0 : Number.parseInt(a, 10) || 0;
+    const dels = d === '-' ? 0 : Number.parseInt(d, 10) || 0;
+    const status: 'A' | 'M' = dels === 0 && adds > 0 ? 'A' : 'M';
+    out.push({ path: p, status, additions: adds, deletions: dels });
+  }
+  return out;
 }
 
 export function registerRunsRoutes(app: FastifyInstance, deps: Deps): void {
@@ -224,83 +251,100 @@ export function registerRunsRoutes(app: FastifyInstance, deps: Deps): void {
     return Buffer.from(bytes);
   });
 
-  app.get('/api/runs/:id/github', async (req, reply) => {
+  app.get('/api/runs/:id/changes', async (req, reply) => {
     const { id } = req.params as { id: string };
     const runId = Number(id);
     const run = deps.runs.get(runId);
     if (!run) return reply.code(404).send({ error: 'not found' });
 
-    const cached = getCached(runId);
+    const cached = getChangesCached(runId);
     if (cached) return cached;
 
     const project = deps.projects.get(run.project_id);
     const repo = project ? parseGitHubRepo(project.repo_url) : null;
-    const available = await deps.gh.available();
-    if (!available || !repo || !run.branch_name) {
-      const payload: GithubPayload = {
-        pr: null, checks: null, commits: [], github_available: available && !!repo,
+    const ghAvail = await deps.gh.available();
+    const live = deps.orchestrator.getLastFiles(runId);
+
+    const commits: ChangeCommit[] = [];
+    let ghPayload: ChangesPayload['integrations']['github'] | undefined;
+
+    if (repo && ghAvail && run.branch_name) {
+      const [pr, checks, ghCommits] = await Promise.all([
+        deps.gh.prForBranch(repo, run.branch_name).catch(() => null),
+        deps.gh.prChecks(repo, run.branch_name).catch(() => [] as Check[]),
+        deps.gh.commitsOnBranch(repo, run.branch_name).catch(() => []),
+      ]);
+      for (const c of ghCommits) {
+        commits.push({ sha: c.sha, subject: c.subject, committed_at: c.committed_at, pushed: true, files: [], files_loaded: false });
+      }
+      const passed = checks.filter((c) => c.conclusion === 'success').length;
+      const failed = checks.filter((c) => c.conclusion === 'failure').length;
+      const total = checks.length;
+      const state = total === 0 ? null
+        : failed > 0 ? 'failure'
+        : checks.every((c) => c.status === 'completed') ? 'success'
+        : 'pending';
+      ghPayload = {
+        pr: pr ? { number: pr.number, url: pr.url, state: pr.state, title: pr.title } : null,
+        checks: total === 0 || state === null ? null : {
+          state, passed, failed, total,
+          items: checks.map((c) => ({ name: c.name, status: c.status, conclusion: c.conclusion, duration_ms: null })),
+        },
       };
-      setCached(runId, payload);
-      return payload;
     }
 
-    const pr = await deps.gh.prForBranch(repo, run.branch_name).catch(() => null);
-    const checks = await deps.gh.prChecks(repo, run.branch_name).catch(() => [] as Check[]);
-    const commits = await deps.gh.commitsOnBranch(repo, run.branch_name).catch(() => []);
-    const passed = checks.filter((c) => c.conclusion === 'success').length;
-    const failed = checks.filter((c) => c.conclusion === 'failure').length;
-    const total = checks.length;
-    const state = total === 0 ? null :
-      (failed > 0 ? 'failure' :
-       checks.every((c) => c.status === 'completed') ? 'success' : 'pending');
+    // If we have a live head commit that isn't in the gh list, prepend it as pushed:false.
+    if (live?.head) {
+      if (!commits.some((c) => c.sha === live.head!.sha)) {
+        commits.unshift({
+          sha: live.head.sha,
+          subject: live.head.subject,
+          committed_at: Math.floor(Date.now() / 1000),
+          pushed: false,
+          files: live.headFiles,
+          files_loaded: true,
+        });
+      }
+    }
 
-    const payload: GithubPayload = {
-      pr: pr ? { number: pr.number, url: pr.url, state: pr.state, title: pr.title } : null,
-      checks: total === 0 || state === null ? null : {
-        state, passed, failed, total,
-        items: checks.map((c) => ({
-          name: c.name, status: c.status, conclusion: c.conclusion, duration_ms: null,
-        })),
-      },
+    const payload: ChangesPayload = {
+      branch_name: run.branch_name || null,
+      branch_base: live?.branchBase ?? null,
       commits,
-      github_available: true,
+      uncommitted: live?.dirty ?? [],
+      integrations: ghPayload ? { github: ghPayload } : {},
     };
-    setCached(runId, payload);
+    setChangesCached(runId, payload);
     return payload;
   });
 
-  app.get('/api/runs/:id/files', async (req, reply) => {
-    const { id } = req.params as { id: string };
+  app.get('/api/runs/:id/commits/:sha/files', async (req, reply) => {
+    const { id, sha } = req.params as { id: string; sha: string };
     const runId = Number(id);
     const run = deps.runs.get(runId);
     if (!run) return reply.code(404).send({ error: 'not found' });
+    if (!/^[0-9a-f]{7,40}$/.test(sha)) return reply.code(400).send({ error: 'invalid sha' });
 
-    const live = deps.orchestrator.getLastFiles(runId);
-    if (live) return live;
+    // Prefer docker exec on a live container — works for any commit.
+    try {
+      const r = await deps.orchestrator.execInContainer(runId, [
+        'git', '-C', '/workspace', 'show', '--numstat', '--format=', sha,
+      ], { timeoutMs: 5000 });
+      if (r.exitCode === 0) return { files: parseNumstat(r.stdout) };
+    } catch { /* no container — fall through */ }
 
+    // Fallback: gh api compare parent..sha.
     const project = deps.projects.get(run.project_id);
     const repo = project ? parseGitHubRepo(project.repo_url) : null;
-    const available = await deps.gh.available();
-    if (!project || !repo || !run.branch_name || !available) {
-      return {
-        dirty: [], head: null, headFiles: [], branchBase: null, live: false,
-      } satisfies FilesPayload;
-    }
-    const files = await deps.gh.compareFiles(repo, project.default_branch, run.branch_name).catch(() => []);
-    const headFiles: FilesHeadEntry[] = files.map((f) => {
-      const status = f.status === 'added' ? 'A'
-        : f.status === 'removed' ? 'D'
-        : f.status === 'renamed' ? 'R'
-        : 'M';
-      return { path: f.filename, status, additions: f.additions, deletions: f.deletions };
-    });
+    if (!repo || !(await deps.gh.available())) return { files: [] };
+    const files = await deps.gh.compareFiles(repo, `${sha}^`, sha).catch(() => []);
     return {
-      dirty: [],
-      head: null,
-      headFiles,
-      branchBase: { base: project.default_branch, ahead: headFiles.length > 0 ? 1 : 0, behind: 0 },
-      live: false,
-    } satisfies FilesPayload;
+      files: files.map((f) => ({
+        path: f.filename,
+        status: (f.status === 'added' ? 'A' : f.status === 'removed' ? 'D' : f.status === 'renamed' ? 'R' : 'M') as 'A'|'D'|'M'|'R',
+        additions: f.additions, deletions: f.deletions,
+      })),
+    };
   });
 
   app.get('/api/runs/:id/file-diff', async (req, reply) => {
