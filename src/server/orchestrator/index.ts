@@ -34,6 +34,7 @@ import { GitStateWatcher } from './gitStateWatcher.js';
 import { dockerExec, type DockerExecOptions, type DockerExecResult } from './dockerExec.js';
 import { nudgeClaudeToExit } from './nudgeClaude.js';
 import { checkContinueEligibility } from './continueEligibility.js';
+import { makeOnBytes } from '../logs/onBytes.js';
 import type { FilesPayload } from '../../shared/types.js';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
@@ -609,7 +610,8 @@ export class Orchestrator {
 
     const store = new LogStore(run.log_path);
     const broadcaster = this.deps.streams.getOrCreate(runId);
-    const onBytes = (chunk: Uint8Array) => { store.append(chunk); broadcaster.publish(chunk); };
+    const screen = this.deps.streams.getOrCreateScreen(runId);
+    const onBytes = makeOnBytes(store, broadcaster, screen);
     onBytes(Buffer.from(`\n[fbi] continuing from session ${run.claude_session_id}\n`));
 
     try {
