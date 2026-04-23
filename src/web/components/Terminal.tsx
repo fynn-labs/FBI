@@ -273,7 +273,7 @@ export function Terminal({ runId, interactive }: Props) {
     window.addEventListener('focus', refresh);
     document.addEventListener('visibilitychange', onVisChange);
 
-    shell.onOpen(() => {
+    shell.onOpenOrNow(() => {
       if (interactive && safeFit()) shell.resize(term.cols, term.rows);
     });
 

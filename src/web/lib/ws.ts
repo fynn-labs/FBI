@@ -5,7 +5,7 @@ export interface ShellHandle {
   onBytes(cb: (data: Uint8Array) => void): () => void;
   onTypedEvent<T extends { type: string }>(cb: (msg: T) => void): () => void;
   onSnapshot(cb: (snap: RunWsSnapshotMessage) => void): () => void;
-  onOpen(cb: () => void): void;
+  onOpenOrNow(cb: () => void): void;
   send(data: Uint8Array): void;
   resize(cols: number, rows: number): void;
   sendResync(): void;
@@ -64,7 +64,13 @@ export function openShell(runId: number): ShellHandle {
       snapshotCbs.push(cb);
       return () => { const i = snapshotCbs.indexOf(cb); if (i !== -1) snapshotCbs.splice(i, 1); };
     },
-    onOpen: (cb) => { ws.addEventListener('open', cb, { once: true }); },
+    onOpenOrNow: (cb) => {
+      if (ws.readyState === WebSocket.OPEN) {
+        queueMicrotask(cb);
+      } else {
+        ws.addEventListener('open', cb);
+      }
+    },
     send: (data) => {
       if (ws.readyState === WebSocket.OPEN) {
         record('ws.out.send', bytesPreview(data));
