@@ -176,6 +176,76 @@ export type RunWsTitleMessage = {
   title_locked: 0 | 1;
 };
 
+export type FileStatus = 'M' | 'A' | 'D' | 'R' | 'U';
+
+export interface FilesDirtyEntry {
+  path: string;
+  status: FileStatus;
+  additions: number;
+  deletions: number;
+}
+
+export interface FilesHeadEntry {
+  path: string;
+  status: Exclude<FileStatus, 'U'>;
+  additions: number;
+  deletions: number;
+}
+
+export interface FilesPayload {
+  dirty: FilesDirtyEntry[];
+  head: { sha: string; subject: string } | null;
+  headFiles: FilesHeadEntry[];
+  branchBase: { base: string; ahead: number; behind: number } | null;
+  live: boolean;
+}
+
+export type RunWsFilesMessage = { type: 'files' } & FilesPayload;
+
+export interface GithubCommit {
+  sha: string;
+  subject: string;
+  committed_at: number;
+  pushed: boolean;
+}
+
+export interface GithubCheckItem {
+  name: string;
+  status: 'pending' | 'completed';
+  conclusion: 'success' | 'failure' | 'neutral' | 'skipped' | 'cancelled' | null;
+  duration_ms: number | null;
+}
+
+export interface GithubPayload {
+  pr: { number: number; url: string; state: 'OPEN' | 'CLOSED' | 'MERGED'; title: string } | null;
+  checks: {
+    state: 'pending' | 'success' | 'failure';
+    passed: number;
+    failed: number;
+    total: number;
+    items: GithubCheckItem[];
+  } | null;
+  commits: GithubCommit[];
+  github_available: boolean;
+}
+
+export type MergeResponse =
+  | { merged: true; sha: string }
+  | { merged: false; reason: 'conflict'; agent: true }
+  | { merged: false; reason: 'conflict' | 'agent-busy' | 'gh-not-available' | 'not-github' | 'no-branch' | 'no-pr' | 'gh-error'; agent?: false };
+
+export interface FileDiffHunk {
+  header: string;
+  lines: Array<{ kind: 'ctx' | 'add' | 'del'; text: string }>;
+}
+
+export interface FileDiffPayload {
+  path: string;
+  ref: 'worktree' | string;
+  hunks: FileDiffHunk[];
+  truncated: boolean;
+}
+
 export interface GlobalStateMessage {
   type: 'state';
   run_id: number;
