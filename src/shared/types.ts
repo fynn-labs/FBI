@@ -186,6 +186,23 @@ export interface GlobalStateMessage {
   last_limit_reset_at: number | null;
 }
 
+/** Sent by the server as the opening text frame on live WS connect, and in
+ *  response to a client-initiated resync. Carries the current screen state
+ *  as an ANSI string that reproduces the screen when written into a fresh
+ *  xterm of the same cols/rows. */
+export interface RunWsSnapshotMessage {
+  type: 'snapshot';
+  ansi: string;
+  cols: number;
+  rows: number;
+}
+
+/** Sent by the client on window refocus / visibilitychange->visible to ask
+ *  the server for a fresh snapshot frame. Body carries no payload. */
+export interface RunWsResyncMessage {
+  type: 'resync';
+}
+
 export interface ListeningPort {
   port: number;
   proto: 'tcp';

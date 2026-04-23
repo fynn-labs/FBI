@@ -17,11 +17,22 @@ export interface OAuthUsagePollerOptions {
 }
 
 interface RawBucket {
-  id?: unknown;
   utilization?: unknown;
   resets_at?: unknown;
   window_started_at?: unknown;
 }
+
+// The live API keys buckets by name. Translate external → internal ids so the
+// rest of the app (labels, pacing windows, tests) keeps the short names it
+// already uses. Unknown keys pass through unchanged.
+const BUCKET_ID_ALIAS: Record<string, string> = {
+  seven_day: 'weekly',
+  seven_day_sonnet: 'sonnet_weekly',
+};
+
+// Top-level keys on the /oauth/usage response that are NOT rate-limit buckets
+// (different shape, or unrelated). Skip these during normalization.
+const NON_BUCKET_KEYS = new Set(['extra_usage']);
 
 export class OAuthUsagePoller {
   private opts: Required<OAuthUsagePollerOptions>;
@@ -68,8 +79,8 @@ export class OAuthUsagePoller {
       if (res.status === 429) { this.markError('rate_limited', now); return; }
       if (!res.ok) { this.markError('network', now); return; }
 
-      const body = await res.json() as { buckets?: RawBucket[] };
-      const normalized = this.normalize(body.buckets ?? []);
+      const body = await res.json() as Record<string, unknown>;
+      const normalized = this.normalize(body);
       this.opts.buckets.replaceAll(normalized.map(b => ({
         bucket_id: b.id,
         utilization: b.utilization,
@@ -131,10 +142,13 @@ export class OAuthUsagePoller {
         headers: { authorization: `Bearer ${token}`, 'anthropic-beta': BETA_HEADER },
       });
       if (res.ok) {
-        const body = await res.json() as { plan?: unknown };
-        if (body.plan === 'pro' || body.plan === 'max' || body.plan === 'team') {
-          this.opts.state.setPlan(body.plan);
-        }
+        const body = await res.json() as {
+          plan?: unknown;
+          account?: { has_claude_max?: unknown; has_claude_pro?: unknown };
+          organization?: { organization_type?: unknown; billing_type?: unknown };
+        };
+        const derived = derivePlan(body);
+        if (derived) this.opts.state.setPlan(derived);
       }
     } catch { /* plan is optional */ }
     this.planFetched = true;
@@ -145,23 +159,54 @@ export class OAuthUsagePoller {
     this.opts.onEvent({ type: 'snapshot', state: this.snapshot(now) });
   }
 
-  private normalize(raw: RawBucket[]): UsageBucket[] {
+  private normalize(raw: Record<string, unknown>): UsageBucket[] {
     const out: UsageBucket[] = [];
-    for (const r of raw) {
-      if (typeof r.id !== 'string') continue;
+    // Legacy shape tolerated for callers/tests that still pass { buckets: [...] }.
+    const legacyList = Array.isArray((raw as { buckets?: unknown }).buckets)
+      ? ((raw as { buckets: unknown[] }).buckets)
+      : null;
+    const entries: Array<[string, RawBucket]> = legacyList
+      ? legacyList
+          .filter((b): b is Record<string, unknown> => !!b && typeof b === 'object')
+          .map((b): [string, RawBucket] => [String((b as { id?: unknown }).id ?? ''), b as RawBucket])
+          .filter(([id]) => id.length > 0)
+      : Object.entries(raw)
+          .filter(([k, v]) => !NON_BUCKET_KEYS.has(k) && v != null && typeof v === 'object')
+          .map(([k, v]): [string, RawBucket] => [k, v as RawBucket]);
+
+    for (const [rawKey, r] of entries) {
+      const id = BUCKET_ID_ALIAS[rawKey] ?? rawKey;
       const u = typeof r.utilization === 'number' ? r.utilization : Number(r.utilization);
       if (!Number.isFinite(u)) continue;
       const resetAt = toMsEpoch(r.resets_at);
+      // Promotional/inactive buckets the API returns without a reset time (e.g.
+      // seven_day_omelette) aren't meaningful to surface — skip.
+      if (resetAt == null) continue;
       const winStart = toMsEpoch(r.window_started_at);
       out.push({
-        id: r.id,
+        id,
         utilization: Math.max(0, Math.min(1, u / 100)),
         reset_at: resetAt,
-        window_started_at: winStart ?? (resetAt != null && KNOWN_BUCKET_WINDOWS[r.id] != null ? resetAt - KNOWN_BUCKET_WINDOWS[r.id] : null),
+        window_started_at: winStart ?? (KNOWN_BUCKET_WINDOWS[id] != null ? resetAt - KNOWN_BUCKET_WINDOWS[id] : null),
       });
     }
     return out;
   }
+}
+
+function derivePlan(body: {
+  plan?: unknown;
+  account?: { has_claude_max?: unknown; has_claude_pro?: unknown };
+  organization?: { organization_type?: unknown; billing_type?: unknown };
+}): 'pro' | 'max' | 'team' | null {
+  // Legacy/test shape: { plan: 'max' }.
+  if (body.plan === 'pro' || body.plan === 'max' || body.plan === 'team') return body.plan;
+  // Live shape: derive from account + organization fields.
+  const orgType = body.organization?.organization_type;
+  if (orgType === 'team' || orgType === 'enterprise') return 'team';
+  if (body.account?.has_claude_max === true) return 'max';
+  if (body.account?.has_claude_pro === true) return 'pro';
+  return null;
 }
 
 function toMsEpoch(v: unknown): number | null {
