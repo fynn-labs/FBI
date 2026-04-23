@@ -2,6 +2,7 @@ import { NavLink } from 'react-router-dom';
 import { useUsage } from './useUsage.js';
 import type { UsageBucket, PacingVerdict } from '@shared/types.js';
 import { cn } from '../../ui/cn.js';
+import { pacingDisplay, PACING_TONE_CLASS } from './pacingDisplay.js';
 
 const LABELS: Record<string, string> = {
   five_hour: '5h', weekly: 'weekly', sonnet_weekly: 'sonnet',
@@ -77,6 +78,18 @@ export function SidebarUsage({ collapsed = false }: SidebarUsageProps) {
   );
 }
 
+function PacingLabel({ pacing }: { pacing: PacingVerdict | undefined }) {
+  if (!pacing) return null;
+  const d = pacingDisplay(pacing);
+  if (!d) return null;
+  return (
+    <span className={cn('ml-auto flex items-center gap-1', PACING_TONE_CLASS[d.tone])}>
+      <span>{d.label}</span>
+      <span className="font-mono">{d.deltaPct}</span>
+    </span>
+  );
+}
+
 function Row({ bucket: b, pacing, now }: { bucket: UsageBucket; pacing: PacingVerdict | undefined; now: number }) {
   const pct = Math.round(b.utilization * 100);
   const tone = toneForUtil(b.utilization);
@@ -93,9 +106,7 @@ function Row({ bucket: b, pacing, now }: { bucket: UsageBucket; pacing: PacingVe
       </div>
       <div className="flex items-center text-[10px] text-text-faint">
         <span>{formatReset(b.reset_at, now)}</span>
-        {pacing && pacing.zone !== 'none' && (
-          <span className="ml-auto">{pacing.zone === 'on_track' ? 'on track' : pacing.zone}</span>
-        )}
+        <PacingLabel pacing={pacing} />
       </div>
     </div>
   );

@@ -20,3 +20,4 @@ export * from './Menu.js';
 export * from './Tooltip.js';
 export * from './Table.js';
 export * from './icons/ExternalLink.js';
+export * from './Icons.js';

@@ -9,7 +9,7 @@
     "build:web": "VITE_VERSION=${VITE_VERSION:-$(git rev-parse --short HEAD 2>/dev/null || echo dev)} vite build",
     "dev": "concurrently -k \"npm:dev:server\" \"npm:dev:web\"",
     "dev:server": "tsx watch --tsconfig tsconfig.server.json src/server/index.ts",
-    "dev:web": "vite",
+    "dev:web": "VITE_VERSION=${VITE_VERSION:-$(git rev-parse --short HEAD 2>/dev/null || echo dev)} vite",
     "test": "vitest run",
     "test:watch": "vitest",
     "typecheck": "tsc -p tsconfig.server.json --noEmit && tsc -p tsconfig.web.json --noEmit && tsc -p tsconfig.test.json --noEmit",

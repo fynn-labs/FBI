@@ -38,12 +38,21 @@ export class OAuthUsagePoller {
   private opts: Required<OAuthUsagePollerOptions>;
   private planFetched = false;
   private timer: NodeJS.Timeout | null = null;
-  private lastPollAt = 0;
   private readonly intervalMs = 5 * 60 * 1000;
-  private readonly minNudgeGapMs = 60 * 1000;
+  /** Anthropic rate-limits us per 5-minute window, so a nudge must never bypass
+   *  the scheduled cadence. Matches intervalMs so start/stop of runs, credential
+   *  changes, etc. can at most pull the next scheduled poll forward to now. */
+  private readonly minNudgeGapMs = 5 * 60 * 1000;
 
   constructor(opts: OAuthUsagePollerOptions) {
     this.opts = { now: () => Date.now(), ...opts };
+  }
+
+  /** Timestamp of the last poll *attempt* (success or failure), read from
+   *  persistent state so the gate survives server restarts. */
+  private lastAttemptAt(): number {
+    const s = this.opts.state.get();
+    return Math.max(s.observed_at ?? 0, s.last_error_at ?? 0);
   }
 
   start(): void {
@@ -52,7 +61,9 @@ export class OAuthUsagePoller {
       await this.pollOnce();
       if (this.timer) this.timer = setTimeout(tick, this.intervalMs);
     };
-    this.timer = setTimeout(tick, 0);
+    const sinceLast = this.opts.now() - this.lastAttemptAt();
+    const initialDelay = Math.max(0, this.intervalMs - sinceLast);
+    this.timer = setTimeout(tick, initialDelay);
   }
 
   stop(): void {
@@ -60,14 +71,13 @@ export class OAuthUsagePoller {
   }
 
   async nudge(): Promise<void> {
-    if (this.opts.now() - this.lastPollAt < this.minNudgeGapMs) return;
+    if (this.opts.now() - this.lastAttemptAt() < this.minNudgeGapMs) return;
     await this.pollOnce();
   }
 
   async pollOnce(): Promise<void> {
     const token = this.opts.readToken();
     const now = this.opts.now();
-    this.lastPollAt = now;
     if (!token) { this.markError('missing_credentials', now); return; }
 
     try {

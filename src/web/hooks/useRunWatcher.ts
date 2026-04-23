@@ -3,6 +3,7 @@ import { api } from '../lib/api.js';
 import {
   notifyComplete, notifyWaiting, clearWaitingBadge, installFocusReset,
 } from '../lib/notifications.js';
+import { setConnectionState } from '../lib/connectionState.js';
 import type { RunState } from '@shared/types.js';
 
 type Listener = (map: Map<number, number>) => void;
@@ -89,7 +90,9 @@ export function useRunWatcher(enabled: boolean) {
 
     const connect = () => {
       if (stopped) return;
+      setConnectionState('connecting');
       ws = new WebSocket(statesUrl());
+      ws.onopen = () => { setConnectionState('connected'); };
       ws.onmessage = async (ev) => {
         const msg = JSON.parse(ev.data as string) as GlobalStateFrame;
         const prev = runs.get(msg.run_id)?.state;
@@ -113,8 +116,10 @@ export function useRunWatcher(enabled: boolean) {
       };
       ws.onclose = () => {
         if (stopped) return;
+        setConnectionState('disconnected');
         setTimeout(() => { void seed().then(connect); }, 1000);
       };
+      ws.onerror = () => { setConnectionState('disconnected'); };
     };
 
     void seed().then(connect);
