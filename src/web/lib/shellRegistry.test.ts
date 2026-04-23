@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import type { ShellHandle } from './ws.js';
+import type { RunWsSnapshotMessage } from '@shared/types.js';
 
 // Mock ws.js before importing the registry.
 vi.mock('./ws.js', () => {
@@ -9,20 +10,30 @@ vi.mock('./ws.js', () => {
 });
 
 import { openShell } from './ws.js';
-import { acquireShell, releaseShell, getBuffer, _reset } from './shellRegistry.js';
+import { acquireShell, releaseShell, getLastSnapshot, requestResync, _reset } from './shellRegistry.js';
 
-function makeStubShell(): ShellHandle & { _bytesCbs: Array<(d: Uint8Array) => void> } {
+function makeStubShell(): ShellHandle & {
+  _bytesCbs: Array<(d: Uint8Array) => void>;
+  _snapshotCbs: Array<(s: RunWsSnapshotMessage) => void>;
+} {
   const bytesCbs: Array<(d: Uint8Array) => void> = [];
+  const snapshotCbs: Array<(s: RunWsSnapshotMessage) => void> = [];
   return {
     _bytesCbs: bytesCbs,
+    _snapshotCbs: snapshotCbs,
     onBytes: vi.fn((cb: (d: Uint8Array) => void) => {
       bytesCbs.push(cb);
       return () => { const i = bytesCbs.indexOf(cb); if (i !== -1) bytesCbs.splice(i, 1); };
     }),
     onTypedEvent: vi.fn(() => () => {}),
+    onSnapshot: vi.fn((cb: (s: RunWsSnapshotMessage) => void) => {
+      snapshotCbs.push(cb);
+      return () => { const i = snapshotCbs.indexOf(cb); if (i !== -1) snapshotCbs.splice(i, 1); };
+    }),
     onOpen: vi.fn(),
     send: vi.fn(),
     resize: vi.fn(),
+    sendResync: vi.fn(),
     close: vi.fn(),
   };
 }
@@ -128,30 +139,38 @@ describe('releaseShell', () => {
   });
 });
 
-describe('getBuffer', () => {
-  it('returns empty array when no shell exists', () => {
-    expect(getBuffer(42)).toEqual([]);
+describe('getLastSnapshot', () => {
+  it('returns null when no shell exists', () => {
+    expect(getLastSnapshot(42)).toBeNull();
   });
 
-  it('accumulates bytes sent by the shell', () => {
+  it('returns null before any snapshot has arrived', () => {
     const stub = makeStubShell();
     mockedOpenShell.mockReturnValue(stub);
 
     acquireShell(7);
 
-    const chunk1 = new Uint8Array([1, 2, 3]);
-    const chunk2 = new Uint8Array([4, 5]);
-    // Simulate bytes arriving from the shell.
-    for (const cb of stub._bytesCbs) cb(chunk1);
-    for (const cb of stub._bytesCbs) cb(chunk2);
-
-    const buf = getBuffer(7);
-    expect(buf).toHaveLength(2);
-    expect(buf[0]).toBe(chunk1);
-    expect(buf[1]).toBe(chunk2);
+    expect(getLastSnapshot(7)).toBeNull();
   });
 
-  it('returns empty array after the socket is closed and removed from cache', () => {
+  it('caches the most recent snapshot received', () => {
+    const stub = makeStubShell();
+    mockedOpenShell.mockReturnValue(stub);
+
+    acquireShell(7);
+
+    const snap1: RunWsSnapshotMessage = { type: 'snapshot', ansi: 'hello', cols: 80, rows: 24 };
+    const snap2: RunWsSnapshotMessage = { type: 'snapshot', ansi: 'world', cols: 80, rows: 24 };
+    for (const cb of stub._snapshotCbs) cb(snap1);
+
+    expect(getLastSnapshot(7)).toBe(snap1);
+
+    for (const cb of stub._snapshotCbs) cb(snap2);
+
+    expect(getLastSnapshot(7)).toBe(snap2);
+  });
+
+  it('returns null after the socket is closed and removed from cache', () => {
     const stub = makeStubShell();
     mockedOpenShell.mockReturnValue(stub);
 
@@ -159,6 +178,23 @@ describe('getBuffer', () => {
     releaseShell(8);
     vi.advanceTimersByTime(300_000); // TTL fires, cache cleared
 
-    expect(getBuffer(8)).toEqual([]);
+    expect(getLastSnapshot(8)).toBeNull();
+  });
+});
+
+describe('requestResync', () => {
+  it('calls sendResync on the shell', () => {
+    const stub = makeStubShell();
+    mockedOpenShell.mockReturnValue(stub);
+
+    acquireShell(9);
+    requestResync(9);
+
+    expect(stub.sendResync).toHaveBeenCalledTimes(1);
+  });
+
+  it('is a no-op for unknown runId', () => {
+    // Should not throw.
+    expect(() => requestResync(999)).not.toThrow();
   });
 });
