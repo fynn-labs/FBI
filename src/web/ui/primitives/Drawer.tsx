@@ -54,7 +54,7 @@ export function Drawer({ open, onToggle, header, children, className, height, on
   };
 
   return (
-    <div className={cn('border-t border-border-strong bg-surface flex flex-col', className)}>
+    <div className={cn('border-t border-border-strong bg-surface flex flex-col flex-none', className)}>
       {resizable && (
         <div
           role="separator"

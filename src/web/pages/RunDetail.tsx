@@ -230,7 +230,7 @@ export function RunDetailPage() {
       <div className="flex-1 min-h-0 flex flex-col">
         <div
           ref={terminalPaneRef}
-          className="flex-1 min-h-0 relative data-[upload-drag-active=true]:ring-2 data-[upload-drag-active=true]:ring-accent data-[upload-drag-active=true]:ring-inset transition-[box-shadow] duration-fast ease-out"
+          className="flex-1 min-h-0 relative flex flex-col overflow-hidden data-[upload-drag-active=true]:ring-2 data-[upload-drag-active=true]:ring-accent data-[upload-drag-active=true]:ring-inset transition-[box-shadow] duration-fast ease-out"
         >
           <RunTerminal runId={run.id} interactive={interactive} />
         </div>
