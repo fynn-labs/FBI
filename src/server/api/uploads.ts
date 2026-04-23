@@ -5,7 +5,6 @@ import path from 'node:path';
 import { pipeline } from 'node:stream/promises';
 import type { MultipartFile } from '@fastify/multipart';
 import type { RunsRepo } from '../db/runs.js';
-import type { LogStore } from '../logs/store.js';
 import { generateDraftToken, isDraftToken } from '../uploads/token.js';
 import { sanitizeFilename, resolveFilename, directoryBytes } from '../uploads/filenames.js';
 
@@ -15,7 +14,6 @@ interface Deps {
   runs: RunsRepo;
   runsDir: string;
   draftUploadsDir: string;
-  logs: LogStore;
 }
 
 export function registerUploadsRoutes(app: FastifyInstance, deps: Deps): void {
@@ -61,6 +59,80 @@ export function registerUploadsRoutes(app: FastifyInstance, deps: Deps): void {
     }
     return reply.code(204).send();
   });
+
+  app.post('/api/runs/:id/uploads', async (req, reply) => {
+    const runId = Number((req.params as { id: string }).id);
+    const run = deps.runs.get(runId);
+    if (!run) return reply.code(404).send({ error: 'not_found' });
+    if (run.state !== 'waiting') return reply.code(409).send({ error: 'wrong_state' });
+
+    const dir = path.join(deps.runsDir, String(runId), 'uploads');
+    await fsp.mkdir(dir, { recursive: true });
+
+    const result = await consumeOneFile(req, dir, PER_RUN_BYTES);
+    if ('error' in result) return reply.code(result.status).send({ error: result.error });
+
+    fs.appendFileSync(
+      run.log_path,
+      Buffer.from(`[fbi] user uploaded ${result.filename} (${humanSize(result.size)})\n`),
+    );
+
+    return reply.code(200).send({
+      filename: result.filename,
+      size: result.size,
+      uploaded_at: result.uploadedAt,
+    });
+  });
+
+  app.get('/api/runs/:id/uploads', async (req, reply) => {
+    const runId = Number((req.params as { id: string }).id);
+    const run = deps.runs.get(runId);
+    if (!run) return reply.code(404).send({ error: 'not_found' });
+    const dir = path.join(deps.runsDir, String(runId), 'uploads');
+    let entries: string[];
+    try {
+      entries = await fsp.readdir(dir);
+    } catch {
+      return { files: [] };
+    }
+    const files: Array<{ filename: string; size: number; uploaded_at: number }> = [];
+    for (const name of entries.sort()) {
+      if (name.endsWith('.part')) continue;
+      try {
+        const st = await fsp.stat(path.join(dir, name));
+        if (st.isFile()) files.push({ filename: name, size: st.size, uploaded_at: st.mtimeMs });
+      } catch { /* noop */ }
+    }
+    return { files };
+  });
+
+  app.delete('/api/runs/:id/uploads/:filename', async (req, reply) => {
+    const runId = Number((req.params as { id: string }).id);
+    const run = deps.runs.get(runId);
+    if (!run) return reply.code(404).send({ error: 'not_found' });
+    if (run.state !== 'waiting') return reply.code(409).send({ error: 'wrong_state' });
+
+    let filename: string;
+    try {
+      filename = sanitizeFilename((req.params as { filename: string }).filename);
+    } catch {
+      return reply.code(400).send({ error: 'invalid_filename' });
+    }
+    const file = path.join(deps.runsDir, String(runId), 'uploads', filename);
+    try {
+      await fsp.unlink(file);
+    } catch {
+      return reply.code(404).send({ error: 'not_found' });
+    }
+    return reply.code(204).send();
+  });
+}
+
+function humanSize(n: number): string {
+  if (n < 1024) return `${n} B`;
+  if (n < 1024 * 1024) return `${(n / 1024).toFixed(1)} KB`;
+  if (n < 1024 * 1024 * 1024) return `${(n / (1024 * 1024)).toFixed(1)} MB`;
+  return `${(n / (1024 * 1024 * 1024)).toFixed(2)} GB`;
 }
 
 interface ConsumeOk {
