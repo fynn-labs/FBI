@@ -47,7 +47,7 @@ describe('proxy integration (Docker-gated)', () => {
       });
       runs.markStarted(run.id, container.id);
       streams.getOrCreateState(run.id).publish({
-        type: 'state', state: 'running',
+        type: 'state', state: 'running', state_entered_at: Date.now(),
         next_resume_at: null, resume_attempts: 0, last_limit_reset_at: null,
       });
 
