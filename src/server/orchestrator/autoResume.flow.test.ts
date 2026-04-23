@@ -151,8 +151,8 @@ describe('autoResume flow (stubbed Docker)', () => {
     expect(updated.next_resume_at).not.toBeNull();
     expect(updated.resume_attempts).toBe(1);
 
-    const createArgs = mockDocker.createContainer.mock.calls[0][0];
-    const binds = createArgs.HostConfig.Binds as string[];
+    const createArgs = vi.mocked(mockDocker.createContainer).mock.calls[0][0];
+    const binds = createArgs.HostConfig!.Binds as string[];
     expect(binds).toContainEqual(`${runUploadsDir(dir, run.id)}:/fbi/uploads:ro`);
   });
 
@@ -181,8 +181,8 @@ describe('autoResume flow (stubbed Docker)', () => {
     const final = runs.get(run.id)!;
     expect(final.state).toBe('succeeded');
 
-    const createArgs = mockDocker.createContainer.mock.calls[0][0];
-    const binds = createArgs.HostConfig.Binds as string[];
+    const createArgs = vi.mocked(mockDocker.createContainer).mock.calls[0][0];
+    const binds = createArgs.HostConfig!.Binds as string[];
     expect(binds).toContainEqual(`${runUploadsDir(dir, run.id)}:/fbi/uploads:ro`);
   });
 });

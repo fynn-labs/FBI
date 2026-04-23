@@ -132,8 +132,8 @@ describe('Orchestrator.continueRun', () => {
     expect(env).toContain('FBI_RESUME_SESSION_ID=sess-xyz');
     expect(env).toContain('FBI_CHECKOUT_BRANCH=feat/keep-going');
 
-    const createArgs = mockDocker.createContainer.mock.calls[0][0];
-    const binds = createArgs.HostConfig.Binds as string[];
+    const createArgs = vi.mocked(mockDocker.createContainer).mock.calls[0][0];
+    const binds = createArgs.HostConfig!.Binds as string[];
     expect(binds).toContainEqual(`${runUploadsDir(dir, run.id)}:/fbi/uploads:ro`);
   });
 
