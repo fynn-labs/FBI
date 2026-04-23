@@ -47,6 +47,7 @@ function readTheme() {
 
 export function Terminal({ runId, interactive }: Props) {
   const hostRef = useRef<HTMLDivElement>(null);
+  const historyHostRef = useRef<HTMLDivElement>(null);
   const loadFullRef = useRef<() => void>(() => {});
   const [historyMode, setHistoryMode] = useState(false);
   const [loaded, setLoaded] = useState(false);
@@ -282,66 +283,73 @@ export function Terminal({ runId, interactive }: Props) {
     window.addEventListener('focus', refresh);
     document.addEventListener('visibilitychange', onVisChange);
 
-    // "Load full history": fetch the log file and render it instead of the
-    // live view. Exposed via loadFullRef so the JSX button can call it.
+    // History mode: render the transcript in a *separate* xterm instance
+    // mounted in a sibling DOM node. The live xterm and its subscriptions
+    // keep running in the background (hidden via display:none on the host).
+    // Resuming "live" simply disposes the history xterm; no resync roundtrip,
+    // no dropped bytes, no input-blocking.
+    let historyTerm: Xterm | null = null;
+    let historyAborted = false;
     loadFullRef.current = async () => {
       if (disposed) return;
       traceRecord('term.history.start', { runId });
       setHistoryMode(true);
-      setLoaded(false); // show loading while we fetch + write the transcript
-      if (unsubBytes) { unsubBytes(); unsubBytes = null; }
-      if (unsubSnapshot) { unsubSnapshot(); unsubSnapshot = null; }
-      clearQueue();
-      term.reset();
+      setLoaded(false);
+      historyAborted = false;
+      // React has to mount historyHostRef first; defer a frame.
+      await new Promise((r) => requestAnimationFrame(r));
+      const hhost = historyHostRef.current;
+      if (!hhost || disposed || historyAborted) return;
+      historyTerm = new Xterm({
+        convertEol: true,
+        fontFamily:
+          'ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace',
+        fontSize: 13,
+        theme: readTheme(),
+        cursorBlink: false,
+        disableStdin: true,
+      });
+      const hfit = new FitAddon();
+      historyTerm.loadAddon(hfit);
+      historyTerm.open(hhost);
+      try { hfit.fit(); } catch { /* ignore */ }
+
       try {
         const res = await fetch(`/api/runs/${runId}/transcript`);
-        if (disposed) return;
+        if (disposed || historyAborted) return;
         if (!res.ok) throw new Error(`status ${res.status}`);
         const buf = new Uint8Array(await res.arrayBuffer());
-        if (disposed) return;
-        // Write atomically in 1 MB chunks chained via xterm's write callback.
-        // The rAF-paced queue would draw the transcript line-by-line, which is
-        // intensely jittery for big logs; xterm's internal parser handles
-        // large writes far faster than one rAF per 16 KB.
+        if (disposed || historyAborted) return;
         const HISTORY_CHUNK = 1024 * 1024;
         for (let off = 0; off < buf.byteLength; off += HISTORY_CHUNK) {
-          if (disposed) return;
+          if (disposed || historyAborted || !historyTerm) return;
           const end = Math.min(off + HISTORY_CHUNK, buf.byteLength);
-          await new Promise<void>((resolve) => term.write(buf.subarray(off, end), resolve));
+          await new Promise<void>((resolve) =>
+            historyTerm!.write(buf.subarray(off, end), resolve)
+          );
         }
-        if (!disposed) setLoaded(true);
+        if (!disposed && !historyAborted) setLoaded(true);
         traceRecord('term.history.end', { runId, bytes: buf.byteLength });
       } catch {
-        if (disposed) return;
-        term.write(new TextEncoder().encode('\r\n[failed to load history]\r\n'));
+        if (disposed || historyAborted || !historyTerm) return;
+        historyTerm.write(new TextEncoder().encode('\r\n[failed to load history]\r\n'));
         setLoaded(true);
         traceRecord('term.history.end', { runId, error: true });
       }
     };
 
-    const resumeLive = () => {
+    // "Resume live" flips the abort flag (so any in-flight history write loop
+    // exits cleanly), disposes the history xterm, and reveals the always-
+    // running live one. The live subscription was never detached, so no
+    // resync is needed. setLoaded(true) clears the loading overlay in case
+    // the user resumed before history finished loading.
+    (loadFullRef as unknown as { resume?: () => void }).resume = () => {
       if (disposed) return;
+      historyAborted = true;
       setHistoryMode(false);
-      clearQueue();
-      term.reset();
-      setLoaded(false); // show loading until the resync snapshot lands
-      unsubSnapshot = shell.onSnapshot((snap) => {
-        if (!shouldApply(snap)) {
-          traceRecord('term.dropSnapshot', {
-            reason: 'dimMismatch.resume',
-            snapCols: snap.cols, snapRows: snap.rows,
-            termCols: term.cols, termRows: term.rows,
-          });
-          return;
-        }
-        applySnapshot(snap);
-      });
-      unsubBytes = shell.onBytes((data) => { enqueueWrite(data); });
-      traceRecord('term.resync.request', { reason: 'resumeLive' });
-      requestResync(runId);
+      setLoaded(true);
+      if (historyTerm) { historyTerm.dispose(); historyTerm = null; }
     };
-    // Stash resumeLive on the ref so the JSX button can call it.
-    (loadFullRef as unknown as { resume?: () => void }).resume = resumeLive;
 
     return () => {
       disposed = true;
@@ -361,6 +369,7 @@ export function Terminal({ runId, interactive }: Props) {
       termRef.current = null;
       fitRef.current = null;
       shellRef.current = null;
+      if (historyTerm) { historyTerm.dispose(); historyTerm = null; }
       term.dispose();
     };
   }, [runId]);
@@ -432,7 +441,7 @@ export function Terminal({ runId, interactive }: Props) {
       )}
       {historyMode && (
         <div className="absolute top-0 left-0 right-0 z-10 flex items-center gap-2 px-3 py-1 bg-surface border-b border-border text-[12px] text-text-dim">
-          <span>Viewing full history (live updates paused).</span>
+          <span>Viewing full history — live view continues in the background.</span>
           <button
             type="button"
             onClick={() => (loadFullRef as unknown as { resume?: () => void }).resume?.()}
@@ -456,7 +465,14 @@ export function Terminal({ runId, interactive }: Props) {
           </button>
         </div>
       )}
-      <div ref={hostRef} className="h-full w-full" />
+      <div
+        ref={hostRef}
+        className="h-full w-full"
+        style={{ display: historyMode ? 'none' : 'block' }}
+      />
+      {historyMode && (
+        <div ref={historyHostRef} className="absolute inset-0 h-full w-full bg-surface-sunken" />
+      )}
     </div>
   );
 }
