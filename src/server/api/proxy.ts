@@ -145,7 +145,10 @@ export function registerProxyRoutes(app: FastifyInstance, deps: ProxyDeps): void
     // subscribe() returns.
     let triggered = false;
     stateUnsub = deps.streams.getOrCreateState(runId).subscribe((frame) => {
-      if (frame.state !== 'running') {
+      // 'running' and 'waiting' both have a live container — the agent is just
+      // blocked on user input in 'waiting', and the same listening ports are
+      // still there. Every other state means the container is gone or going.
+      if (frame.state !== 'running' && frame.state !== 'waiting') {
         triggered = true;
         closeBoth(1001, 'run ended');
       }
