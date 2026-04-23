@@ -3,6 +3,7 @@ import {
   Button, IconButton, Link, Kbd, Pill, StatusDot, Tag,
   Input, Textarea, Toggle, Checkbox, Select,
   Card, Section, Tabs, Dialog, Drawer, Menu, Tooltip, Table, THead, TR, TH, TD,
+  ExternalLink,
 } from '@ui/primitives/index.js';
 import { FormRow, KeyboardHint, EmptyState, LoadingState, ErrorState, SplitPane } from '@ui/patterns/index.js';
 import { StatCard, ProgressBar, Sparkline, TimestampRelative, CodeBlock, FilterChip, DiffRow } from '@ui/data/index.js';
@@ -35,6 +36,9 @@ export function DesignPage() {
           <Button disabled>Disabled</Button>
           <IconButton aria-label="settings">⚙</IconButton>
           <Link href="#">A link</Link>
+          <a href="#" className="text-accent">
+            Open docs <ExternalLink />
+          </a>
         </div>
       </Section>
 

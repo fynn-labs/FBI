@@ -19,3 +19,4 @@ export * from './Drawer.js';
 export * from './Menu.js';
 export * from './Tooltip.js';
 export * from './Table.js';
+export * from './icons/ExternalLink.js';
