@@ -120,6 +120,23 @@ export function migrate(db: DB): void {
     db.exec('CREATE INDEX IF NOT EXISTS idx_runs_parent ON runs(parent_run_id)');
   }
 
+  // Project column: default_merge_strategy. Existing projects default to
+  // 'merge' (preserves today's PR-merge-commit semantics); new projects get
+  // 'squash' from the schema default.
+  const projCols2 = new Set(
+    (db.prepare("PRAGMA table_info(projects)").all() as Array<{ name: string }>)
+      .map((r) => r.name)
+  );
+  if (!projCols2.has('default_merge_strategy')) {
+    db.exec(`ALTER TABLE projects ADD COLUMN default_merge_strategy TEXT NOT NULL DEFAULT 'merge' CHECK (default_merge_strategy IN ('merge', 'rebase', 'squash'))`);
+  }
+  if (!runCols.has('kind')) {
+    db.exec(`ALTER TABLE runs ADD COLUMN kind TEXT NOT NULL DEFAULT 'work' CHECK (kind IN ('work', 'merge-conflict', 'polish'))`);
+  }
+  if (!runCols.has('kind_args_json')) {
+    db.exec('ALTER TABLE runs ADD COLUMN kind_args_json TEXT');
+  }
+
   // --- TokenEater usage migration ---
 
   // 1. Rebuild rate_limit_state if it still has the old per-bucket columns.

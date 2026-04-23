@@ -6,6 +6,9 @@ export interface CreateRunInput {
   prompt: string;
   branch_hint?: string;
   log_path_tmpl: (id: number) => string;
+  parent_run_id?: number;
+  kind?: 'work' | 'merge-conflict' | 'polish';
+  kind_args_json?: string;
 }
 
 export interface ListFilteredInput {
@@ -33,10 +36,19 @@ export class RunsRepo {
       const branchHint = input.branch_hint ?? '';
       const stub = this.db
         .prepare(
-          `INSERT INTO runs (project_id, prompt, branch_name, state, log_path, created_at, state_entered_at)
-           VALUES (?, ?, ?, 'queued', '', ?, ?)`
+          `INSERT INTO runs (project_id, prompt, branch_name, state, log_path, created_at, state_entered_at, parent_run_id, kind, kind_args_json)
+           VALUES (?, ?, ?, 'queued', '', ?, ?, ?, ?, ?)`
         )
-        .run(input.project_id, input.prompt, branchHint, now, now);
+        .run(
+          input.project_id,
+          input.prompt,
+          branchHint,
+          now,
+          now,
+          input.parent_run_id ?? null,
+          input.kind ?? 'work',
+          input.kind_args_json ?? null,
+        );
       const id = Number(stub.lastInsertRowid);
       const logPath = input.log_path_tmpl(id);
       this.db

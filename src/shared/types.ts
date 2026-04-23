@@ -21,6 +21,7 @@ export interface Project {
   mem_mb: number | null;
   cpus: number | null;
   pids_limit: number | null;
+  default_merge_strategy: 'merge' | 'rebase' | 'squash';
   created_at: number;
   updated_at: number;
   last_run?: { id: number; state: RunState; created_at: number } | null;
@@ -55,6 +56,8 @@ export interface Run {
   title: string | null;
   title_locked: 0 | 1;
   parent_run_id: number | null;
+  kind: 'work' | 'merge-conflict' | 'polish';
+  kind_args_json: string | null;
 }
 
 export interface SecretName {
@@ -204,6 +207,52 @@ export interface FilesPayload {
 }
 
 export type RunWsFilesMessage = { type: 'files' } & FilesPayload;
+
+export type MergeStrategy = 'merge' | 'rebase' | 'squash';
+
+export type HistoryOp =
+  | { op: 'merge'; strategy?: MergeStrategy }
+  | { op: 'sync' }
+  | { op: 'squash-local'; subject: string }
+  | { op: 'polish' };
+
+export type HistoryResult =
+  | { kind: 'complete'; sha?: string }
+  | { kind: 'agent'; child_run_id: number }
+  | { kind: 'conflict'; child_run_id: number }
+  | { kind: 'agent-busy' }
+  | { kind: 'invalid'; message: string }
+  | { kind: 'git-unavailable' };
+
+export interface ChangeCommit {
+  sha: string;
+  subject: string;
+  committed_at: number;
+  pushed: boolean;
+  files: FilesHeadEntry[];
+  files_loaded: boolean;
+}
+
+export interface ChangesPayload {
+  branch_name: string | null;
+  branch_base: { base: string; ahead: number; behind: number } | null;
+  commits: ChangeCommit[];
+  uncommitted: FilesDirtyEntry[];
+  integrations: {
+    github?: {
+      pr: { number: number; url: string; state: 'OPEN' | 'CLOSED' | 'MERGED'; title: string } | null;
+      checks: {
+        state: 'pending' | 'success' | 'failure';
+        passed: number;
+        failed: number;
+        total: number;
+        items: GithubCheckItem[];
+      } | null;
+    };
+  };
+}
+
+export type RunWsChangesMessage = { type: 'changes' } & ChangesPayload;
 
 export interface GithubCommit {
   sha: string;

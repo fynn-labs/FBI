@@ -12,6 +12,8 @@ CREATE TABLE IF NOT EXISTS projects (
   mem_mb INTEGER,
   cpus REAL,
   pids_limit INTEGER,
+  default_merge_strategy TEXT NOT NULL DEFAULT 'squash'
+    CHECK (default_merge_strategy IN ('merge', 'rebase', 'squash')),
   created_at INTEGER NOT NULL,
   updated_at INTEGER NOT NULL
 );
@@ -39,7 +41,11 @@ CREATE TABLE IF NOT EXISTS runs (
   started_at INTEGER,
   finished_at INTEGER,
   created_at INTEGER NOT NULL,
-  state_entered_at INTEGER NOT NULL DEFAULT 0
+  state_entered_at INTEGER NOT NULL DEFAULT 0,
+  parent_run_id INTEGER REFERENCES runs(id) ON DELETE SET NULL,
+  kind TEXT NOT NULL DEFAULT 'work'
+    CHECK (kind IN ('work', 'merge-conflict', 'polish')),
+  kind_args_json TEXT
 );
 
 CREATE INDEX IF NOT EXISTS idx_runs_project ON runs(project_id);
