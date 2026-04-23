@@ -1,9 +1,15 @@
 import { describe, it, expect, beforeEach } from 'vitest';
 import { render, screen, fireEvent } from '@testing-library/react';
-import { MemoryRouter } from 'react-router-dom';
+import { MemoryRouter, useLocation, Routes, Route } from 'react-router-dom';
 import { RunsList } from './RunsList.js';
 import { STORAGE_KEY } from './useRunsView.js';
 import type { Run, RunState } from '@shared/types.js';
+
+function Capture({ store }: { store: string[] }) {
+  const loc = useLocation();
+  store.push(loc.pathname);
+  return null;
+}
 
 function mkRun(id: number, state: RunState, createdAt: number, title = `run-${id}`): Run {
   return {
@@ -68,5 +74,22 @@ describe('RunsList', () => {
     expect(screen.getByText('run-3')).toBeInTheDocument();
     expect(screen.queryByText('run-1')).toBeNull();
     expect(screen.queryByText('run-2')).toBeNull();
+  });
+
+  it('j navigates to the first run in filtered visible order', () => {
+    // runs: 1=succeeded(1000), 2=running(2000), 3=failed(3000), 4=waiting(4000), 5=queued(5000), 6=running(6000)
+    localStorage.setItem(STORAGE_KEY, JSON.stringify({ filter: ['failed'], groupByState: false }));
+    const seen: string[] = [];
+    render(
+      <MemoryRouter initialEntries={['/']}>
+        <RunsList runs={runs()} toHref={(r) => `/runs/${r.id}`} />
+        <Routes>
+          <Route path="/runs/:id" element={<Capture store={seen} />} />
+          <Route path="/" element={<div />} />
+        </Routes>
+      </MemoryRouter>,
+    );
+    fireEvent.keyDown(document, { key: 'j' });
+    expect(seen).toContain('/runs/3');
   });
 });

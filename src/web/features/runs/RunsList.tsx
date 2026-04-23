@@ -59,6 +59,8 @@ export function RunsList({ runs, toHref, currentId }: RunsListProps) {
     return result.groups.flatMap((g) => g.runs);
   }, [result]);
 
+  // Keep a ref with the latest list + current id so the j/k handlers (registered once)
+  // always see fresh data without re-registering the keymap on every list update.
   const stateRef = useRef({ flatForNav, currentId, toHref, nav });
   stateRef.current = { flatForNav, currentId, toHref, nav };
 
