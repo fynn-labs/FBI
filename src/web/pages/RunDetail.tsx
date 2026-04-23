@@ -11,7 +11,7 @@ import { ChangesTab } from '../features/runs/ChangesTab.js';
 import { MetaTab } from '../features/runs/MetaTab.js';
 import { TunnelTab } from '../features/runs/TunnelTab.js';
 import { ShipTab } from '../features/runs/ship/ShipTab.js';
-import { computeShipDot, type ShipDot } from '../features/runs/ship/computeShipDot.js';
+import { computeShipDot } from '../features/runs/ship/computeShipDot.js';
 import { useBottomPaneHeight } from '../features/runs/useBottomPaneHeight.js';
 import type { ListeningPort } from '@shared/types.js';
 import { useKeyBinding } from '@ui/shell/KeyMap.js';
@@ -226,7 +226,7 @@ export function RunDetailPage() {
   }
 
   const changesCount = (changes?.uncommitted.length ?? 0) + (changes?.commits.length ?? 0);
-  const shipDot: ShipDot = changes ? computeShipDot(changes) : null;
+  const shipDot = changes ? computeShipDot(changes) : null;
 
   return (
     <div className="h-full flex flex-col min-h-0">
