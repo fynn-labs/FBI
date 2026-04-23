@@ -235,7 +235,7 @@ export interface GithubPayload {
 export type MergeResponse =
   | { merged: true; sha: string }
   | { merged: false; reason: 'conflict'; agent: true }
-  | { merged: false; reason: 'conflict' | 'agent-busy' | 'gh-not-available' | 'not-github' | 'no-branch' | 'no-pr' | 'gh-error'; agent?: false };
+  | { merged: false; reason: 'conflict' | 'agent-busy' | 'gh-not-available' | 'not-github' | 'no-branch' | 'no-pr' | 'gh-error' | 'already-merged'; agent?: false };
 
 export interface FileDiffHunk {
   header: string;

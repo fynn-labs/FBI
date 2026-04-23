@@ -25,8 +25,8 @@ export function GithubTab({ run, github, onCreatePr, onMerged, creatingPr }: Git
   if (!github) return <p className="p-3 text-[13px] text-text-faint">Loading…</p>;
 
   const canCreatePr = github.github_available && !github.pr && !!run.branch_name;
-  const canMerge = github.github_available && !!github.pr
-    && github.pr.state === 'OPEN'
+  const canMerge = github.github_available && !!run.branch_name
+    && (!github.pr || github.pr.state === 'OPEN')
     && (run.state === 'running' || run.state === 'waiting' || run.state === 'succeeded');
 
   async function onMergeClick(): Promise<void> {
@@ -39,6 +39,9 @@ export function GithubTab({ run, github, onCreatePr, onMerged, creatingPr }: Git
         onMerged();
       } else if (r.reason === 'conflict' && 'agent' in r && r.agent) {
         setMergeMsg('Conflicts — delegated to agent');
+      } else if (r.reason === 'already-merged') {
+        setMergeMsg('Nothing to merge — branch is already in main');
+        onMerged();
       } else {
         setMergeMsg(`Merge failed: ${r.reason}`);
       }

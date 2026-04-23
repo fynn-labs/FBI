@@ -29,6 +29,12 @@ describe('GithubTab', () => {
     expect(screen.getByText('Merge to main')).toBeInTheDocument();
   });
 
+  it('shows BOTH Create PR and Merge to main when no PR exists yet', () => {
+    render(<GithubTab run={baseRun} github={basePayload} onCreatePr={vi.fn()} onMerged={vi.fn()} creatingPr={false} />);
+    expect(screen.getByText('Create PR')).toBeInTheDocument();
+    expect(screen.getByText('Merge to main')).toBeInTheDocument();
+  });
+
   it('lists commits with pushed/unpushed indicator', () => {
     render(<GithubTab run={baseRun}
       github={{

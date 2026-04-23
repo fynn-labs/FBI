@@ -23,7 +23,7 @@ interface GhDeps {
   compareFiles(repo: string, base: string, head: string): Promise<Array<{ filename: string; additions: number; deletions: number; status: string }>>;
   commitsOnBranch(repo: string, branch: string): Promise<Array<{ sha: string; subject: string; committed_at: number; pushed: boolean }>>;
   mergeBranch(repo: string, head: string, base: string, commit_message: string): Promise<
-    { merged: true; sha: string } | { merged: false; reason: 'conflict' | 'gh-error' }
+    { merged: true; sha: string } | { merged: false; reason: 'conflict' | 'gh-error' | 'already-merged' }
   >;
 }
 
@@ -377,6 +377,10 @@ export function registerRunsRoutes(app: FastifyInstance, deps: Deps): void {
     if (r.merged) {
       invalidate(runId);
       return { merged: true, sha: r.sha } satisfies MergeResponse;
+    }
+    if (r.reason === 'already-merged') {
+      invalidate(runId);
+      return { merged: false, reason: 'already-merged' } satisfies MergeResponse;
     }
     if (r.reason !== 'conflict') {
       return reply.code(500).send({ merged: false, reason: 'gh-error' } satisfies MergeResponse);
