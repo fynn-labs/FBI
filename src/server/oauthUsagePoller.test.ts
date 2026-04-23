@@ -111,6 +111,60 @@ describe('OAuthUsagePoller', () => {
     expect(buckets.list()[0].bucket_id).toBe('daily');
   });
 
+  it('live API shape: object keyed by bucket name → normalized + aliased', async () => {
+    // This is the real shape returned by https://api.anthropic.com/api/oauth/usage
+    // (no top-level "buckets" array). Per-bucket keys: utilization + resets_at.
+    // seven_day → weekly, seven_day_sonnet → sonnet_weekly. Null values and
+    // `extra_usage` (different shape) must be skipped, as must buckets with
+    // resets_at: null (inactive/promotional buckets like seven_day_omelette).
+    const now = 1_700_000_000_000;
+    const resetFive = new Date(now + 2 * 3600_000).toISOString();
+    const resetWeek = new Date(now + 6 * 24 * 3600_000).toISOString();
+    const fetchMock = mockFetch([
+      jsonResponse({
+        account: { has_claude_max: true },
+        organization: { organization_type: 'claude_max', billing_type: 'stripe_subscription' },
+      }),
+      jsonResponse({
+        five_hour: { utilization: 8.0, resets_at: resetFive },
+        seven_day: { utilization: 41.0, resets_at: resetWeek },
+        seven_day_sonnet: { utilization: 20.0, resets_at: resetWeek },
+        seven_day_oauth_apps: null,
+        seven_day_opus: null,
+        seven_day_cowork: null,
+        seven_day_omelette: { utilization: 0.0, resets_at: null },
+        iguana_necktie: null,
+        omelette_promotional: null,
+        extra_usage: { is_enabled: false, monthly_limit: null, used_credits: null, utilization: null, currency: null },
+      }),
+    ]);
+    const poller = new OAuthUsagePoller({
+      fetch: fetchMock, readToken: () => 'tok', state, buckets,
+      now: () => now, onEvent: () => {},
+    });
+    await poller.pollOnce();
+    const ids = buckets.list().map(b => b.bucket_id).sort();
+    expect(ids).toEqual(['five_hour', 'sonnet_weekly', 'weekly']);
+    expect(state.get().plan).toBe('max');
+    const five = buckets.list().find(b => b.bucket_id === 'five_hour')!;
+    expect(five.utilization).toBeCloseTo(0.08, 5);
+    expect(five.reset_at).toBe(Date.parse(resetFive));
+    // window_started_at derived from KNOWN_BUCKET_WINDOWS when absent.
+    expect(five.window_started_at).toBe(Date.parse(resetFive) - 5 * 3600_000);
+  });
+
+  it('live profile shape: has_claude_pro → plan=pro', async () => {
+    const fetchMock = mockFetch([
+      jsonResponse({ account: { has_claude_pro: true, has_claude_max: false } }),
+      jsonResponse({ five_hour: { utilization: 0, resets_at: new Date(Date.now() + 3600_000).toISOString() } }),
+    ]);
+    const poller = new OAuthUsagePoller({
+      fetch: fetchMock, readToken: () => 'tok', state, buckets, now: () => 1, onEvent: () => {},
+    });
+    await poller.pollOnce();
+    expect(state.get().plan).toBe('pro');
+  });
+
   it('bucket that disappears on next poll is deleted', async () => {
     const now = 1;
     const fetchMock = mockFetch([
