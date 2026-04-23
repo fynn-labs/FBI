@@ -53,6 +53,29 @@ describe('GithubTab', () => {
     expect(screen.queryByText('Create PR')).not.toBeInTheDocument();
   });
 
+  it('hides Merge to main once PR is MERGED', () => {
+    render(<GithubTab run={baseRun}
+      github={{ ...basePayload, pr: { number: 3, url: '#', state: 'MERGED', title: 't' } }}
+      onCreatePr={vi.fn()} onMerged={vi.fn()} creatingPr={false} />);
+    expect(screen.queryByText('Merge to main')).not.toBeInTheDocument();
+  });
+
+  it('hides Merge to main once PR is CLOSED', () => {
+    render(<GithubTab run={baseRun}
+      github={{ ...basePayload, pr: { number: 3, url: '#', state: 'CLOSED', title: 't' } }}
+      onCreatePr={vi.fn()} onMerged={vi.fn()} creatingPr={false} />);
+    expect(screen.queryByText('Merge to main')).not.toBeInTheDocument();
+  });
+
+  it('PR row is itself a link to the PR url', () => {
+    render(<GithubTab run={baseRun}
+      github={{ ...basePayload, pr: { number: 3, url: 'https://github.com/x/y/pull/3', state: 'OPEN', title: 'my pr' } }}
+      onCreatePr={vi.fn()} onMerged={vi.fn()} creatingPr={false} />);
+    const link = screen.getByRole('link', { name: /my pr/i });
+    expect(link).toHaveAttribute('href', 'https://github.com/x/y/pull/3');
+    expect(link).toHaveAttribute('target', '_blank');
+  });
+
   it('shows CI items with status', () => {
     render(<GithubTab run={baseRun}
       github={{

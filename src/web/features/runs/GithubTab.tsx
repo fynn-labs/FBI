@@ -26,6 +26,7 @@ export function GithubTab({ run, github, onCreatePr, onMerged, creatingPr }: Git
 
   const canCreatePr = github.github_available && !github.pr && !!run.branch_name;
   const canMerge = github.github_available && !!github.pr
+    && github.pr.state === 'OPEN'
     && (run.state === 'running' || run.state === 'waiting' || run.state === 'succeeded');
 
   async function onMergeClick(): Promise<void> {
@@ -71,16 +72,6 @@ export function GithubTab({ run, github, onCreatePr, onMerged, creatingPr }: Git
             {merging ? 'Merging…' : 'Merge to main'}
           </button>
         )}
-        {github.pr && (
-          <a
-            href={github.pr.url}
-            target="_blank"
-            rel="noreferrer"
-            className="ml-auto text-[13px] text-accent hover:text-accent-strong flex items-center gap-1"
-          >
-            View PR <ExternalLink />
-          </a>
-        )}
         {!github.github_available && (
           <span className="text-[12px] text-text-faint">GitHub CLI not available / non-GitHub remote</span>
         )}
@@ -90,11 +81,17 @@ export function GithubTab({ run, github, onCreatePr, onMerged, creatingPr }: Git
 
       <Section label="Pull request">
         {github.pr ? (
-          <div className="px-3 py-2 text-[13px] flex items-center gap-2">
+          <a
+            href={github.pr.url}
+            target="_blank"
+            rel="noreferrer"
+            className="flex items-center gap-2 px-3 py-2 text-[13px] hover:bg-surface-raised border-b border-border group"
+          >
             <span className="font-mono text-text-faint">#{github.pr.number}</span>
-            <span className="text-text truncate flex-1">{github.pr.title}</span>
+            <span className="text-text truncate flex-1 group-hover:text-accent">{github.pr.title}</span>
             <Pill tone={PR_STATE_TONE[github.pr.state]}>{github.pr.state.toLowerCase()}</Pill>
-          </div>
+            <ExternalLink className="text-text-faint group-hover:text-accent" />
+          </a>
         ) : (
           <p className="px-3 py-2 text-[13px] text-text-faint">No PR yet.</p>
         )}
