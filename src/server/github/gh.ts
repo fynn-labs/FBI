@@ -78,6 +78,48 @@ export class GhClient {
     ]);
     return JSON.parse(stdout || '[]') as FileChange[];
   }
+
+  async commitsOnBranch(
+    repo: string, branch: string,
+  ): Promise<Array<{ sha: string; subject: string; committed_at: number; pushed: boolean }>> {
+    const url = `/repos/${repo}/commits?sha=${encodeURIComponent(branch)}&per_page=20`;
+    try {
+      const { stdout } = await ex(this.bin, ['api', url]);
+      const arr = JSON.parse(stdout || '[]') as Array<{
+        sha: string;
+        commit: { message: string; committer: { date: string } };
+      }>;
+      return arr.map((c) => ({
+        sha: c.sha,
+        subject: (c.commit?.message ?? '').split('\n', 1)[0] ?? '',
+        committed_at: Math.floor(Date.parse(c.commit?.committer?.date ?? '') / 1000) || 0,
+        pushed: true,
+      }));
+    } catch {
+      return [];
+    }
+  }
+
+  async mergeBranch(
+    repo: string, head: string, base: string, commit_message: string,
+  ): Promise<{ merged: true; sha: string } | { merged: false; reason: 'conflict' | 'gh-error' }> {
+    try {
+      const { stdout } = await ex(this.bin, [
+        'api', '-X', 'POST', `/repos/${repo}/merges`,
+        '-f', `base=${base}`,
+        '-f', `head=${head}`,
+        '-f', `commit_message=${commit_message}`,
+      ]);
+      const obj = JSON.parse(stdout || '{}') as { sha?: string };
+      if (!obj.sha) return { merged: false, reason: 'gh-error' };
+      return { merged: true, sha: obj.sha };
+    } catch (e) {
+      const err = e as Error & { stderr?: string };
+      const msg = String(err.stderr ?? err.message ?? e);
+      if (/409/.test(msg) || /conflict/i.test(msg)) return { merged: false, reason: 'conflict' };
+      return { merged: false, reason: 'gh-error' };
+    }
+  }
 }
 
 export class GhError extends Error {}
