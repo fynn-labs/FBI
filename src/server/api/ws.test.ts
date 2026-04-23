@@ -53,8 +53,10 @@ describe('WS shell', () => {
     const chunks: Buffer[] = [];
     ws.on('message', (d) => chunks.push(d as Buffer));
     await new Promise<void>((r) => ws.once('open', () => r()));
-    // Give the server a tick to send the replay payload.
-    await new Promise((r) => setTimeout(r, 100));
+    // Send hello so the server emits its opening snapshot.
+    ws.send(JSON.stringify({ type: 'hello', cols: 120, rows: 40 }));
+    // Wait for the snapshot to arrive (hello gate resolves immediately).
+    await new Promise((r) => setTimeout(r, 200));
     expect(Buffer.concat(chunks).toString()).toContain('past-output');
     // Socket must still be open — a subsequent Continue would publish into
     // the same broadcaster and the client must still be subscribed.
@@ -100,7 +102,9 @@ describe('WS shell', () => {
     const chunks: Buffer[] = [];
     ws.on('message', (d) => chunks.push(d as Buffer));
     await new Promise<void>((r) => ws.once('open', () => r()));
-    await new Promise((r) => setTimeout(r, 50));
+    // Send hello so the server emits its opening snapshot and sets live=true.
+    ws.send(JSON.stringify({ type: 'hello', cols: 120, rows: 40 }));
+    await new Promise((r) => setTimeout(r, 200));
 
     // Simulate a Continue firing: publish into the run's broadcaster.
     streams.getOrCreate(run.id).publish(Buffer.from('\n[fbi] continuing from session x\n'));
@@ -352,6 +356,118 @@ describe('WS snapshot handshake', () => {
     const second = JSON.parse(textFrames[1]) as { type: string; ansi: string };
     expect(second.type).toBe('snapshot');
     expect(second.ansi.includes('after-resync')).toBe(true);
+
+    ws.close();
+    await app.close();
+  });
+
+  it('defers the opening snapshot until the client sends hello', async () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'fbi-'));
+    const db = openDb(path.join(dir, 'db.sqlite'));
+    const projects = new ProjectsRepo(db);
+    const runs = new RunsRepo(db);
+    const streams = new RunStreamRegistry();
+    const p = projects.create({
+      name: 'p', repo_url: 'r', default_branch: 'main',
+      devcontainer_override_json: null, instructions: null,
+      git_author_name: null, git_author_email: null,
+    });
+    const logPath = path.join(dir, 'run-hello.log');
+    fs.writeFileSync(logPath, '');
+    const run = runs.create({ project_id: p.id, prompt: 'hi', log_path_tmpl: () => logPath });
+    runs.markStarted(run.id, 'c1');
+    // Pre-create a screen so sendSnapshot doesn't go down the rebuild path.
+    streams.getOrCreateScreen(run.id, 80, 24);
+
+    const resizeCalls: Array<{ cols: number; rows: number }> = [];
+    const orchestrator = {
+      writeStdin: () => {},
+      resize: async (_id: number, cols: number, rows: number) => {
+        resizeCalls.push({ cols, rows });
+      },
+      cancel: async () => {},
+    };
+
+    const app = Fastify();
+    await app.register(fastifyWebsocket);
+    registerWsRoute(app, { runs, streams, orchestrator });
+    await app.listen({ port: 0 });
+    const address = app.server.address();
+    if (!address || typeof address === 'string') throw new Error('no port');
+
+    const ws = new WebSocket(`ws://127.0.0.1:${address.port}/api/runs/${run.id}/shell`);
+    await new Promise<void>((r) => ws.once('open', r));
+
+    // Give the server 100 ms — if it were going to send a snapshot without
+    // hello, it would have done so by now.
+    const earlyFrames: string[] = [];
+    ws.on('message', (data, isBinary) => {
+      if (!isBinary) earlyFrames.push((data as Buffer).toString('utf8'));
+    });
+    await new Promise((r) => setTimeout(r, 100));
+    expect(earlyFrames).toHaveLength(0);
+
+    // Send hello. A snapshot should follow within 500 ms.
+    ws.send(JSON.stringify({ type: 'hello', cols: 100, rows: 30 }));
+    const snap = await new Promise<string>((resolve, reject) => {
+      const t = setTimeout(() => reject(new Error('snapshot did not arrive')), 500);
+      ws.on('message', (data, isBinary) => {
+        if (isBinary) return;
+        clearTimeout(t);
+        resolve((data as Buffer).toString('utf8'));
+      });
+    });
+    const parsed = JSON.parse(snap) as { type: string; cols: number; rows: number };
+    expect(parsed.type).toBe('snapshot');
+    expect(parsed.cols).toBe(100);
+    expect(parsed.rows).toBe(30);
+    expect(resizeCalls).toContainEqual({ cols: 100, rows: 30 });
+
+    ws.close();
+    await app.close();
+  });
+
+  it('falls back to a default-dims snapshot if hello never arrives within 1500 ms', async () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'fbi-'));
+    const db = openDb(path.join(dir, 'db.sqlite'));
+    const projects = new ProjectsRepo(db);
+    const runs = new RunsRepo(db);
+    const streams = new RunStreamRegistry();
+    const p = projects.create({
+      name: 'p', repo_url: 'r', default_branch: 'main',
+      devcontainer_override_json: null, instructions: null,
+      git_author_name: null, git_author_email: null,
+    });
+    const logPath = path.join(dir, 'run-fallback.log');
+    fs.writeFileSync(logPath, '');
+    const run = runs.create({ project_id: p.id, prompt: 'hi', log_path_tmpl: () => logPath });
+    runs.markStarted(run.id, 'c1');
+    streams.getOrCreateScreen(run.id, 120, 40); // default dims
+
+    const orchestrator = { writeStdin: () => {}, resize: async () => {}, cancel: async () => {} };
+    const app = Fastify();
+    await app.register(fastifyWebsocket);
+    registerWsRoute(app, { runs, streams, orchestrator });
+    await app.listen({ port: 0 });
+    const address = app.server.address();
+    if (!address || typeof address === 'string') throw new Error('no port');
+
+    const ws = new WebSocket(`ws://127.0.0.1:${address.port}/api/runs/${run.id}/shell`);
+    await new Promise<void>((r) => ws.once('open', r));
+
+    // Do NOT send hello. Wait for the fallback.
+    const snap = await new Promise<string>((resolve, reject) => {
+      const t = setTimeout(() => reject(new Error('fallback snapshot did not arrive')), 3000);
+      ws.on('message', (data, isBinary) => {
+        if (isBinary) return;
+        clearTimeout(t);
+        resolve((data as Buffer).toString('utf8'));
+      });
+    });
+    const parsed = JSON.parse(snap) as { type: string; cols: number; rows: number };
+    expect(parsed.type).toBe('snapshot');
+    expect(parsed.cols).toBe(120);
+    expect(parsed.rows).toBe(40);
 
     ws.close();
     await app.close();
