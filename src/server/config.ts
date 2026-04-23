@@ -30,9 +30,22 @@ export interface Config {
   port: number;
   dbPath: string;
   runsDir: string;
+  // Bind-mount source prefix used when passing runsDir-derived paths to the
+  // Docker daemon. For a normal install this equals runsDir. For dev-in-
+  // container setups where the daemon sees a different path than the server
+  // process, set FBI_HOST_RUNS_DIR to the daemon's view. Optional — consumers
+  // fall back to runsDir when undefined.
+  hostRunsDir?: string;
   draftUploadsDir: string;
   hostSshAuthSock: string;
+  // Bind-mount source for the ssh-agent socket. Defaults to hostSshAuthSock;
+  // override with FBI_HOST_BIND_SSH_AUTH_SOCK for dev-in-container setups.
+  hostBindSshAuthSock?: string;
   hostClaudeDir: string;
+  // Bind-mount source prefix used when passing hostClaudeDir-derived paths
+  // to the Docker daemon. Defaults to hostClaudeDir; override with
+  // FBI_HOST_BIND_CLAUDE_DIR for dev-in-container setups.
+  hostBindClaudeDir?: string;
   hostDockerSocket: string;
   hostDockerGid: number | null;
   secretsKeyFile: string;
@@ -55,10 +68,13 @@ export function loadConfig(): Config {
     port: Number(process.env.PORT ?? 3000),
     dbPath: process.env.DB_PATH ?? '/var/lib/agent-manager/db.sqlite',
     runsDir: process.env.RUNS_DIR ?? '/var/lib/agent-manager/runs',
+    hostRunsDir: process.env.FBI_HOST_RUNS_DIR,
     draftUploadsDir:
       process.env.DRAFT_UPLOADS_DIR ?? '/var/lib/agent-manager/draft-uploads',
     hostSshAuthSock: process.env.HOST_SSH_AUTH_SOCK ?? process.env.SSH_AUTH_SOCK ?? '',
+    hostBindSshAuthSock: process.env.FBI_HOST_BIND_SSH_AUTH_SOCK,
     hostClaudeDir: process.env.HOST_CLAUDE_DIR ?? path.join(os.homedir(), '.claude'),
+    hostBindClaudeDir: process.env.FBI_HOST_BIND_CLAUDE_DIR,
     hostDockerSocket: process.env.HOST_DOCKER_SOCKET ?? '/var/run/docker.sock',
     hostDockerGid: (() => {
       const override = process.env.HOST_DOCKER_GID;
