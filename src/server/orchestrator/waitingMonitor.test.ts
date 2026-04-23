@@ -5,6 +5,17 @@ import path from 'node:path';
 import { WaitingMonitor } from './waitingMonitor.js';
 
 const PROMPT_BYTES = Buffer.from('\x1b[2m│\x1b[0m \x1b[1m> \x1b[0m');
+// Claude Code 2.x draws the input prompt with "❯" inside a multi-line input
+// box; real-world bytes include SGR color escapes + padding + a "────"
+// separator + a hint line. Taken from a live capture.
+const PROMPT_BYTES_V2 = Buffer.from(
+  '\x1b[40m\x1b[30m❯ \x1b[97m\x1b[39m' +
+  '                                                                    ' +
+  '\r\n\r\n\r\n\r\n\r\n' +
+  '\x1b[37m' + '─'.repeat(72) + '\x1b[39m\r\n' +
+  '  ? for shortcuts',
+  'utf8',
+);
 
 describe('WaitingMonitor', () => {
   let dir: string;
@@ -183,6 +194,24 @@ describe('WaitingMonitor', () => {
     time = 41_100; mon.checkNow();
     expect(entered).toBe(2);                      // 9.1s idle; re-enters
 
+    mon.stop();
+  });
+
+  it('fires onEnter for Claude Code 2.x "❯" prompt (with trailing decoration)', () => {
+    let time = 0;
+    let entered = 0;
+    const mon = new WaitingMonitor({
+      mountDir: dir,
+      warmupMs: 20_000, idleMs: 8_000, checkMs: 2_000,
+      onEnter: () => { entered++; }, onExit: () => {},
+      now: () => time,
+    });
+    touch();
+    mon.start();
+    mon.feedLog(PROMPT_BYTES_V2);
+    time = 30_000;
+    mon.checkNow();
+    expect(entered).toBe(1);
     mon.stop();
   });
 
