@@ -265,6 +265,12 @@ export class RunsRepo {
     return { items, total };
   }
 
+  listByParent(parentRunId: number): Run[] {
+    return this.db
+      .prepare('SELECT * FROM runs WHERE parent_run_id = ? ORDER BY id ASC')
+      .all(parentRunId) as Run[];
+  }
+
   listSiblings(runId: number, limit = 10): Run[] {
     const self = this.get(runId);
     if (!self) return [];

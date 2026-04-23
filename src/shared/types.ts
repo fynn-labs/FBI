@@ -212,7 +212,8 @@ export type HistoryOp =
   | { op: 'merge'; strategy?: MergeStrategy }
   | { op: 'sync' }
   | { op: 'squash-local'; subject: string }
-  | { op: 'polish' };
+  | { op: 'polish' }
+  | { op: 'push-submodule'; path: string };
 
 export type HistoryResult =
   | { kind: 'complete'; sha?: string }
@@ -223,6 +224,30 @@ export type HistoryResult =
   | { kind: 'git-error'; message: string }
   | { kind: 'git-unavailable' };
 
+export interface SubmoduleBump {
+  path: string;
+  url: string | null;
+  from: string;
+  to: string;
+  commits: ChangeCommit[];
+  commits_truncated: boolean;
+}
+
+export interface SubmoduleDirty {
+  path: string;
+  url: string | null;
+  dirty: FilesDirtyEntry[];
+  unpushed_commits: ChangeCommit[];
+  unpushed_truncated: boolean;
+}
+
+export interface ChildRunSummary {
+  id: number;
+  kind: 'work' | 'merge-conflict' | 'polish';
+  state: RunState;
+  created_at: number;
+}
+
 export interface ChangeCommit {
   sha: string;
   subject: string;
@@ -230,6 +255,7 @@ export interface ChangeCommit {
   pushed: boolean;
   files: FilesHeadEntry[];
   files_loaded: boolean;
+  submodule_bumps: SubmoduleBump[];
 }
 
 export interface ChangesPayload {
@@ -249,6 +275,8 @@ export interface ChangesPayload {
       } | null;
     };
   };
+  dirty_submodules: SubmoduleDirty[];
+  children: ChildRunSummary[];
 }
 
 export type RunWsChangesMessage = { type: 'changes' } & ChangesPayload;

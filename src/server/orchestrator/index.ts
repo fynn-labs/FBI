@@ -376,6 +376,8 @@ export class Orchestrator {
             commits: [],
             uncommitted: snap.dirty,
             integrations: {},
+            dirty_submodules: [],
+            children: [],
           });
         },
       });
@@ -978,6 +980,8 @@ export class Orchestrator {
           commits: [],
           uncommitted: snap.dirty,
           integrations: {},
+          dirty_submodules: [],
+          children: [],
         });
       },
     });

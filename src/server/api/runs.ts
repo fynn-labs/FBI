@@ -272,7 +272,7 @@ export function registerRunsRoutes(app: FastifyInstance, deps: Deps): void {
         deps.gh.commitsOnBranch(repo, run.branch_name).catch(() => []),
       ]);
       for (const c of ghCommits) {
-        commits.push({ sha: c.sha, subject: c.subject, committed_at: c.committed_at, pushed: true, files: [], files_loaded: false });
+        commits.push({ sha: c.sha, subject: c.subject, committed_at: c.committed_at, pushed: true, files: [], files_loaded: false, submodule_bumps: [] });
       }
       const passed = checks.filter((c) => c.conclusion === 'success').length;
       const failed = checks.filter((c) => c.conclusion === 'failure').length;
@@ -300,6 +300,7 @@ export function registerRunsRoutes(app: FastifyInstance, deps: Deps): void {
           pushed: false,
           files: live.headFiles,
           files_loaded: true,
+          submodule_bumps: [],
         });
       }
     }
@@ -310,6 +311,8 @@ export function registerRunsRoutes(app: FastifyInstance, deps: Deps): void {
       commits,
       uncommitted: live?.dirty ?? [],
       integrations: ghPayload ? { github: ghPayload } : {},
+      dirty_submodules: [],
+      children: [],
     };
     setChangesCached(runId, payload);
     return payload;
