@@ -74,16 +74,16 @@ function demux(
   onEnd: () => void,
   onError: (e: Error) => void,
 ): void {
-  let buf = Buffer.alloc(0);
+  let buf: Buffer = Buffer.alloc(0);
   stream.on('data', (d: Buffer) => {
-    buf = buf.length === 0 ? d : Buffer.concat([buf, d]);
+    buf = buf.length === 0 ? Buffer.from(d) : Buffer.concat([buf, d]);
     while (buf.length >= 8) {
       const kind = buf[0] as 1 | 2;
       const size = buf.readUInt32BE(4);
       if (buf.length < 8 + size) break;
-      const payload = buf.subarray(8, 8 + size);
-      onChunk(kind, Buffer.from(payload));
-      buf = buf.subarray(8 + size);
+      const payload = Buffer.from(buf.subarray(8, 8 + size));
+      onChunk(kind, payload);
+      buf = Buffer.from(buf.subarray(8 + size));
     }
   });
   stream.on('end', onEnd);

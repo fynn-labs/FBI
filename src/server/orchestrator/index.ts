@@ -30,8 +30,11 @@ import type { UsageRepo } from '../db/usage.js';
 import { UsageTailer } from './usageTailer.js';
 import { LimitMonitor } from './limitMonitor.js';
 import { WaitingWatcher } from './waitingWatcher.js';
+import { GitStateWatcher } from './gitStateWatcher.js';
+import { dockerExec, type DockerExecOptions, type DockerExecResult } from './dockerExec.js';
 import { nudgeClaudeToExit } from './nudgeClaude.js';
 import { checkContinueEligibility } from './continueEligibility.js';
+import type { FilesPayload } from '../../shared/types.js';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const SUPERVISOR = path.join(HERE, 'supervisor.sh');
@@ -270,6 +273,7 @@ export class Orchestrator {
     let titleWatcher: TitleWatcher | null = null;
     let limitMonitor: LimitMonitor | null = null;
     let waitingWatcher: WaitingWatcher | null = null;
+    let gitWatcher: GitStateWatcher | null = null;
 
     try {
       const { container, projectSecrets } = await this.createContainerForRun(
@@ -334,6 +338,16 @@ export class Orchestrator {
         onError: () => { /* swallow — best effort */ },
       });
       titleWatcher.start();
+      gitWatcher = new GitStateWatcher({
+        container,
+        defaultBranch: project.default_branch,
+        pollMs: 2000,
+        onSnapshot: (snap) => {
+          this.lastFiles.set(runId, snap);
+          events.publish({ type: 'files', ...snap });
+        },
+      });
+      gitWatcher.start();
       void this.deps.poller.nudge();
 
       await this.awaitAndComplete(runId, container, onBytes, store, broadcaster);
@@ -342,7 +356,8 @@ export class Orchestrator {
       onBytes(Buffer.from(`\n[fbi] error: ${msg}\n`));
       this.deps.runs.markFinished(runId, { state: 'failed', error: msg });
       this.publishState(runId);
-      this.active.delete(runId);
+      this.active.delete(runId); this.lastFiles.delete(runId);
+      this.lastFiles.delete(runId);
       store.close();
       broadcaster.end();
       this.deps.streams.release(runId);
@@ -351,6 +366,7 @@ export class Orchestrator {
       if (titleWatcher) await titleWatcher.stop();
       if (limitMonitor) limitMonitor.stop();
       if (waitingWatcher) waitingWatcher.stop();
+      if (gitWatcher) await gitWatcher.stop();
     }
   }
 
@@ -414,13 +430,13 @@ export class Orchestrator {
             this.publishState(runId);
             this.scheduler.schedule(runId, verdict.reset_at);
             await container.remove({ force: true, v: true }).catch(() => {});
-            this.active.delete(runId);
+            this.active.delete(runId); this.lastFiles.delete(runId);
             // Close and re-open on resume — resume() opens in append mode.
             store.close(); broadcaster.end();
             return;
           }
           await container.remove({ force: true, v: true }).catch(() => {});
-          this.active.delete(runId);
+          this.active.delete(runId); this.lastFiles.delete(runId);
           store.close(); broadcaster.end();
           this.deps.streams.release(runId);
           return;
@@ -460,7 +476,7 @@ export class Orchestrator {
       onBytes(Buffer.from(`\n[fbi] run ${state}\n`));
       this.publishState(runId);
       await container.remove({ force: true, v: true }).catch(() => {});
-      this.active.delete(runId);
+      this.active.delete(runId); this.lastFiles.delete(runId);
       store.close(); broadcaster.end();
       this.deps.streams.release(runId);
     } finally {
@@ -568,7 +584,7 @@ export class Orchestrator {
       onBytes(Buffer.from(`\n[fbi] resume error: ${msg}\n`));
       this.deps.runs.markFinished(runId, { state: 'failed', error: `resume failed: ${msg}` });
       this.publishState(runId);
-      this.active.delete(runId);
+      this.active.delete(runId); this.lastFiles.delete(runId);
       store.close(); broadcaster.end(); this.deps.streams.release(runId);
     }
   }
@@ -638,7 +654,7 @@ export class Orchestrator {
       onBytes(Buffer.from(`\n[fbi] continue error: ${msg}\n`));
       this.deps.runs.markFinished(runId, { state: 'failed', error: `continue failed: ${msg}` });
       this.publishState(runId);
-      this.active.delete(runId);
+      this.active.delete(runId); this.lastFiles.delete(runId);
       store.close(); broadcaster.end(); this.deps.streams.release(runId);
     }
   }
@@ -692,12 +708,27 @@ export class Orchestrator {
     { container: Docker.Container; attachStream: NodeJS.ReadWriteStream }
   >();
   private lastRateLimit = new Map<number, RateLimitSnapshot>();
+  private lastFiles = new Map<number, FilesPayload>();
 
   /** Forward stdin bytes from the UI to the container. */
   writeStdin(runId: number, bytes: Uint8Array): void {
     const a = this.active.get(runId);
     if (!a) return;
     a.attachStream.write(Buffer.from(bytes));
+  }
+
+  /** Return the most recent GitStateWatcher snapshot for a run, if any. */
+  getLastFiles(runId: number): FilesPayload | null {
+    return this.lastFiles.get(runId) ?? null;
+  }
+
+  /** Run a command inside the container backing `runId`. Throws if no
+   *  container is active for this run. Used by API routes that need on-demand
+   *  git output (e.g. per-file diffs). */
+  async execInContainer(runId: number, cmd: string[], opts: DockerExecOptions = {}): Promise<DockerExecResult> {
+    const a = this.active.get(runId);
+    if (!a) throw new Error('container not active');
+    return dockerExec(a.container, cmd, opts);
   }
 
   /** Resize the container's TTY. */
@@ -908,7 +939,7 @@ export class Orchestrator {
       limitMonitor.stop();
       waitingWatcher.stop();
       events.end();
-      this.active.delete(runId);
+      this.active.delete(runId); this.lastFiles.delete(runId);
       this.lastRateLimit.delete(runId);
       store.close();
       broadcaster.end();
