@@ -137,7 +137,7 @@ describe('WS /api/runs/:id/proxy/:port', () => {
     const { runs, make } = setupRunsRepo();
     const run = make(); runs.markStarted(run.id, 'cid');
     const streams = new RunStreamRegistry();
-    streams.getOrCreateState(run.id).publish({ type: 'state', state: 'running', next_resume_at: null, resume_attempts: 0, last_limit_reset_at: null });
+    streams.getOrCreateState(run.id).publish({ type: 'state', state: 'running', state_entered_at: Date.now(), next_resume_at: null, resume_attempts: 0, last_limit_reset_at: null });
     const container: Container = {
       inspect: async () => ({
         State: { Pid: 1 },
@@ -167,7 +167,7 @@ describe('WS /api/runs/:id/proxy/:port', () => {
     const { runs, make } = setupRunsRepo();
     const run = make(); runs.markStarted(run.id, 'cid');
     const streams = new RunStreamRegistry();
-    streams.getOrCreateState(run.id).publish({ type: 'state', state: 'running', next_resume_at: null, resume_attempts: 0, last_limit_reset_at: null });
+    streams.getOrCreateState(run.id).publish({ type: 'state', state: 'running', state_entered_at: Date.now(), next_resume_at: null, resume_attempts: 0, last_limit_reset_at: null });
     const container: Container = {
       inspect: async () => ({
         State: { Pid: 1 },
@@ -194,7 +194,7 @@ describe('WS /api/runs/:id/proxy/:port', () => {
     const { runs, make } = setupRunsRepo();
     const run = make(); runs.markStarted(run.id, 'cid');
     const streams = new RunStreamRegistry();
-    streams.getOrCreateState(run.id).publish({ type: 'state', state: 'running', next_resume_at: null, resume_attempts: 0, last_limit_reset_at: null });
+    streams.getOrCreateState(run.id).publish({ type: 'state', state: 'running', state_entered_at: Date.now(), next_resume_at: null, resume_attempts: 0, last_limit_reset_at: null });
     const container: Container = {
       inspect: async () => ({
         State: { Pid: 1 },
@@ -206,9 +206,57 @@ describe('WS /api/runs/:id/proxy/:port', () => {
 
     const ws = new WebSocket(`ws://127.0.0.1:${r.port}/api/runs/${run.id}/proxy/${received.port}`);
     await new Promise<void>((resolve, reject) => { ws.once('open', () => resolve()); ws.once('error', reject); });
-    streams.getOrCreateState(run.id).publish({ type: 'state', state: 'succeeded', next_resume_at: null, resume_attempts: 0, last_limit_reset_at: null });
+    streams.getOrCreateState(run.id).publish({ type: 'state', state: 'succeeded', state_entered_at: Date.now(), next_resume_at: null, resume_attempts: 0, last_limit_reset_at: null });
     const code = await new Promise<number>((resolve) => ws.on('close', (c) => resolve(c)));
     expect(code).toBe(1001);
+  });
+
+  it('stays open when run transitions to waiting (container still alive)', async () => {
+    const received = await new Promise<{ port: number }>((resolve) => {
+      upstream = net.createServer((s) => s.on('data', (d) => s.write(d)));
+      upstream.listen(0, '127.0.0.1', () => {
+        const a = upstream!.address();
+        if (!a || typeof a === 'string') throw new Error('no port');
+        resolve({ port: a.port });
+      });
+    });
+    const { runs, make } = setupRunsRepo();
+    const run = make(); runs.markStarted(run.id, 'cid');
+    const streams = new RunStreamRegistry();
+    streams.getOrCreateState(run.id).publish({ type: 'state', state: 'running', state_entered_at: Date.now(), next_resume_at: null, resume_attempts: 0, last_limit_reset_at: null });
+    const container: Container = {
+      inspect: async () => ({
+        State: { Pid: 1 },
+        NetworkSettings: { IPAddress: '127.0.0.1' },
+      }),
+    };
+    const r = await makeWsApp({ runsRepo: runs, streams, getLiveContainer: () => container });
+    app = r.app;
+
+    const ws = new WebSocket(`ws://127.0.0.1:${r.port}/api/runs/${run.id}/proxy/${received.port}`);
+    await new Promise<void>((resolve, reject) => { ws.once('open', () => resolve()); ws.once('error', reject); });
+
+    // Transition to 'waiting' — container is still alive, tunnel must stay open.
+    streams.getOrCreateState(run.id).publish({ type: 'state', state: 'waiting', state_entered_at: Date.now(), next_resume_at: null, resume_attempts: 0, last_limit_reset_at: null });
+
+    // Race a close event against an echo round-trip. The tunnel staying open
+    // is proved by a successful echo *after* the waiting frame has published.
+    const closed = new Promise<number>((resolve) => ws.on('close', (c) => resolve(c)));
+    const echoed = new Promise<Buffer>((resolve) => {
+      const chunks: Buffer[] = [];
+      ws.on('message', (d, isBinary) => {
+        if (!isBinary) return;
+        chunks.push(d as Buffer);
+        if (Buffer.concat(chunks).toString() === 'hello') resolve(Buffer.concat(chunks));
+      });
+      ws.send(Buffer.from('hello'), { binary: true });
+    });
+    const winner = await Promise.race([
+      echoed.then((b) => ({ kind: 'echo' as const, b })),
+      closed.then((c) => ({ kind: 'close' as const, c })),
+    ]);
+    expect(winner.kind).toBe('echo');
+    ws.close();
   });
 
   it('closes WS with 1001 when run goes to awaiting_resume', async () => {
@@ -223,7 +271,7 @@ describe('WS /api/runs/:id/proxy/:port', () => {
     const { runs, make } = setupRunsRepo();
     const run = make(); runs.markStarted(run.id, 'cid');
     const streams = new RunStreamRegistry();
-    streams.getOrCreateState(run.id).publish({ type: 'state', state: 'running', next_resume_at: null, resume_attempts: 0, last_limit_reset_at: null });
+    streams.getOrCreateState(run.id).publish({ type: 'state', state: 'running', state_entered_at: Date.now(), next_resume_at: null, resume_attempts: 0, last_limit_reset_at: null });
     const container: Container = {
       inspect: async () => ({
         State: { Pid: 1 },
@@ -235,7 +283,7 @@ describe('WS /api/runs/:id/proxy/:port', () => {
 
     const ws = new WebSocket(`ws://127.0.0.1:${r.port}/api/runs/${run.id}/proxy/${received.port}`);
     await new Promise<void>((resolve, reject) => { ws.once('open', () => resolve()); ws.once('error', reject); });
-    streams.getOrCreateState(run.id).publish({ type: 'state', state: 'awaiting_resume', next_resume_at: 0, resume_attempts: 1, last_limit_reset_at: 0 });
+    streams.getOrCreateState(run.id).publish({ type: 'state', state: 'awaiting_resume', state_entered_at: Date.now(), next_resume_at: 0, resume_attempts: 1, last_limit_reset_at: 0 });
     const code = await new Promise<number>((resolve) => ws.on('close', (c) => resolve(c)));
     expect(code).toBe(1001);
   });
@@ -256,7 +304,7 @@ describe('WS /api/runs/:id/proxy/:port', () => {
     // replay during subscribe should fire closeBoth and uninstall the listener.
     streams.getOrCreateState(run.id).publish({
       type: 'state', state: 'succeeded',
-      next_resume_at: null, resume_attempts: 0, last_limit_reset_at: null,
+      state_entered_at: Date.now(), next_resume_at: null, resume_attempts: 0, last_limit_reset_at: null,
     });
     const container: Container = {
       inspect: async () => ({
@@ -278,7 +326,7 @@ describe('WS /api/runs/:id/proxy/:port', () => {
     const bc = streams.getOrCreateState(run.id);
     bc.publish({
       type: 'state', state: 'failed',
-      next_resume_at: null, resume_attempts: 0, last_limit_reset_at: null,
+      state_entered_at: Date.now(), next_resume_at: null, resume_attempts: 0, last_limit_reset_at: null,
     });
     const subsField = (bc as unknown as { subs: Set<unknown> }).subs;
     expect(subsField.size).toBe(0);

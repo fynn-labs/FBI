@@ -148,7 +148,12 @@ describe('WS shell', () => {
     const frameReceived = new Promise<string>((resolve, reject) => {
       const t = setTimeout(() => reject(new Error('timeout waiting for state frame')), 2000);
       ws2.on('message', (data, isBinary) => {
-        if (!isBinary) { clearTimeout(t); resolve((data as Buffer).toString('utf8')); }
+        if (isBinary) return;
+        const text = (data as Buffer).toString('utf8');
+        const parsed = JSON.parse(text) as { type: string };
+        if (parsed.type === 'snapshot') return; // skip snapshot frames
+        clearTimeout(t);
+        resolve(text);
       });
     });
 
@@ -159,6 +164,7 @@ describe('WS shell', () => {
     const frame = {
       type: 'state' as const,
       state: 'awaiting_resume' as const,
+      state_entered_at: Date.now(),
       next_resume_at: 9999999,
       resume_attempts: 1,
       last_limit_reset_at: null,
@@ -203,6 +209,7 @@ describe('WS global state channel', () => {
       run_id: 42,
       project_id: 7,
       state: 'waiting',
+      state_entered_at: Date.now(),
       next_resume_at: null,
       resume_attempts: 0,
       last_limit_reset_at: null,
@@ -218,6 +225,133 @@ describe('WS global state channel', () => {
     expect(parsed.run_id).toBe(42);
     expect(parsed.project_id).toBe(7);
     expect(parsed.state).toBe('waiting');
+
+    ws.close();
+    await app.close();
+  });
+});
+
+describe('WS snapshot handshake', () => {
+  it('sends a snapshot text frame as the first message on active-run connect', async () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'fbi-'));
+    const db = openDb(path.join(dir, 'db.sqlite'));
+    const projects = new ProjectsRepo(db);
+    const runs = new RunsRepo(db);
+    const streams = new RunStreamRegistry();
+
+    const p = projects.create({
+      name: 'p', repo_url: 'r', default_branch: 'main',
+      devcontainer_override_json: null, instructions: null,
+      git_author_name: null, git_author_email: null,
+    });
+    const logPath = path.join(dir, 'run-snap.log');
+    fs.writeFileSync(logPath, '');
+    const run = runs.create({ project_id: p.id, prompt: 'hi', log_path_tmpl: () => logPath });
+    runs.markStarted(run.id, 'c1');
+    // run is now 'running'
+
+    // Pre-populate a ScreenState so the route has something to serialize.
+    const screen = streams.getOrCreateScreen(run.id, 80, 24);
+    await screen.write(new TextEncoder().encode('hello world\r\n'));
+
+    const app = Fastify();
+    await app.register(fastifyWebsocket);
+    const orchestrator = { writeStdin: () => {}, resize: async () => {}, cancel: async () => {} };
+    registerWsRoute(app, { runs, streams, orchestrator });
+    await app.listen({ port: 0 });
+    const address = app.server.address();
+    if (!address || typeof address === 'string') throw new Error('no port');
+
+    const ws = new WebSocket(`ws://127.0.0.1:${address.port}/api/runs/${run.id}/shell`);
+
+    const first = await new Promise<string>((resolve, reject) => {
+      const t = setTimeout(() => reject(new Error('timeout waiting for first frame')), 2000);
+      ws.once('message', (data, isBinary) => {
+        clearTimeout(t);
+        if (isBinary) { reject(new Error('expected text frame, got binary')); return; }
+        resolve((data as Buffer).toString('utf8'));
+      });
+    });
+
+    const msg = JSON.parse(first) as { type: string; ansi: string; cols: number; rows: number };
+    expect(msg.type).toBe('snapshot');
+    expect(typeof msg.ansi).toBe('string');
+    expect(msg.cols).toBe(80);
+    expect(msg.rows).toBe(24);
+
+    ws.close();
+    await app.close();
+  });
+
+  it('responds to a resync message with a fresh snapshot reflecting newly-written bytes', async () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'fbi-'));
+    const db = openDb(path.join(dir, 'db.sqlite'));
+    const projects = new ProjectsRepo(db);
+    const runs = new RunsRepo(db);
+    const streams = new RunStreamRegistry();
+
+    const p = projects.create({
+      name: 'p', repo_url: 'r', default_branch: 'main',
+      devcontainer_override_json: null, instructions: null,
+      git_author_name: null, git_author_email: null,
+    });
+    const logPath = path.join(dir, 'run-resync.log');
+    fs.writeFileSync(logPath, '');
+    const run = runs.create({ project_id: p.id, prompt: 'hi', log_path_tmpl: () => logPath });
+    runs.markStarted(run.id, 'c1');
+    // run is now 'running'
+
+    const screen = streams.getOrCreateScreen(run.id, 80, 24);
+    await screen.write(new TextEncoder().encode('before\r\n'));
+
+    const app = Fastify();
+    await app.register(fastifyWebsocket);
+    const orchestrator = { writeStdin: () => {}, resize: async () => {}, cancel: async () => {} };
+    registerWsRoute(app, { runs, streams, orchestrator });
+    await app.listen({ port: 0 });
+    const address = app.server.address();
+    if (!address || typeof address === 'string') throw new Error('no port');
+
+    const ws = new WebSocket(`ws://127.0.0.1:${address.port}/api/runs/${run.id}/shell`);
+
+    // Collect all text messages in arrival order.
+    const textFrames: string[] = [];
+    let frameWaiter: (() => void) | null = null;
+    ws.on('message', (data, isBinary) => {
+      if (isBinary) return;
+      textFrames.push((data as Buffer).toString('utf8'));
+      frameWaiter?.();
+      frameWaiter = null;
+    });
+
+    // Wait until at least N text frames have arrived.
+    const waitForFrames = (n: number): Promise<void> =>
+      new Promise<void>((resolve, reject) => {
+        if (textFrames.length >= n) { resolve(); return; }
+        const t = setTimeout(() => reject(new Error(`timeout waiting for ${n} frames, got ${textFrames.length}`)), 2000);
+        const check = (): void => {
+          if (textFrames.length >= n) { clearTimeout(t); resolve(); return; }
+          frameWaiter = check;
+        };
+        frameWaiter = check;
+      });
+
+    await new Promise<void>((resolve) => ws.once('open', resolve));
+
+    // Wait for the initial snapshot.
+    await waitForFrames(1);
+    const first = JSON.parse(textFrames[0]) as { type: string };
+    expect(first.type).toBe('snapshot');
+
+    // Write new bytes into the screen after the initial snapshot.
+    await screen.write(new TextEncoder().encode('after-resync\r\n'));
+
+    // Request a resync; expect a fresh snapshot frame.
+    ws.send(JSON.stringify({ type: 'resync' }));
+    await waitForFrames(2);
+    const second = JSON.parse(textFrames[1]) as { type: string; ansi: string };
+    expect(second.type).toBe('snapshot');
+    expect(second.ansi.includes('after-resync')).toBe(true);
 
     ws.close();
     await app.close();
@@ -258,11 +392,13 @@ describe('WS typed frames', () => {
     const messages: string[] = [];
     let resolve1!: () => void;
     const got1 = new Promise<void>((r) => { resolve1 = r; });
-    let count = 0;
     ws.on('message', (d, isBinary) => {
       if (isBinary) return;
-      messages.push(d.toString());
-      if (++count >= 1) resolve1();
+      const text = (d as Buffer).toString('utf8');
+      const parsed = JSON.parse(text) as { type: string };
+      if (parsed.type === 'snapshot') return; // skip snapshot frames
+      messages.push(text);
+      if (messages.length >= 1) resolve1();
     });
     await new Promise((r) => ws.on('open', r));
 

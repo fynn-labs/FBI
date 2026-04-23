@@ -5,7 +5,7 @@ describe('StateBroadcaster', () => {
   it('delivers the latest frame to new subscribers', () => {
     const b = new StateBroadcaster();
     const f: StateFrame = {
-      type: 'state', state: 'awaiting_resume',
+      type: 'state', state: 'awaiting_resume', state_entered_at: Date.now(),
       next_resume_at: 1, resume_attempts: 1, last_limit_reset_at: 1,
     };
     b.publish(f);
@@ -21,7 +21,7 @@ describe('StateBroadcaster', () => {
     b.subscribe((x) => a.push(x));
     b.subscribe((x) => c.push(x));
     const f: StateFrame = {
-      type: 'state', state: 'running',
+      type: 'state', state: 'running', state_entered_at: Date.now(),
       next_resume_at: null, resume_attempts: 0, last_limit_reset_at: null,
     };
     b.publish(f);
@@ -35,7 +35,7 @@ describe('StateBroadcaster', () => {
     const un = b.subscribe((x) => received.push(x));
     un();
     b.publish({
-      type: 'state', state: 'running',
+      type: 'state', state: 'running', state_entered_at: Date.now(),
       next_resume_at: null, resume_attempts: 0, last_limit_reset_at: null,
     });
     expect(received).toEqual([]);

@@ -40,6 +40,7 @@ export interface Run {
   started_at: number | null;
   finished_at: number | null;
   created_at: number;
+  state_entered_at: number;
   resume_attempts: number;
   next_resume_at: number | null;
   claude_session_id: string | null;
@@ -91,6 +92,7 @@ export interface McpServer {
 export type RunWsStateMessage = {
   type: 'state';
   state: RunState;
+  state_entered_at: number;
   next_resume_at: number | null;
   resume_attempts: number;
   last_limit_reset_at: number | null;
@@ -181,9 +183,27 @@ export interface GlobalStateMessage {
   run_id: number;
   project_id: number;
   state: RunState;
+  state_entered_at: number;
   next_resume_at: number | null;
   resume_attempts: number;
   last_limit_reset_at: number | null;
+}
+
+/** Sent by the server as the opening text frame on live WS connect, and in
+ *  response to a client-initiated resync. Carries the current screen state
+ *  as an ANSI string that reproduces the screen when written into a fresh
+ *  xterm of the same cols/rows. */
+export interface RunWsSnapshotMessage {
+  type: 'snapshot';
+  ansi: string;
+  cols: number;
+  rows: number;
+}
+
+/** Sent by the client on window refocus / visibilitychange->visible to ask
+ *  the server for a fresh snapshot frame. Body carries no payload. */
+export interface RunWsResyncMessage {
+  type: 'resync';
 }
 
 export interface ListeningPort {

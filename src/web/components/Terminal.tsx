@@ -2,21 +2,33 @@ import { useEffect, useRef, useState } from 'react';
 import { Terminal as Xterm } from '@xterm/xterm';
 import { FitAddon } from '@xterm/addon-fit';
 import '@xterm/xterm/css/xterm.css';
-import { acquireShell, releaseShell, getBuffer } from '../lib/shellRegistry.js';
+import {
+  acquireShell,
+  releaseShell,
+  getLastSnapshot,
+  requestResync,
+} from '../lib/shellRegistry.js';
 import { publishUsage, publishState, publishTitle } from '../features/runs/usageBus.js';
-import type { UsageSnapshot, RunWsStateMessage, RunWsTitleMessage } from '@shared/types.js';
+import {
+  record as traceRecord,
+  strPreview,
+  isTracing,
+  setTracing,
+  subscribe as traceSubscribe,
+  eventCount as traceEventCount,
+  downloadTrace,
+} from '../lib/terminalTrace.js';
+import type {
+  UsageSnapshot,
+  RunWsStateMessage,
+  RunWsTitleMessage,
+} from '@shared/types.js';
 
 interface Props {
   runId: number;
   interactive: boolean;
 }
 
-// Captured logs can be multi-megabyte. Writing them to xterm synchronously
-// stalls the main thread and produces a "borked" initial render. On first
-// mount we write only the most recent slice; full history is loadable on
-// demand via the banner button.
-const REPLAY_CAP = 100 * 1024;
-const TRIM_SEARCH_WINDOW = 4096; // look this far past the cut for a newline
 const WRITE_CHUNK = 16 * 1024;
 
 function readTheme() {
@@ -32,31 +44,25 @@ function readTheme() {
   };
 }
 
-function mergeBuffer(chunks: ReadonlyArray<Uint8Array>): Uint8Array {
-  if (chunks.length === 0) return new Uint8Array(0);
-  if (chunks.length === 1) return chunks[0];
-  const total = chunks.reduce((s, c) => s + c.byteLength, 0);
-  const merged = new Uint8Array(total);
-  let offset = 0;
-  for (const c of chunks) { merged.set(c, offset); offset += c.byteLength; }
-  return merged;
-}
-
-// Slice to the last REPLAY_CAP bytes, advancing to the next newline so we
-// don't cut a line (or an ANSI escape sequence) in half.
-function trimToTail(data: Uint8Array): { tail: Uint8Array; trimmedBytes: number } {
-  if (data.byteLength <= REPLAY_CAP) return { tail: data, trimmedBytes: 0 };
-  const cutFrom = data.byteLength - REPLAY_CAP;
-  for (let i = cutFrom; i < Math.min(cutFrom + TRIM_SEARCH_WINDOW, data.byteLength); i++) {
-    if (data[i] === 0x0A) return { tail: data.subarray(i + 1), trimmedBytes: i + 1 };
-  }
-  return { tail: data.subarray(cutFrom), trimmedBytes: cutFrom };
-}
-
 export function Terminal({ runId, interactive }: Props) {
   const hostRef = useRef<HTMLDivElement>(null);
   const loadFullRef = useRef<() => void>(() => {});
-  const [trimmedBytes, setTrimmedBytes] = useState(0);
+  const [historyMode, setHistoryMode] = useState(false);
+  const [loaded, setLoaded] = useState(false);
+  // Re-render the trace indicator whenever trace state or count changes.
+  const [, forceTraceRerender] = useState(0);
+  useEffect(() => traceSubscribe(() => forceTraceRerender((n) => n + 1)), []);
+  // Ctrl+Shift+D toggles tracing globally for the whole app.
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent): void => {
+      if (e.ctrlKey && e.shiftKey && (e.key === 'D' || e.key === 'd')) {
+        e.preventDefault();
+        setTracing(!isTracing());
+      }
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, []);
 
   useEffect(() => {
     const host = hostRef.current;
@@ -72,24 +78,22 @@ export function Terminal({ runId, interactive }: Props) {
     const fit = new FitAddon();
     term.loadAddon(fit);
     term.open(host);
+    traceRecord('term.mount', { runId, interactive });
 
     const safeFit = () => {
       const rect = host.getBoundingClientRect();
       if (rect.width < 4 || rect.height < 4) return false;
-      try { fit.fit(); return true; } catch { return false; }
+      try {
+        fit.fit();
+        traceRecord('term.fit', { cols: term.cols, rows: term.rows });
+        return true;
+      } catch { return false; }
     };
 
     let disposed = false;
 
-    // All writes go through a serial queue. Any chunk larger than WRITE_CHUNK
-    // is split into <=WRITE_CHUNK pieces and enqueued in order. The queue is
-    // drained one piece per animation frame so a big incoming chunk — even
-    // the server's flush-after-handshake that arrives right after the main
-    // replay — never stalls the main thread for more than a frame.
-    //
-    // xterm's parser is stateful: splitting an ANSI escape sequence across
-    // writes is safe because it holds partial sequences internally and
-    // reassembles them on the next write.
+    // Frame-paced write queue. All writes — snapshot replay, live bytes,
+    // history-mode load — go through this.
     const writeQueue: Uint8Array[] = [];
     let pumping = false;
     const pump = () => {
@@ -101,6 +105,18 @@ export function Terminal({ runId, interactive }: Props) {
     };
     const enqueueWrite = (data: Uint8Array): void => {
       if (data.byteLength === 0) return;
+      // Small writes (e.g. keystroke echoes from the PTY) bypass the rAF
+      // queue and write directly so input round-trip stays snappy.
+      // Otherwise every echo waits up to ~16ms for the next frame, which
+      // adds visible per-keystroke lag on top of network RTT. Only fall
+      // through to the queue if it's already pumping (preserves order)
+      // or the chunk is large (worth pacing across frames).
+      if (data.byteLength <= WRITE_CHUNK && writeQueue.length === 0 && !pumping) {
+        traceRecord('term.write', { len: data.byteLength, path: 'direct' });
+        term.write(data);
+        return;
+      }
+      traceRecord('term.write', { len: data.byteLength, path: 'queue' });
       if (data.byteLength <= WRITE_CHUNK) {
         writeQueue.push(data);
       } else {
@@ -117,92 +133,97 @@ export function Terminal({ runId, interactive }: Props) {
       }
     };
 
-    // writeReplay is the ONLY path for "this is a captured log being played
-    // back". It trims if the log is large, and tracks how much was trimmed
-    // so the banner can show a "Load full history" affordance.
-    let initialWritten = false;
-    const writeReplay = (data: Uint8Array): void => {
-      if (initialWritten) return; // only the first replay is trimmed
-      initialWritten = true;
-      const { tail, trimmedBytes: tb } = trimToTail(data);
-      if (!disposed) setTrimmedBytes(tb);
-      enqueueWrite(tail);
-    };
+    const clearQueue = () => { writeQueue.length = 0; };
 
     const shell = acquireShell(runId);
     let unsubBytes: (() => void) | null = null;
+    let unsubSnapshot: (() => void) | null = null;
+    let ready = false; // true once first snapshot has been applied
 
-    // loadFullHistory: user clicked "Load full history".
-    // - Pause the live subscription so the next term.reset + replay doesn't
-    //   double-write bytes that would also arrive through the live path.
-    // - Reset the terminal (clears screen + scrollback + parser state).
-    // - Replay the FULL current buffer (now including anything that's
-    //   arrived since mount).
-    // - Re-subscribe to live. Any bytes the registry captured while we were
-    //   writing merge will be picked up by the registry's own buffer; the
-    //   post-write delta is written once to catch up.
-    loadFullRef.current = () => {
-      if (disposed) return;
-      if (unsubBytes) { unsubBytes(); unsubBytes = null; }
-      // Drop any pending queued writes — the term.reset() below nukes
-      // them anyway.
-      writeQueue.length = 0;
-      const merged = mergeBuffer(getBuffer(runId));
-      const beforeBytes = merged.byteLength;
-      term.reset();
-      enqueueWrite(merged);
-      setTrimmedBytes(0);
-      // Re-subscribe; catch-up for any bytes the registry accumulated
-      // between our getBuffer read and this moment is handled by reading
-      // the buffer one more time next tick.
-      queueMicrotask(() => {
-        if (disposed) return;
-        const after = mergeBuffer(getBuffer(runId));
-        if (after.byteLength > beforeBytes) {
-          enqueueWrite(after.subarray(beforeBytes));
-        }
-        unsubBytes = shell.onBytes((data) => enqueueWrite(data));
+    const applySnapshot = (snap: { ansi: string; cols: number; rows: number }) => {
+      // Non-interactive views don't drive the server's dims (an interactive
+      // tab owns the PTY size), so we adopt whatever the server sends rather
+      // than drop the snapshot. Resize before writing so the alt-screen
+      // reset and content land on a buffer of the correct shape.
+      if (!interactive && (snap.cols !== term.cols || snap.rows !== term.rows)) {
+        traceRecord('term.adoptSnapDims', {
+          fromCols: term.cols, fromRows: term.rows,
+          toCols: snap.cols, toRows: snap.rows,
+        });
+        term.resize(snap.cols, snap.rows);
+      }
+      traceRecord('term.applySnapshot', {
+        ansiLen: snap.ansi.length,
+        termCols: term.cols,
+        termRows: term.rows,
+        ansiPreview: strPreview(snap.ansi),
       });
+      clearQueue();
+      // No pre-reset: the snapshot's leading modesAnsi takes care of
+      // buffer selection (?1049h/l), viewport clear, and scroll region.
+      // Previously this wrote \x1b[?1049l\x1b[?1049h to force alt-buffer,
+      // but Claude Code renders its TUI inline in the *main* buffer —
+      // forcing alt diverged the client from the server and the TUI's
+      // relative cursor moves landed on wrong rows.
+      //
+      // Snapshots are bounded by viewport size (scrollback:0 server-side),
+      // so write synchronously — going through the rAF queue makes the
+      // user see the snapshot drawn line-by-line on tab switch.
+      term.write(new TextEncoder().encode(snap.ansi));
+      ready = true;
+      if (!disposed) setLoaded(true);
     };
 
-    // Defer first fit + replay until after layout settles. xterm's FitAddon
-    // uses getBoundingClientRect which can return stale/zero values during
-    // the first paint, especially when the parent SplitPane just mounted.
-    const raf1 = requestAnimationFrame(() => {
-      if (disposed) return;
-      const raf2 = requestAnimationFrame(() => {
-        if (disposed) return;
-        safeFit();
-        const buf = getBuffer(runId);
-        if (buf.length > 0) writeReplay(mergeBuffer(buf));
-        // Subscribe to live bytes AFTER replay. If getBuffer was empty
-        // (WS hasn't sent the replay yet), the first large onBytes call
-        // is itself the replay — treat it as such.
-        unsubBytes = shell.onBytes((data) => {
-          // Only the very first chunk is trimmed (it's the full log replay).
-          // Everything after is live data — enqueue all of it; the serial
-          // frame-paced queue keeps xterm responsive even on a big post-
-          // replay flush.
-          if (!initialWritten) writeReplay(data);
-          else enqueueWrite(data);
+    // For interactive views we drop mismatched snapshots (e.g. the server's
+    // first auto-snapshot before our resize lands) to avoid a visible flash
+    // of mis-wrapped content — the server re-sends a matching snapshot after
+    // our resize reaches it. Non-interactive views always accept.
+    const shouldApply = (snap: { cols: number; rows: number }): boolean =>
+      !interactive || (snap.cols === term.cols && snap.rows === term.rows);
+
+    // If another component has already acquired the shell and cached a
+    // snapshot for this run, apply it synchronously on mount.
+    const cached = getLastSnapshot(runId);
+    if (cached && shouldApply(cached)) applySnapshot(cached);
+
+    unsubSnapshot = shell.onSnapshot((snap) => {
+      if (!shouldApply(snap)) {
+        traceRecord('term.dropSnapshot', {
+          reason: 'dimMismatch',
+          snapCols: snap.cols, snapRows: snap.rows,
+          termCols: term.cols, termRows: term.rows,
         });
-        if (interactive) term.focus();
-      });
-      (safeFit as unknown as { _raf?: number })._raf = raf2;
+        return;
+      }
+      applySnapshot(snap);
     });
+
+    unsubBytes = shell.onBytes((data) => {
+      // Drop live bytes until the first snapshot has arrived; the snapshot
+      // encodes the initial state, and out-of-order pre-snapshot bytes would
+      // corrupt it. After ready=true, forward everything.
+      if (!ready) return;
+      enqueueWrite(data);
+    });
+
+    if (interactive) term.focus();
 
     const observer = new MutationObserver(() => {
       term.options.theme = readTheme();
     });
     observer.observe(document.documentElement, { attributes: true, attributeFilter: ['class'] });
 
-    // Debounce fit during active resize (SplitPane drag fires mousemove
-    // 60+ times/sec and each triggers a layout → ResizeObserver tick).
-    // Wait until the user stops resizing for ~120ms, then fit once.
+    // Debounced resize — the fit addon's getBoundingClientRect can be
+    // expensive, and SplitPane/window drags fire continuously.
+    // Non-interactive views skip fit entirely: they adopt the server's
+    // dims via applySnapshot, and auto-fitting to container would fight
+    // that and can re-flow content that was absolute-positioned at the
+    // server's dims.
     let roTimer: ReturnType<typeof setTimeout> | null = null;
     const runFit = () => {
       roTimer = null;
-      if (safeFit() && interactive) shell.resize(term.cols, term.rows);
+      if (!interactive) return;
+      if (safeFit()) shell.resize(term.cols, term.rows);
     };
     const ro = new ResizeObserver(() => {
       if (roTimer !== null) clearTimeout(roTimer);
@@ -210,44 +231,134 @@ export function Terminal({ runId, interactive }: Props) {
     });
     ro.observe(host);
 
+    // Same debounce for window resize — user dragging the browser edge
+    // fires continuously; fit once after they stop.
+    let winResizeTimer: ReturnType<typeof setTimeout> | null = null;
+    const onResize = () => {
+      if (!interactive) return;
+      if (winResizeTimer !== null) clearTimeout(winResizeTimer);
+      winResizeTimer = setTimeout(() => {
+        winResizeTimer = null;
+        if (safeFit()) shell.resize(term.cols, term.rows);
+      }, 120);
+    };
+    window.addEventListener('resize', onResize);
+
     const unsubEv = shell.onTypedEvent<{ type: string; snapshot?: unknown }>((msg) => {
       if (msg.type === 'usage') publishUsage(runId, msg.snapshot as UsageSnapshot);
       else if (msg.type === 'state') publishState(runId, msg as unknown as RunWsStateMessage);
       else if (msg.type === 'title') publishTitle(runId, msg as unknown as RunWsTitleMessage);
     });
 
-    // Same debounce for window resize — user dragging the browser edge
-    // fires continuously; fit once after they stop.
-    let winResizeTimer: ReturnType<typeof setTimeout> | null = null;
-    const onResize = () => {
-      if (winResizeTimer !== null) clearTimeout(winResizeTimer);
-      winResizeTimer = setTimeout(() => {
-        winResizeTimer = null;
-        if (safeFit() && interactive) shell.resize(term.cols, term.rows);
-      }, 120);
+    // Focus/blur/visibility triggers the fast-forward fix. When the window
+    // has been blurred or the tab hidden, rAF has been throttled and the
+    // write queue may have filled with stale bytes. On return, drop the
+    // queue and ask the server for a fresh snapshot.
+    let stale = false;
+    const markStale = () => { stale = true; };
+    const refresh = () => {
+      if (!stale || unsubSnapshot === null) return;
+      stale = false;
+      clearQueue();
+      traceRecord('term.resync.request', { reason: 'focus' });
+      requestResync(runId);
+      // The next snapshot frame will land via unsubSnapshot → applySnapshot.
     };
-    window.addEventListener('resize', onResize);
+    const onVisChange = () => {
+      if (document.hidden) markStale();
+      else refresh();
+    };
+    window.addEventListener('blur', markStale);
+    window.addEventListener('focus', refresh);
+    document.addEventListener('visibilitychange', onVisChange);
 
     shell.onOpen(() => {
-      if (safeFit() && interactive) shell.resize(term.cols, term.rows);
+      if (interactive && safeFit()) shell.resize(term.cols, term.rows);
     });
 
+    // "Load full history": fetch the log file and render it instead of the
+    // live view. Exposed via loadFullRef so the JSX button can call it.
+    loadFullRef.current = async () => {
+      if (disposed) return;
+      traceRecord('term.history.start', { runId });
+      setHistoryMode(true);
+      setLoaded(false); // show loading while we fetch + write the transcript
+      if (unsubBytes) { unsubBytes(); unsubBytes = null; }
+      if (unsubSnapshot) { unsubSnapshot(); unsubSnapshot = null; }
+      clearQueue();
+      term.reset();
+      try {
+        const res = await fetch(`/api/runs/${runId}/transcript`);
+        if (disposed) return;
+        if (!res.ok) throw new Error(`status ${res.status}`);
+        const buf = new Uint8Array(await res.arrayBuffer());
+        if (disposed) return;
+        // Write atomically in 1 MB chunks chained via xterm's write callback.
+        // The rAF-paced queue would draw the transcript line-by-line, which is
+        // intensely jittery for big logs; xterm's internal parser handles
+        // large writes far faster than one rAF per 16 KB.
+        const HISTORY_CHUNK = 1024 * 1024;
+        for (let off = 0; off < buf.byteLength; off += HISTORY_CHUNK) {
+          if (disposed) return;
+          const end = Math.min(off + HISTORY_CHUNK, buf.byteLength);
+          await new Promise<void>((resolve) => term.write(buf.subarray(off, end), resolve));
+        }
+        if (!disposed) setLoaded(true);
+        traceRecord('term.history.end', { runId, bytes: buf.byteLength });
+      } catch {
+        if (disposed) return;
+        term.write(new TextEncoder().encode('\r\n[failed to load history]\r\n'));
+        setLoaded(true);
+        traceRecord('term.history.end', { runId, error: true });
+      }
+    };
+
+    const resumeLive = () => {
+      if (disposed) return;
+      setHistoryMode(false);
+      clearQueue();
+      term.reset();
+      ready = false;
+      setLoaded(false); // show loading until the resync snapshot lands
+      unsubSnapshot = shell.onSnapshot((snap) => {
+        if (!shouldApply(snap)) {
+          traceRecord('term.dropSnapshot', {
+            reason: 'dimMismatch.resume',
+            snapCols: snap.cols, snapRows: snap.rows,
+            termCols: term.cols, termRows: term.rows,
+          });
+          return;
+        }
+        applySnapshot(snap);
+      });
+      unsubBytes = shell.onBytes((data) => { if (ready) enqueueWrite(data); });
+      traceRecord('term.resync.request', { reason: 'resumeLive' });
+      requestResync(runId);
+    };
+    // Stash resumeLive on the ref so the JSX button can call it.
+    (loadFullRef as unknown as { resume?: () => void }).resume = resumeLive;
+
     if (interactive) {
-      term.onData((d) => shell.send(new TextEncoder().encode(d)));
+      term.onData((d) => {
+        traceRecord('term.input', strPreview(d));
+        shell.send(new TextEncoder().encode(d));
+      });
       host.addEventListener('click', () => term.focus());
     }
 
     return () => {
       disposed = true;
-      cancelAnimationFrame(raf1);
-      const raf2 = (safeFit as unknown as { _raf?: number })._raf;
-      if (raf2 !== undefined) cancelAnimationFrame(raf2);
+      traceRecord('term.unmount', { runId });
       if (roTimer !== null) clearTimeout(roTimer);
       if (winResizeTimer !== null) clearTimeout(winResizeTimer);
       ro.disconnect();
       observer.disconnect();
       window.removeEventListener('resize', onResize);
+      window.removeEventListener('blur', markStale);
+      window.removeEventListener('focus', refresh);
+      document.removeEventListener('visibilitychange', onVisChange);
       if (unsubBytes) unsubBytes();
+      if (unsubSnapshot) unsubSnapshot();
       unsubEv();
       releaseShell(runId);
       term.dispose();
@@ -256,15 +367,45 @@ export function Terminal({ runId, interactive }: Props) {
 
   return (
     <div className="relative h-full w-full bg-surface-sunken">
-      {trimmedBytes > 0 && (
-        <div className="absolute top-0 left-0 right-0 z-10 flex items-center gap-2 px-3 py-1 bg-surface border-b border-border text-[12px] text-text-dim">
-          <span>Older output truncated ({Math.round(trimmedBytes / 1024).toLocaleString()} KB).</span>
+      {!loaded && (
+        <div className="absolute inset-0 z-20 flex items-center justify-center bg-surface-sunken text-text-dim text-[12px]">
+          <span>{historyMode ? 'Loading history…' : 'Loading terminal…'}</span>
+        </div>
+      )}
+      {!historyMode && (
+        <div className="absolute top-1 right-2 z-10">
           <button
             type="button"
             onClick={() => loadFullRef.current()}
-            className="text-accent hover:text-accent-strong transition-colors duration-fast ease-out"
+            className="text-[11px] text-text-dim hover:text-text transition-colors duration-fast ease-out"
           >
             Load full history
+          </button>
+        </div>
+      )}
+      {historyMode && (
+        <div className="absolute top-0 left-0 right-0 z-10 flex items-center gap-2 px-3 py-1 bg-surface border-b border-border text-[12px] text-text-dim">
+          <span>Viewing full history (live updates paused).</span>
+          <button
+            type="button"
+            onClick={() => (loadFullRef as unknown as { resume?: () => void }).resume?.()}
+            className="text-accent hover:text-accent-strong transition-colors duration-fast ease-out"
+          >
+            Resume live
+          </button>
+        </div>
+      )}
+      {isTracing() && (
+        <div
+          className="absolute bottom-1 right-2 z-30 select-none rounded bg-red-900/80 px-2 py-0.5 text-[10px] font-mono text-red-100 shadow ring-1 ring-red-300/30 backdrop-blur"
+          title="Terminal trace recording (Ctrl+Shift+D to stop). Click to download."
+        >
+          <button
+            type="button"
+            onClick={() => downloadTrace()}
+            className="cursor-pointer"
+          >
+            ● REC {traceEventCount()} ↓
           </button>
         </div>
       )}

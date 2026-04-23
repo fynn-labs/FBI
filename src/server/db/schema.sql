@@ -38,7 +38,8 @@ CREATE TABLE IF NOT EXISTS runs (
   head_commit TEXT,
   started_at INTEGER,
   finished_at INTEGER,
-  created_at INTEGER NOT NULL
+  created_at INTEGER NOT NULL,
+  state_entered_at INTEGER NOT NULL DEFAULT 0
 );
 
 CREATE INDEX IF NOT EXISTS idx_runs_project ON runs(project_id);

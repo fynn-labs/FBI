@@ -2,7 +2,6 @@ import type { FastifyInstance } from 'fastify';
 import type { WebSocket } from 'ws';
 import type { RunsRepo } from '../db/runs.js';
 import type { RunStreamRegistry } from '../logs/registry.js';
-import { LogStore } from '../logs/store.js';
 
 interface Orchestrator {
   writeStdin(runId: number, bytes: Uint8Array): void;
@@ -16,18 +15,15 @@ interface Deps {
   orchestrator: Orchestrator;
 }
 
-interface ControlFrame {
-  type: 'resize';
-  cols: number;
-  rows: number;
-}
+type ControlFrame =
+  | { type: 'resize'; cols: number; rows: number }
+  | { type: 'resync' };
 
 export function registerWsRoute(app: FastifyInstance, deps: Deps): void {
   app.get('/api/runs/:id/shell', { websocket: true }, (socket: WebSocket, req) => {
     const { id } = req.params as { id: string };
     const runId = Number(id);
 
-    // Fix 4: guard against NaN run ids.
     if (!Number.isFinite(runId)) {
       socket.close(4004, 'invalid run id');
       return;
@@ -39,13 +35,15 @@ export function registerWsRoute(app: FastifyInstance, deps: Deps): void {
       return;
     }
 
-    // Terminal runs keep the socket open after replay: a user clicking
-    // Continue revives the run into the same row, the orchestrator publishes
-    // new bytes/state into the registry, and the client must still be
-    // subscribed to receive them. When the continued run ends for real,
-    // the broadcaster's end() fires onEnd below, which closes the socket.
-
-    // Fix 2: Subscribe first so no live bytes are missed while we replay.
+    // Every run — live, awaiting_resume, or finished — gets the snapshot
+    // path. Finished runs may be revived via Continue, which reuses this
+    // socket; the snapshot reflects whatever's currently on screen, and the
+    // broadcaster's end() (onEnd below) closes the socket when the run truly
+    // ends.
+    //
+    // Subscribe to the bytes broadcaster BEFORE sending the snapshot so no
+    // live bytes are missed during the snapshot build/send window; buffer
+    // any that arrive in the window and flush immediately after.
     const bc = deps.streams.getOrCreate(runId);
     const buffered: Uint8Array[] = [];
     let live = false;
@@ -61,9 +59,6 @@ export function registerWsRoute(app: FastifyInstance, deps: Deps): void {
       }
     );
 
-    // Typed-event channel (usage + rate_limit) sent as JSON text frames,
-    // multiplexed over the same socket as the binary TTY stream.
-    // Subscribe BEFORE log replay so no typed events are missed during replay.
     const ev = deps.streams.getOrCreateEvents(runId);
     const unsubEvents = ev.subscribe((msg) => {
       if (socket.readyState === socket.OPEN) {
@@ -71,25 +66,6 @@ export function registerWsRoute(app: FastifyInstance, deps: Deps): void {
       }
     });
 
-    // Replay log, then flush any buffered live chunks.
-    const existing = LogStore.readAll(run.log_path);
-    if (existing.length > 0) socket.send(existing);
-    live = true;
-    for (const chunk of buffered) {
-      if (socket.readyState === socket.OPEN) {
-        socket.send(chunk, (err) => { if (err) unsub(); });
-      }
-    }
-
-    // Fix 3: If broadcaster already ended, close now.
-    if (bc.isEnded()) {
-      unsub();
-      unsubEvents();
-      if (socket.readyState === socket.OPEN) socket.close(1000, 'ended');
-      return;
-    }
-
-    // Subscribe to state frames and forward them as JSON text
     const stateBc = deps.streams.getOrCreateState(runId);
     const unsubState = stateBc.subscribe((frame) => {
       if (socket.readyState === socket.OPEN) {
@@ -97,15 +73,117 @@ export function registerWsRoute(app: FastifyInstance, deps: Deps): void {
       }
     });
 
-    socket.on('message', (data: Buffer, isBinary: boolean) => {
+    // Build + send the initial snapshot. If no ScreenState exists yet
+    // (e.g. fresh process, run is still spinning up and the orchestrator
+    // hasn't wired the byte pipeline), lazily rebuild from the log file —
+    // this also covers the "server was restarted mid-run" case.
+    const sendSnapshot = async (): Promise<void> => {
+      let screen = deps.streams.getScreen(runId);
+      if (!screen) {
+        screen = await deps.streams.rebuildScreenFromLog(runId, run.log_path);
+      }
+      if (socket.readyState !== socket.OPEN) return;
+      socket.send(JSON.stringify({
+        type: 'snapshot',
+        // Modes FIRST, then cell contents. DECSTBM (via modesAnsi) homes
+        // the cursor to (1,1), so we set it before SerializeAddon's
+        // output — SerializeAddon ends with a CUP that places the cursor
+        // at its proper row, which must win so subsequent relative-move
+        // sequences from the TUI (e.g. \x1b[3A to reach the prompt
+        // input line) land in the right place.
+        ansi: screen.modesAnsi() + screen.serialize(),
+        cols: screen.cols,
+        rows: screen.rows,
+      }));
+    };
+
+    void sendSnapshot()
+      .then(() => {
+        live = true;
+        for (const chunk of buffered) {
+          if (socket.readyState === socket.OPEN) {
+            socket.send(chunk, (err) => { if (err) unsub(); });
+          }
+        }
+        // Edge: broadcaster ended while we were building the snapshot.
+        if (bc.isEnded()) {
+          unsub();
+          unsubEvents();
+          unsubState();
+          if (socket.readyState === socket.OPEN) socket.close(1000, 'ended');
+        }
+      })
+      .catch(() => {
+        // rebuildScreenFromLog failed (I/O error). Tear down so the client
+        // doesn't hang; they'll reconnect and try again.
+        unsub();
+        unsubEvents();
+        unsubState();
+        if (socket.readyState === socket.OPEN) socket.close(1011, 'snapshot error');
+      });
+
+    socket.on('message', async (data: Buffer, isBinary: boolean) => {
       if (!isBinary) {
-        // Text frame — try to parse as control JSON.
         try {
           const msg = JSON.parse(data.toString('utf8')) as ControlFrame;
           if (msg.type === 'resize') {
-            void deps.orchestrator.resize(runId, msg.cols, msg.rows);
+            // Resize the PTY (sends SIGWINCH to the TUI) and the
+            // ScreenState. xterm's reflow on resize is best-effort and
+            // doesn't perfectly fix wrapping baked in at the old dims —
+            // the TUI (Claude Code) responds to SIGWINCH by emitting a
+            // fresh full-screen redraw at the new dims; once those bytes
+            // are parsed, the ScreenState reflects the correct layout.
+            //
+            // We deliberately do NOT suspend live forwarding during the
+            // wait below: keystroke echoes and other live updates need to
+            // keep flowing so input feels responsive. Brief visual
+            // overlap during the 200 ms is acceptable; the snapshot then
+            // clears and replaces.
+            const screenBefore = deps.streams.getScreen(runId);
+            const dimsChanged =
+              !screenBefore ||
+              screenBefore.cols !== msg.cols ||
+              screenBefore.rows !== msg.rows;
+            await deps.orchestrator.resize(runId, msg.cols, msg.rows);
+            if (dimsChanged) {
+              // Wait for the redraw to land before serializing. Without
+              // this wait, the snapshot captures pre-redraw content
+              // (still wrapped at old dims) and the client renders it
+              // mis-wrapped. Skip the wait for no-op resizes so refocus/
+              // idle resizes don't add visible latency.
+              await new Promise((r) => setTimeout(r, 200));
+            }
+            const screen = deps.streams.getScreen(runId);
+            if (screen && socket.readyState === socket.OPEN) {
+              socket.send(JSON.stringify({
+                type: 'snapshot',
+                ansi: screen.modesAnsi() + screen.serialize(),
+                cols: screen.cols,
+                rows: screen.rows,
+              }));
+            }
+            return;
           }
-          return; // Fix 5: all text control frames: do not forward to stdin
+          if (msg.type === 'resync') {
+            // Re-serialize the current screen. If none exists in memory (rare —
+            // e.g. a previous rebuild failed), try a fresh rebuild from log.
+            let screen = deps.streams.getScreen(runId);
+            if (!screen) {
+              try {
+                screen = await deps.streams.rebuildScreenFromLog(runId, run.log_path);
+              } catch { /* swallow; leave screen undefined */ }
+            }
+            if (screen && socket.readyState === socket.OPEN) {
+              socket.send(JSON.stringify({
+                type: 'snapshot',
+                ansi: screen.modesAnsi() + screen.serialize(),
+                cols: screen.cols,
+                rows: screen.rows,
+              }));
+            }
+            return;
+          }
+          return; // any other text frame: ignore, do not forward to stdin
         } catch { /* not valid JSON — fall through to stdin */ }
       }
       deps.orchestrator.writeStdin(runId, data);

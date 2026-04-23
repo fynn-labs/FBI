@@ -8,7 +8,7 @@ import { api } from '../../lib/api.js';
 
 const TONE: Record<Run['state'], PillTone> = {
   queued: 'wait', running: 'run', waiting: 'attn', awaiting_resume: 'warn',
-  succeeded: 'ok', failed: 'fail', cancelled: 'warn',
+  succeeded: 'ok', failed: 'fail', cancelled: 'wait',
 };
 
 export interface RunHeaderProps {

@@ -97,6 +97,7 @@ export function RunDetailPage() {
       setRun((r) => r ? {
         ...r,
         state: frame.state,
+        state_entered_at: frame.state_entered_at,
         next_resume_at: frame.next_resume_at,
         resume_attempts: frame.resume_attempts,
         last_limit_reset_at: frame.last_limit_reset_at,
