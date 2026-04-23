@@ -89,7 +89,7 @@ export function applyRunsView(
   view: { filter: ReadonlySet<RunState>; groupByState: boolean },
 ): RunsViewResult {
   const filtered = view.filter.size === 0 ? runs : runs.filter((r) => view.filter.has(r.state));
-  const sorted = [...filtered].sort((a, b) => b.created_at - a.created_at);
+  const sorted = [...filtered].sort((a, b) => b.state_entered_at - a.state_entered_at);
 
   if (view.groupByState) {
     const groups = ALL_STATES

@@ -103,4 +103,14 @@ describe('applyRunsView', () => {
     if (out.mode !== 'grouped') return;
     expect(out.groups.map((g) => g.state)).toEqual(['running', 'failed']);
   });
+
+  it('sorts by state_entered_at, not created_at', () => {
+    // Older run that was just restarted should appear above a newer run that has been running a while.
+    const older = { ...mkRun(1, 'running', 1000), state_entered_at: 9000 };
+    const newer = { ...mkRun(2, 'running', 5000), state_entered_at: 5000 };
+    const out = applyRunsView([older, newer], { filter: new Set(), groupByState: false });
+    expect(out.mode).toBe('flat');
+    if (out.mode !== 'flat') return;
+    expect(out.active.map((r) => r.id)).toEqual([1, 2]);
+  });
 });
