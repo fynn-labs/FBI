@@ -54,7 +54,7 @@ function makeSuccessContainer(): Docker.Container {
     attach: async () => attachStream,
     start: async () => {
       resultTar = await makeResultTar(0, 0, 'cafe', 'feat/keep-going');
-      attachStream.push(Buffer.from('[fbi] run succeeded\n'));
+      attachStream.push(Buffer.from('CONTINUE-OUTPUT-MARKER\n'));
       attachStream.push(null);
     },
     wait: async () => ({ StatusCode: 0 }),
@@ -135,6 +135,44 @@ describe('Orchestrator.continueRun', () => {
     const createArgs = vi.mocked(mockDocker.createContainer).mock.calls[0][0];
     const binds = createArgs.HostConfig!.Binds as string[];
     expect(binds).toContainEqual(`${runUploadsDir(dir, run.id)}:/fbi/uploads:ro`);
+  });
+
+  it('feeds continue-emitted bytes through ScreenState so a resync during the continue would show them', async () => {
+    const { dir, runs, p, streams, makeOrchestrator } = setup();
+    const run = runs.create({
+      project_id: p.id, prompt: 'keep going',
+      branch_hint: 'feat/keep-going',
+      log_path_tmpl: (id) => path.join(os.tmpdir(), `cont-${id}.log`),
+    });
+    runs.markStarted(run.id, 'c1');
+    runs.setClaudeSessionId(run.id, 'sess-xyz');
+    runs.markFinished(run.id, { state: 'failed', error: 'OOM' });
+    const sessDir = runMountDir(dir, run.id);
+    fs.mkdirSync(sessDir, { recursive: true });
+    fs.writeFileSync(path.join(sessDir, 'sess-xyz.jsonl'), '{"x":1}\n');
+
+    // Capture the screen the orchestrator creates for this run so we can
+    // inspect it after the run ends (streams.release disposes the real one).
+    const captured: { screen: ReturnType<typeof streams.getOrCreateScreen> | null } = { screen: null };
+    const origGetOrCreate = streams.getOrCreateScreen.bind(streams);
+    vi.spyOn(streams, 'getOrCreateScreen').mockImplementation((id, cols, rows) => {
+      const s = origGetOrCreate(id, cols, rows);
+      if (id === run.id) captured.screen = s;
+      return s;
+    });
+
+    const mockDocker = {
+      createContainer: vi.fn().mockResolvedValue(makeSuccessContainer()),
+    } as unknown as Docker;
+    const orch = makeOrchestrator(mockDocker);
+    await orch.continueRun(run.id);
+    // Let the headless xterm parser finish consuming any queued writes.
+    await new Promise((r) => setTimeout(r, 20));
+
+    expect(captured.screen).not.toBeNull();
+    const ansi = captured.screen!.serialize();
+    expect(ansi).toContain('continuing from session');
+    expect(ansi).toContain('CONTINUE-OUTPUT-MARKER');
   });
 
   it('rejects a run without a captured session id', async () => {

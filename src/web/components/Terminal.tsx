@@ -23,6 +23,7 @@ import type {
   RunWsStateMessage,
   RunWsTitleMessage,
 } from '@shared/types.js';
+import type { ShellHandle } from '../lib/ws.js';
 
 interface Props {
   runId: number;
@@ -46,6 +47,7 @@ function readTheme() {
 
 export function Terminal({ runId, interactive }: Props) {
   const hostRef = useRef<HTMLDivElement>(null);
+  const historyHostRef = useRef<HTMLDivElement>(null);
   const loadFullRef = useRef<() => void>(() => {});
   const [historyMode, setHistoryMode] = useState(false);
   const [loaded, setLoaded] = useState(false);
@@ -64,6 +66,12 @@ export function Terminal({ runId, interactive }: Props) {
     return () => window.removeEventListener('keydown', onKey);
   }, []);
 
+  const termRef = useRef<Xterm | null>(null);
+  const shellRef = useRef<ShellHandle | null>(null);
+  const fitRef = useRef<FitAddon | null>(null);
+  const interactiveRef = useRef<boolean>(interactive);
+  useEffect(() => { interactiveRef.current = interactive; }, [interactive]);
+
   useEffect(() => {
     const host = hostRef.current;
     if (!host) return;
@@ -78,7 +86,7 @@ export function Terminal({ runId, interactive }: Props) {
     const fit = new FitAddon();
     term.loadAddon(fit);
     term.open(host);
-    traceRecord('term.mount', { runId, interactive });
+    traceRecord('term.mount', { runId, interactive: interactiveRef.current });
 
     const safeFit = () => {
       const rect = host.getBoundingClientRect();
@@ -136,16 +144,18 @@ export function Terminal({ runId, interactive }: Props) {
     const clearQueue = () => { writeQueue.length = 0; };
 
     const shell = acquireShell(runId);
+    termRef.current = term;
+    fitRef.current = fit;
+    shellRef.current = shell;
     let unsubBytes: (() => void) | null = null;
     let unsubSnapshot: (() => void) | null = null;
-    let ready = false; // true once first snapshot has been applied
 
     const applySnapshot = (snap: { ansi: string; cols: number; rows: number }) => {
       // Non-interactive views don't drive the server's dims (an interactive
       // tab owns the PTY size), so we adopt whatever the server sends rather
       // than drop the snapshot. Resize before writing so the alt-screen
       // reset and content land on a buffer of the correct shape.
-      if (!interactive && (snap.cols !== term.cols || snap.rows !== term.rows)) {
+      if (!interactiveRef.current && (snap.cols !== term.cols || snap.rows !== term.rows)) {
         traceRecord('term.adoptSnapDims', {
           fromCols: term.cols, fromRows: term.rows,
           toCols: snap.cols, toRows: snap.rows,
@@ -170,7 +180,6 @@ export function Terminal({ runId, interactive }: Props) {
       // so write synchronously — going through the rAF queue makes the
       // user see the snapshot drawn line-by-line on tab switch.
       term.write(new TextEncoder().encode(snap.ansi));
-      ready = true;
       if (!disposed) setLoaded(true);
     };
 
@@ -179,7 +188,7 @@ export function Terminal({ runId, interactive }: Props) {
     // of mis-wrapped content — the server re-sends a matching snapshot after
     // our resize reaches it. Non-interactive views always accept.
     const shouldApply = (snap: { cols: number; rows: number }): boolean =>
-      !interactive || (snap.cols === term.cols && snap.rows === term.rows);
+      !interactiveRef.current || (snap.cols === term.cols && snap.rows === term.rows);
 
     // If another component has already acquired the shell and cached a
     // snapshot for this run, apply it synchronously on mount.
@@ -199,14 +208,15 @@ export function Terminal({ runId, interactive }: Props) {
     });
 
     unsubBytes = shell.onBytes((data) => {
-      // Drop live bytes until the first snapshot has arrived; the snapshot
-      // encodes the initial state, and out-of-order pre-snapshot bytes would
-      // corrupt it. After ready=true, forward everything.
-      if (!ready) return;
+      // Forward live bytes unconditionally. The leading `modesAnsi` of any
+      // subsequent snapshot (which ends in ?1049h or ?1049l\x1b[H\x1b[2J)
+      // wipes the screen, so early live bytes are visually harmless. This
+      // avoids the symptom where a re-mount loses all live bytes while the
+      // dim handshake is still negotiating.
       enqueueWrite(data);
     });
 
-    if (interactive) term.focus();
+    if (interactiveRef.current) term.focus();
 
     const observer = new MutationObserver(() => {
       term.options.theme = readTheme();
@@ -222,7 +232,7 @@ export function Terminal({ runId, interactive }: Props) {
     let roTimer: ReturnType<typeof setTimeout> | null = null;
     const runFit = () => {
       roTimer = null;
-      if (!interactive) return;
+      if (!interactiveRef.current) return;
       if (safeFit()) shell.resize(term.cols, term.rows);
     };
     const ro = new ResizeObserver(() => {
@@ -235,7 +245,7 @@ export function Terminal({ runId, interactive }: Props) {
     // fires continuously; fit once after they stop.
     let winResizeTimer: ReturnType<typeof setTimeout> | null = null;
     const onResize = () => {
-      if (!interactive) return;
+      if (!interactiveRef.current) return;
       if (winResizeTimer !== null) clearTimeout(winResizeTimer);
       winResizeTimer = setTimeout(() => {
         winResizeTimer = null;
@@ -273,79 +283,73 @@ export function Terminal({ runId, interactive }: Props) {
     window.addEventListener('focus', refresh);
     document.addEventListener('visibilitychange', onVisChange);
 
-    shell.onOpen(() => {
-      if (interactive && safeFit()) shell.resize(term.cols, term.rows);
-    });
-
-    // "Load full history": fetch the log file and render it instead of the
-    // live view. Exposed via loadFullRef so the JSX button can call it.
+    // History mode: render the transcript in a *separate* xterm instance
+    // mounted in a sibling DOM node. The live xterm and its subscriptions
+    // keep running in the background (hidden via display:none on the host).
+    // Resuming "live" simply disposes the history xterm; no resync roundtrip,
+    // no dropped bytes, no input-blocking.
+    let historyTerm: Xterm | null = null;
+    let historyAborted = false;
     loadFullRef.current = async () => {
       if (disposed) return;
       traceRecord('term.history.start', { runId });
       setHistoryMode(true);
-      setLoaded(false); // show loading while we fetch + write the transcript
-      if (unsubBytes) { unsubBytes(); unsubBytes = null; }
-      if (unsubSnapshot) { unsubSnapshot(); unsubSnapshot = null; }
-      clearQueue();
-      term.reset();
+      setLoaded(false);
+      historyAborted = false;
+      // React has to mount historyHostRef first; defer a frame.
+      await new Promise((r) => requestAnimationFrame(r));
+      const hhost = historyHostRef.current;
+      if (!hhost || disposed || historyAborted) return;
+      historyTerm = new Xterm({
+        convertEol: true,
+        fontFamily:
+          'ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace',
+        fontSize: 13,
+        theme: readTheme(),
+        cursorBlink: false,
+        disableStdin: true,
+      });
+      const hfit = new FitAddon();
+      historyTerm.loadAddon(hfit);
+      historyTerm.open(hhost);
+      try { hfit.fit(); } catch { /* ignore */ }
+
       try {
         const res = await fetch(`/api/runs/${runId}/transcript`);
-        if (disposed) return;
+        if (disposed || historyAborted) return;
         if (!res.ok) throw new Error(`status ${res.status}`);
         const buf = new Uint8Array(await res.arrayBuffer());
-        if (disposed) return;
-        // Write atomically in 1 MB chunks chained via xterm's write callback.
-        // The rAF-paced queue would draw the transcript line-by-line, which is
-        // intensely jittery for big logs; xterm's internal parser handles
-        // large writes far faster than one rAF per 16 KB.
+        if (disposed || historyAborted) return;
         const HISTORY_CHUNK = 1024 * 1024;
         for (let off = 0; off < buf.byteLength; off += HISTORY_CHUNK) {
-          if (disposed) return;
+          if (disposed || historyAborted || !historyTerm) return;
           const end = Math.min(off + HISTORY_CHUNK, buf.byteLength);
-          await new Promise<void>((resolve) => term.write(buf.subarray(off, end), resolve));
+          await new Promise<void>((resolve) =>
+            historyTerm!.write(buf.subarray(off, end), resolve)
+          );
         }
-        if (!disposed) setLoaded(true);
+        if (!disposed && !historyAborted) setLoaded(true);
         traceRecord('term.history.end', { runId, bytes: buf.byteLength });
       } catch {
-        if (disposed) return;
-        term.write(new TextEncoder().encode('\r\n[failed to load history]\r\n'));
+        if (disposed || historyAborted || !historyTerm) return;
+        historyTerm.write(new TextEncoder().encode('\r\n[failed to load history]\r\n'));
         setLoaded(true);
         traceRecord('term.history.end', { runId, error: true });
       }
     };
 
-    const resumeLive = () => {
+    // "Resume live" flips the abort flag (so any in-flight history write loop
+    // exits cleanly), disposes the history xterm, and reveals the always-
+    // running live one. The live subscription was never detached, so no
+    // resync is needed. setLoaded(true) clears the loading overlay in case
+    // the user resumed before history finished loading.
+    (loadFullRef as unknown as { resume?: () => void }).resume = () => {
       if (disposed) return;
+      historyAborted = true;
       setHistoryMode(false);
-      clearQueue();
-      term.reset();
-      ready = false;
-      setLoaded(false); // show loading until the resync snapshot lands
-      unsubSnapshot = shell.onSnapshot((snap) => {
-        if (!shouldApply(snap)) {
-          traceRecord('term.dropSnapshot', {
-            reason: 'dimMismatch.resume',
-            snapCols: snap.cols, snapRows: snap.rows,
-            termCols: term.cols, termRows: term.rows,
-          });
-          return;
-        }
-        applySnapshot(snap);
-      });
-      unsubBytes = shell.onBytes((data) => { if (ready) enqueueWrite(data); });
-      traceRecord('term.resync.request', { reason: 'resumeLive' });
-      requestResync(runId);
+      setLoaded(true);
+      if (historyTerm) { historyTerm.dispose(); historyTerm = null; }
     };
-    // Stash resumeLive on the ref so the JSX button can call it.
-    (loadFullRef as unknown as { resume?: () => void }).resume = resumeLive;
-
-    if (interactive) {
-      term.onData((d) => {
-        traceRecord('term.input', strPreview(d));
-        shell.send(new TextEncoder().encode(d));
-      });
-      host.addEventListener('click', () => term.focus());
-    }
 
     return () => {
       disposed = true;
@@ -362,9 +366,60 @@ export function Terminal({ runId, interactive }: Props) {
       if (unsubSnapshot) unsubSnapshot();
       unsubEv();
       releaseShell(runId);
+      termRef.current = null;
+      fitRef.current = null;
+      shellRef.current = null;
+      if (historyTerm) { historyTerm.dispose(); historyTerm = null; }
       term.dispose();
     };
-  }, [runId, interactive]);
+  }, [runId]);
+
+  // Toggle input forwarding when `interactive` flips, without touching the
+  // xterm instance. `termRef` and `shellRef` outlive this effect's dep list.
+  useEffect(() => {
+    const term = termRef.current;
+    const shell = shellRef.current;
+    if (!term || !shell) return;
+    if (!interactive) return;
+    const dataDisposable = term.onData((d) => {
+      traceRecord('term.input', strPreview(d));
+      shell.send(new TextEncoder().encode(d));
+    });
+    const onClick = () => term.focus();
+    const host = hostRef.current;
+    host?.addEventListener('click', onClick);
+    return () => {
+      // The mount effect (defined above) runs its cleanup first on unmount,
+      // so `term` is already disposed here. xterm's IDisposable.dispose()
+      // is idempotent, so calling dispose() on a disposed instance is safe.
+      dataDisposable.dispose();
+      host?.removeEventListener('click', onClick);
+    };
+  }, [interactive]);
+
+  // Each time `interactive` becomes true, run the dim handshake: fit the
+  // xterm to its host and tell the server. The WS's 'open' event only fires
+  // once per socket, but a run transitioning into 'running'/'waiting' still
+  // needs the server to learn the client's dims — onOpenOrNow handles both
+  // the already-open and not-yet-open cases.
+  useEffect(() => {
+    if (!interactive) return;
+    const term = termRef.current;
+    const shell = shellRef.current;
+    const host = hostRef.current;
+    const fit = fitRef.current;
+    if (!term || !shell || !host || !fit) return;
+    const off = shell.onOpenOrNow(() => {
+      const rect = host.getBoundingClientRect();
+      if (rect.width < 4 || rect.height < 4) return;
+      try {
+        fit.fit();
+        shell.resize(term.cols, term.rows);
+        traceRecord('term.interactiveFit', { cols: term.cols, rows: term.rows });
+      } catch { /* retry via ResizeObserver */ }
+    });
+    return off;
+  }, [interactive]);
 
   return (
     <div className="relative h-full w-full bg-surface-sunken">
@@ -386,7 +441,7 @@ export function Terminal({ runId, interactive }: Props) {
       )}
       {historyMode && (
         <div className="absolute top-0 left-0 right-0 z-10 flex items-center gap-2 px-3 py-1 bg-surface border-b border-border text-[12px] text-text-dim">
-          <span>Viewing full history (live updates paused).</span>
+          <span>Viewing full history — live view continues in the background.</span>
           <button
             type="button"
             onClick={() => (loadFullRef as unknown as { resume?: () => void }).resume?.()}
@@ -410,7 +465,14 @@ export function Terminal({ runId, interactive }: Props) {
           </button>
         </div>
       )}
-      <div ref={hostRef} className="h-full w-full" />
+      <div
+        ref={hostRef}
+        className="h-full w-full"
+        style={{ display: historyMode ? 'none' : 'block' }}
+      />
+      {historyMode && (
+        <div ref={historyHostRef} className="absolute inset-0 h-full w-full bg-surface-sunken" />
+      )}
     </div>
   );
 }

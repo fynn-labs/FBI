@@ -35,6 +35,7 @@ import { GitStateWatcher } from './gitStateWatcher.js';
 import { dockerExec, type DockerExecOptions, type DockerExecResult } from './dockerExec.js';
 import { nudgeClaudeToExit } from './nudgeClaude.js';
 import { checkContinueEligibility } from './continueEligibility.js';
+import { makeOnBytes } from '../logs/onBytes.js';
 import type { FilesPayload } from '../../shared/types.js';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
@@ -263,14 +264,7 @@ export class Orchestrator {
     const store = new LogStore(run.log_path);
     const broadcaster = this.deps.streams.getOrCreate(runId);
     const screen = this.deps.streams.getOrCreateScreen(runId);
-    const onBytes = (chunk: Uint8Array) => {
-      store.append(chunk);
-      broadcaster.publish(chunk);
-      // ScreenState.write returns a promise (parser is async). We don't
-      // await — ordering is preserved internally by xterm-headless, and
-      // snapshot callers tolerate "at most one frame stale."
-      void screen.write(chunk).catch(() => {});
-    };
+    const onBytes = makeOnBytes(store, broadcaster, screen);
 
     const branchHint = run.branch_name;
     const preamble = [
@@ -514,11 +508,7 @@ export class Orchestrator {
     const store = new LogStore(run.log_path);
     const broadcaster = this.deps.streams.getOrCreate(runId);
     const screen = this.deps.streams.getOrCreateScreen(runId);
-    const onBytes = (chunk: Uint8Array) => {
-      store.append(chunk);
-      broadcaster.publish(chunk);
-      void screen.write(chunk).catch(() => {});
-    };
+    const onBytes = makeOnBytes(store, broadcaster, screen);
 
     onBytes(Buffer.from(
       `\n[fbi] resuming (attempt ${run.resume_attempts} of ${this.deps.settings.get().auto_resume_max_attempts})\n`,
@@ -617,7 +607,8 @@ export class Orchestrator {
 
     const store = new LogStore(run.log_path);
     const broadcaster = this.deps.streams.getOrCreate(runId);
-    const onBytes = (chunk: Uint8Array) => { store.append(chunk); broadcaster.publish(chunk); };
+    const screen = this.deps.streams.getOrCreateScreen(runId);
+    const onBytes = makeOnBytes(store, broadcaster, screen);
     onBytes(Buffer.from(`\n[fbi] continuing from session ${run.claude_session_id}\n`));
 
     try {
@@ -841,11 +832,7 @@ export class Orchestrator {
     const store = new LogStore(run.log_path);
     const broadcaster = this.deps.streams.getOrCreate(runId);
     const screen = this.deps.streams.getOrCreateScreen(runId);
-    const onBytes = (chunk: Uint8Array) => {
-      store.append(chunk);
-      broadcaster.publish(chunk);
-      void screen.write(chunk).catch(() => {});
-    };
+    const onBytes = makeOnBytes(store, broadcaster, screen);
 
     onBytes(Buffer.from(`\n[fbi] reattached after orchestrator restart\n`));
 
