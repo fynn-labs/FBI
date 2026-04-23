@@ -148,7 +148,6 @@ export function Terminal({ runId, interactive }: Props) {
     shellRef.current = shell;
     let unsubBytes: (() => void) | null = null;
     let unsubSnapshot: (() => void) | null = null;
-    let ready = false; // true once first snapshot has been applied
 
     const applySnapshot = (snap: { ansi: string; cols: number; rows: number }) => {
       // Non-interactive views don't drive the server's dims (an interactive
@@ -180,7 +179,6 @@ export function Terminal({ runId, interactive }: Props) {
       // so write synchronously — going through the rAF queue makes the
       // user see the snapshot drawn line-by-line on tab switch.
       term.write(new TextEncoder().encode(snap.ansi));
-      ready = true;
       if (!disposed) setLoaded(true);
     };
 
@@ -209,10 +207,11 @@ export function Terminal({ runId, interactive }: Props) {
     });
 
     unsubBytes = shell.onBytes((data) => {
-      // Drop live bytes until the first snapshot has arrived; the snapshot
-      // encodes the initial state, and out-of-order pre-snapshot bytes would
-      // corrupt it. After ready=true, forward everything.
-      if (!ready) return;
+      // Forward live bytes unconditionally. The leading `modesAnsi` of any
+      // subsequent snapshot (which ends in ?1049h or ?1049l\x1b[H\x1b[2J)
+      // wipes the screen, so early live bytes are visually harmless. This
+      // avoids the symptom where a re-mount loses all live bytes while the
+      // dim handshake is still negotiating.
       enqueueWrite(data);
     });
 
@@ -325,7 +324,6 @@ export function Terminal({ runId, interactive }: Props) {
       setHistoryMode(false);
       clearQueue();
       term.reset();
-      ready = false;
       setLoaded(false); // show loading until the resync snapshot lands
       unsubSnapshot = shell.onSnapshot((snap) => {
         if (!shouldApply(snap)) {
@@ -338,7 +336,7 @@ export function Terminal({ runId, interactive }: Props) {
         }
         applySnapshot(snap);
       });
-      unsubBytes = shell.onBytes((data) => { if (ready) enqueueWrite(data); });
+      unsubBytes = shell.onBytes((data) => { enqueueWrite(data); });
       traceRecord('term.resync.request', { reason: 'resumeLive' });
       requestResync(runId);
     };
