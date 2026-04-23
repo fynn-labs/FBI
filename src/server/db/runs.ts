@@ -33,10 +33,10 @@ export class RunsRepo {
       const branchHint = input.branch_hint ?? '';
       const stub = this.db
         .prepare(
-          `INSERT INTO runs (project_id, prompt, branch_name, state, log_path, created_at)
-           VALUES (?, ?, ?, 'queued', '', ?)`
+          `INSERT INTO runs (project_id, prompt, branch_name, state, log_path, created_at, state_entered_at)
+           VALUES (?, ?, ?, 'queued', '', ?, ?)`
         )
-        .run(input.project_id, input.prompt, branchHint, now);
+        .run(input.project_id, input.prompt, branchHint, now, now);
       const id = Number(stub.lastInsertRowid);
       const logPath = input.log_path_tmpl(id);
       this.db
@@ -95,11 +95,12 @@ export class RunsRepo {
   }
 
   markStarted(id: number, containerId: string): void {
+    const now = Date.now();
     this.db
       .prepare(
-        "UPDATE runs SET state='running', container_id=?, started_at=? WHERE id=?"
+        "UPDATE runs SET state='running', container_id=?, started_at=?, state_entered_at=? WHERE id=?"
       )
-      .run(containerId, Date.now(), id);
+      .run(containerId, now, now, id);
   }
 
   markAwaitingResume(
@@ -113,26 +114,30 @@ export class RunsRepo {
                 container_id=NULL,
                 next_resume_at=?,
                 last_limit_reset_at=?,
-                resume_attempts = resume_attempts + 1
+                resume_attempts = resume_attempts + 1,
+                state_entered_at=?
           WHERE id=? AND state IN ('running','waiting')`,
       )
-      .run(p.next_resume_at, p.last_limit_reset_at, id);
+      .run(p.next_resume_at, p.last_limit_reset_at, Date.now(), id);
   }
 
   markResuming(id: number, containerId: string): void {
+    const now = Date.now();
     this.db
       .prepare(
         `UPDATE runs
             SET state='running',
                 container_id=?,
                 next_resume_at=NULL,
-                started_at=COALESCE(started_at, ?)
+                started_at=COALESCE(started_at, ?),
+                state_entered_at=?
           WHERE id=?`,
       )
-      .run(containerId, Date.now(), id);
+      .run(containerId, now, now, id);
   }
 
   markContinuing(id: number, containerId: string): void {
+    const now = Date.now();
     this.db
       .prepare(
         `UPDATE runs
@@ -143,22 +148,23 @@ export class RunsRepo {
                 finished_at=NULL,
                 exit_code=NULL,
                 error=NULL,
-                started_at=COALESCE(started_at, ?)
+                started_at=COALESCE(started_at, ?),
+                state_entered_at=?
           WHERE id=? AND state IN ('failed','cancelled','succeeded')`,
       )
-      .run(containerId, Date.now(), id);
+      .run(containerId, now, now, id);
   }
 
   markWaiting(id: number): void {
     this.db
-      .prepare(`UPDATE runs SET state='waiting' WHERE id=? AND state='running'`)
-      .run(id);
+      .prepare(`UPDATE runs SET state='waiting', state_entered_at=? WHERE id=? AND state='running'`)
+      .run(Date.now(), id);
   }
 
   markRunningFromWaiting(id: number): void {
     this.db
-      .prepare(`UPDATE runs SET state='running' WHERE id=? AND state='waiting'`)
-      .run(id);
+      .prepare(`UPDATE runs SET state='running', state_entered_at=? WHERE id=? AND state='waiting'`)
+      .run(Date.now(), id);
   }
 
   setClaudeSessionId(id: number, sessionId: string): void {
@@ -208,18 +214,20 @@ export class RunsRepo {
         .prepare('UPDATE runs SET branch_name = ? WHERE id = ?')
         .run(f.branch_name, id);
     }
+    const now = Date.now();
     this.db
       .prepare(
         `UPDATE runs SET state=?, container_id=NULL, exit_code=?, error=?,
-         head_commit=?, finished_at=? WHERE id=?`
+         head_commit=?, finished_at=?, state_entered_at=? WHERE id=?`
       )
       .run(
         f.state,
         f.exit_code ?? null,
         f.error ?? null,
         f.head_commit ?? null,
-        Date.now(),
-        id
+        now,
+        now,
+        id,
       );
   }
 

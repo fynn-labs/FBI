@@ -361,6 +361,74 @@ describe('updateTitle', () => {
   });
 });
 
+describe('RunsRepo.state_entered_at', () => {
+  let runs: RunsRepo;
+  let projectId: number;
+  beforeEach(() => {
+    const r = makeRepos();
+    runs = r.runs;
+    projectId = r.projectId;
+  });
+
+  it('sets state_entered_at on create (queued)', () => {
+    const before = Date.now();
+    const run = runs.create({
+      project_id: projectId, prompt: 'x',
+      log_path_tmpl: (id) => `/tmp/${id}.log`,
+    });
+    expect(run.state_entered_at).toBeGreaterThanOrEqual(before);
+    expect(run.state_entered_at).toBeLessThanOrEqual(Date.now());
+  });
+
+  it('advances state_entered_at on each transition', async () => {
+    const run = runs.create({
+      project_id: projectId, prompt: 'x',
+      log_path_tmpl: (id) => `/tmp/${id}.log`,
+    });
+    const t0 = runs.get(run.id)!.state_entered_at;
+
+    await new Promise((r) => setTimeout(r, 2));
+    runs.markStarted(run.id, 'c1');
+    const t1 = runs.get(run.id)!.state_entered_at;
+    expect(t1).toBeGreaterThan(t0);
+
+    await new Promise((r) => setTimeout(r, 2));
+    runs.markWaiting(run.id);
+    const t2 = runs.get(run.id)!.state_entered_at;
+    expect(t2).toBeGreaterThan(t1);
+
+    await new Promise((r) => setTimeout(r, 2));
+    runs.markRunningFromWaiting(run.id);
+    const t3 = runs.get(run.id)!.state_entered_at;
+    expect(t3).toBeGreaterThan(t2);
+
+    await new Promise((r) => setTimeout(r, 2));
+    runs.markFinished(run.id, { state: 'succeeded', exit_code: 0 });
+    const t4 = runs.get(run.id)!.state_entered_at;
+    expect(t4).toBeGreaterThan(t3);
+    expect(t4).toBe(runs.get(run.id)!.finished_at);
+  });
+
+  it('sets state_entered_at on markAwaitingResume and markResuming', async () => {
+    const run = runs.create({
+      project_id: projectId, prompt: 'x',
+      log_path_tmpl: (id) => `/tmp/${id}.log`,
+    });
+    runs.markStarted(run.id, 'c1');
+    const tRunning = runs.get(run.id)!.state_entered_at;
+
+    await new Promise((r) => setTimeout(r, 2));
+    runs.markAwaitingResume(run.id, { next_resume_at: Date.now() + 1000, last_limit_reset_at: null });
+    const tAwaiting = runs.get(run.id)!.state_entered_at;
+    expect(tAwaiting).toBeGreaterThan(tRunning);
+
+    await new Promise((r) => setTimeout(r, 2));
+    runs.markResuming(run.id, 'c2');
+    const tResumed = runs.get(run.id)!.state_entered_at;
+    expect(tResumed).toBeGreaterThan(tAwaiting);
+  });
+});
+
 describe('waiting-state transitions', () => {
   function seedRunning() {
     const { runs: repo, projectId } = makeRepos();
