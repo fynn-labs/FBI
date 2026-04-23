@@ -211,6 +211,54 @@ describe('WS /api/runs/:id/proxy/:port', () => {
     expect(code).toBe(1001);
   });
 
+  it('stays open when run transitions to waiting (container still alive)', async () => {
+    const received = await new Promise<{ port: number }>((resolve) => {
+      upstream = net.createServer((s) => s.on('data', (d) => s.write(d)));
+      upstream.listen(0, '127.0.0.1', () => {
+        const a = upstream!.address();
+        if (!a || typeof a === 'string') throw new Error('no port');
+        resolve({ port: a.port });
+      });
+    });
+    const { runs, make } = setupRunsRepo();
+    const run = make(); runs.markStarted(run.id, 'cid');
+    const streams = new RunStreamRegistry();
+    streams.getOrCreateState(run.id).publish({ type: 'state', state: 'running', next_resume_at: null, resume_attempts: 0, last_limit_reset_at: null });
+    const container: Container = {
+      inspect: async () => ({
+        State: { Pid: 1 },
+        NetworkSettings: { IPAddress: '127.0.0.1' },
+      }),
+    };
+    const r = await makeWsApp({ runsRepo: runs, streams, getLiveContainer: () => container });
+    app = r.app;
+
+    const ws = new WebSocket(`ws://127.0.0.1:${r.port}/api/runs/${run.id}/proxy/${received.port}`);
+    await new Promise<void>((resolve, reject) => { ws.once('open', () => resolve()); ws.once('error', reject); });
+
+    // Transition to 'waiting' — container is still alive, tunnel must stay open.
+    streams.getOrCreateState(run.id).publish({ type: 'state', state: 'waiting', next_resume_at: null, resume_attempts: 0, last_limit_reset_at: null });
+
+    // Race a close event against an echo round-trip. The tunnel staying open
+    // is proved by a successful echo *after* the waiting frame has published.
+    const closed = new Promise<number>((resolve) => ws.on('close', (c) => resolve(c)));
+    const echoed = new Promise<Buffer>((resolve) => {
+      const chunks: Buffer[] = [];
+      ws.on('message', (d, isBinary) => {
+        if (!isBinary) return;
+        chunks.push(d as Buffer);
+        if (Buffer.concat(chunks).toString() === 'hello') resolve(Buffer.concat(chunks));
+      });
+      ws.send(Buffer.from('hello'), { binary: true });
+    });
+    const winner = await Promise.race([
+      echoed.then((b) => ({ kind: 'echo' as const, b })),
+      closed.then((c) => ({ kind: 'close' as const, c })),
+    ]);
+    expect(winner.kind).toBe('echo');
+    ws.close();
+  });
+
   it('closes WS with 1001 when run goes to awaiting_resume', async () => {
     const received = await new Promise<{ port: number }>((resolve) => {
       upstream = net.createServer((s) => s.on('data', () => { /* swallow */ }));
