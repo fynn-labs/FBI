@@ -2,12 +2,12 @@ import { useState, type ReactNode } from 'react';
 import { Tabs } from '@ui/primitives/Tabs.js';
 import { Drawer } from '@ui/primitives/Drawer.js';
 
-export type RunTab = 'files' | 'github' | 'tunnel' | 'meta';
+export type RunTab = 'changes' | 'tunnel' | 'meta';
 
 export interface RunDrawerProps {
   open: boolean;
   onToggle: (next: boolean) => void;
-  filesCount: number;
+  changesCount: number;
   portsCount: number | null;
   height: number;
   onHeightChange: (h: number) => void;
@@ -15,9 +15,9 @@ export interface RunDrawerProps {
 }
 
 export function RunDrawer({
-  open, onToggle, filesCount, portsCount, height, onHeightChange, children,
+  open, onToggle, changesCount, portsCount, height, onHeightChange, children,
 }: RunDrawerProps) {
-  const [tab, setTab] = useState<RunTab>('files');
+  const [tab, setTab] = useState<RunTab>('changes');
   const pickTab = (next: RunTab): void => {
     setTab(next);
     if (!open) onToggle(true);
@@ -33,8 +33,7 @@ export function RunDrawer({
           value={tab}
           onChange={pickTab}
           tabs={[
-            { value: 'files', label: 'files', count: filesCount },
-            { value: 'github', label: 'github' },
+            { value: 'changes', label: 'changes', count: changesCount },
             { value: 'tunnel', label: 'tunnel', count: portsCount ?? undefined },
             { value: 'meta', label: 'meta' },
           ]}
