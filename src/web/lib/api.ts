@@ -1,4 +1,7 @@
-import type { DailyUsage, ListeningPort, McpServer, Project, Run, RunUsageBreakdownRow, SecretName, Settings, UsageState } from '@shared/types.js';
+import type {
+  DailyUsage, ListeningPort, McpServer, Project, Run, RunUsageBreakdownRow, SecretName, Settings,
+  UsageState, FilesPayload, FileDiffPayload, GithubPayload, MergeResponse,
+} from '@shared/types.js';
 
 async function request<T>(url: string, init?: RequestInit): Promise<T> {
   let res: Response;
@@ -112,20 +115,20 @@ export const api = {
     '/api/config/defaults'
   ),
 
-  getRunGithub: (id: number) => request<{
-    pr: null | { number: number; url: string; state: 'OPEN' | 'CLOSED' | 'MERGED'; title: string };
-    checks: null | { state: 'pending' | 'success' | 'failure'; passed: number; failed: number; total: number };
-    github_available: boolean;
-  }>(`/api/runs/${id}/github`),
+  getRunGithub: (id: number) => request<GithubPayload>(`/api/runs/${id}/github`),
 
   createRunPr: (id: number) => request<{ number: number; url: string; state: string; title: string }>(
     `/api/runs/${id}/github/pr`, { method: 'POST', body: JSON.stringify({}) }),
 
-  getRunDiff: (id: number) => request<{
-    base: string; head: string;
-    files: Array<{ filename: string; additions: number; deletions: number; status: string }>;
-    github_available: boolean;
-  }>(`/api/runs/${id}/diff`),
+  mergeRunBranch: (id: number) =>
+    request<MergeResponse>(`/api/runs/${id}/github/merge`, { method: 'POST', body: JSON.stringify({}) }),
+
+  getRunFiles: (id: number) => request<FilesPayload>(`/api/runs/${id}/files`),
+
+  getRunFileDiff: (id: number, path: string, ref: string = 'worktree') =>
+    request<FileDiffPayload>(
+      `/api/runs/${id}/file-diff?path=${encodeURIComponent(path)}&ref=${encodeURIComponent(ref)}`,
+    ),
 
   getRunSiblings: (id: number) => request<Run[]>(`/api/runs/${id}/siblings`),
 
