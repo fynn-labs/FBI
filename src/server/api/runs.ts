@@ -13,6 +13,7 @@ import { isDraftToken } from '../uploads/token.js';
 import type {
   FilesPayload, FilesHeadEntry, FileDiffPayload, FileDiffHunk,
   GithubPayload, HistoryOp, HistoryResult, MergeStrategy,
+  ChildRunSummary, SubmoduleBump, SubmoduleDirty,
 } from '../../shared/types.js';
 import type { ChangesPayload, ChangeCommit } from '../../shared/types.js';
 import type { ParsedOpResult } from '../orchestrator/historyOp.js';
@@ -103,6 +104,31 @@ function parseNumstat(raw: string): import('../../shared/types.js').FilesHeadEnt
     const dels = d === '-' ? 0 : Number.parseInt(d, 10) || 0;
     const status: 'A' | 'M' = dels === 0 && adds > 0 ? 'A' : 'M';
     out.push({ path: p, status, additions: adds, deletions: dels });
+  }
+  return out;
+}
+
+interface RawBump {
+  path: string;
+  from: string;
+  to: string;
+  subjects: Array<{ sha: string; subject: string }>;
+}
+
+export function parseSubmoduleLog(raw: string): RawBump[] {
+  const out: RawBump[] = [];
+  let current: RawBump | null = null;
+  for (const line of raw.split('\n')) {
+    const header = line.match(/^Submodule (\S+) ([0-9a-f]+)\.\.([0-9a-f]+):?/);
+    if (header) {
+      current = { path: header[1], from: header[2], to: header[3], subjects: [] };
+      out.push(current);
+      continue;
+    }
+    const commit = line.match(/^  > ([0-9a-f]+) (.+)$/);
+    if (current && commit) {
+      current.subjects.push({ sha: commit[1], subject: commit[2] });
+    }
   }
   return out;
 }
@@ -305,14 +331,47 @@ export function registerRunsRoutes(app: FastifyInstance, deps: Deps): void {
       }
     }
 
+    // Populate submodule_bumps for each commit via git show --submodule=log.
+    for (const c of commits) {
+      c.submodule_bumps = [];
+      try {
+        const r = await deps.orchestrator.execInContainer(runId, [
+          'git', '-C', '/workspace', 'show', c.sha, '--submodule=log', '--no-color',
+        ], { timeoutMs: 3000 });
+        if (r.exitCode === 0) {
+          const raw = parseSubmoduleLog(r.stdout);
+          c.submodule_bumps = raw.map((b): SubmoduleBump => ({
+            path: b.path,
+            url: null,
+            from: b.from,
+            to: b.to,
+            commits: b.subjects.slice(0, 20).map((s) => ({
+              sha: s.sha, subject: s.subject, committed_at: 0, pushed: false,
+              files: [], files_loaded: false, submodule_bumps: [],
+            })),
+            commits_truncated: b.subjects.length > 20,
+          }));
+        }
+      } catch { /* live container gone; skip bumps for this commit */ }
+    }
+
+    const dirty_submodules: SubmoduleDirty[] = live?.dirty_submodules ?? [];
+
+    const children: ChildRunSummary[] = deps.runs.listByParent(runId).map((r) => ({
+      id: r.id,
+      kind: r.kind,
+      state: r.state,
+      created_at: r.created_at,
+    }));
+
     const payload: ChangesPayload = {
       branch_name: run.branch_name || null,
       branch_base: live?.branchBase ?? null,
       commits,
       uncommitted: live?.dirty ?? [],
       integrations: ghPayload ? { github: ghPayload } : {},
-      dirty_submodules: [],
-      children: [],
+      dirty_submodules,
+      children,
     };
     setChangesCached(runId, payload);
     return payload;

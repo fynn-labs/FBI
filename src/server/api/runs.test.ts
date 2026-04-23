@@ -9,7 +9,7 @@ import { openDb } from '../db/index.js';
 import { ProjectsRepo } from '../db/projects.js';
 import { RunsRepo } from '../db/runs.js';
 import { RunStreamRegistry } from '../logs/registry.js';
-import { registerRunsRoutes } from './runs.js';
+import { registerRunsRoutes, parseSubmoduleLog } from './runs.js';
 import { registerUploadsRoutes } from './uploads.js';
 
 const stubGh = {
@@ -591,5 +591,106 @@ describe('runs routes', () => {
       expect(res.statusCode).toBe(400);
       expect(launched).toEqual([]);
     });
+  });
+
+  describe('parseSubmoduleLog', () => {
+    it('extracts a bump with commit subjects', () => {
+      const raw =
+        'commit abc\n' +
+        'Author: x\n' +
+        '\n' +
+        '    feat: bump\n' +
+        '\n' +
+        'Submodule cli/tunnel aaa1111..bbb2222:\n' +
+        '  > bbb2222 polish cli\n' +
+        '  > ccc3333 fix bug\n';
+      const r = parseSubmoduleLog(raw);
+      expect(r).toEqual([{
+        path: 'cli/tunnel', from: 'aaa1111', to: 'bbb2222',
+        subjects: [
+          { sha: 'bbb2222', subject: 'polish cli' },
+          { sha: 'ccc3333', subject: 'fix bug' },
+        ],
+      }]);
+    });
+
+    it('returns empty array when no submodule bumps', () => {
+      const raw = 'commit abc\nAuthor: x\n\n    chore: update readme\n';
+      expect(parseSubmoduleLog(raw)).toEqual([]);
+    });
+
+    it('handles multiple submodule bumps', () => {
+      const raw =
+        'Submodule pkgs/a 111..222:\n' +
+        '  > 222 feat: a\n' +
+        'Submodule pkgs/b 333..444:\n' +
+        '  > 444 fix: b\n';
+      const r = parseSubmoduleLog(raw);
+      expect(r).toHaveLength(2);
+      expect(r[0].path).toBe('pkgs/a');
+      expect(r[1].path).toBe('pkgs/b');
+    });
+  });
+
+  it('GET /api/runs/:id/changes populates submodule_bumps from container', async () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'fbi-'));
+    const db = openDb(path.join(dir, 'db.sqlite'));
+    const projects = new ProjectsRepo(db);
+    const runs = new RunsRepo(db);
+    const p = projects.create({
+      name: 'p', repo_url: 'https://github.com/me/foo.git', default_branch: 'main',
+      devcontainer_override_json: null, instructions: null,
+      git_author_name: null, git_author_email: null,
+    });
+    // Create a throwaway run first so the real run gets a unique id that
+    // won't collide with any module-level changesCache entry from other tests.
+    runs.create({ project_id: p.id, prompt: 'throwaway', log_path_tmpl: (id) => `/tmp/${id}.log` });
+    const r = runs.create({ project_id: p.id, prompt: 'x', branch_hint: 'feat/x', log_path_tmpl: (id) => `/tmp/${id}.log` });
+    runs.markStarted(r.id, 'c');
+
+    const showOutput =
+      'commit abc123\nAuthor: x\n\n    feat: bump submodule\n\n' +
+      'Submodule cli/tunnel aaa1111..bbb2222:\n' +
+      '  > bbb2222 polish cli\n' +
+      '  > ccc3333 fix bug\n';
+
+    const app = Fastify();
+    registerRunsRoutes(app, {
+      runs, projects, streams: new RunStreamRegistry(), runsDir: dir, draftUploadsDir: dir,
+      launch: async () => {}, cancel: async () => {},
+      fireResumeNow: () => {}, continueRun: async () => {},
+      gh: {
+        ...stubGh,
+        commitsOnBranch: async () => [
+          { sha: 'abc1234567890', subject: 'feat: bump submodule', committed_at: 1000, pushed: true },
+        ],
+      },
+      orchestrator: {
+        ...stubOrchestrator,
+        execInContainer: async (_runId, cmd) => {
+          // Respond to git show --submodule=log
+          if (cmd.includes('--submodule=log')) {
+            return { stdout: showOutput, stderr: '', exitCode: 0 };
+          }
+          throw new Error('unexpected command');
+        },
+      },
+    });
+
+    const res = await app.inject({ method: 'GET', url: `/api/runs/${r.id}/changes` });
+    expect(res.statusCode).toBe(200);
+    const body = res.json() as { commits: Array<{ sha: string; submodule_bumps: unknown[] }> };
+    expect(body.commits).toHaveLength(1);
+    expect(body.commits[0].submodule_bumps).toEqual([{
+      path: 'cli/tunnel',
+      url: null,
+      from: 'aaa1111',
+      to: 'bbb2222',
+      commits: [
+        { sha: 'bbb2222', subject: 'polish cli', committed_at: 0, pushed: false, files: [], files_loaded: false, submodule_bumps: [] },
+        { sha: 'ccc3333', subject: 'fix bug', committed_at: 0, pushed: false, files: [], files_loaded: false, submodule_bumps: [] },
+      ],
+      commits_truncated: false,
+    }]);
   });
 });
