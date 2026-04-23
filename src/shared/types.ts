@@ -53,6 +53,7 @@ export interface Run {
   usage_parse_errors: number;
   title: string | null;
   title_locked: 0 | 1;
+  parent_run_id: number | null;
 }
 
 export interface SecretName {

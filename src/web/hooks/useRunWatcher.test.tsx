@@ -43,7 +43,7 @@ const mkRun = (patch: Partial<Run> = {}): Run => ({
   resume_attempts: 0, next_resume_at: null, claude_session_id: null,
   last_limit_reset_at: null, tokens_input: 0, tokens_output: 0,
   tokens_cache_read: 0, tokens_cache_create: 0, tokens_total: 0,
-  usage_parse_errors: 0, title: null, title_locked: 0, ...patch,
+  usage_parse_errors: 0, title: null, title_locked: 0, parent_run_id: null, ...patch,
 });
 
 describe('useRunWatcher (WS-driven)', () => {
