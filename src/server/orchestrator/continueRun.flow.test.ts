@@ -14,7 +14,7 @@ import { RateLimitStateRepo } from '../db/rateLimitState.js';
 import { UsageRepo } from '../db/usage.js';
 import { RunStreamRegistry } from '../logs/registry.js';
 import { Orchestrator } from './index.js';
-import { runMountDir } from './sessionId.js';
+import { runMountDir, runUploadsDir } from './sessionId.js';
 import type { Config } from '../config.js';
 
 vi.mock('./image.js', () => ({
@@ -131,6 +131,10 @@ describe('Orchestrator.continueRun', () => {
     const env = capture.createdEnv[0];
     expect(env).toContain('FBI_RESUME_SESSION_ID=sess-xyz');
     expect(env).toContain('FBI_CHECKOUT_BRANCH=feat/keep-going');
+
+    const createArgs = mockDocker.createContainer.mock.calls[0][0];
+    const binds = createArgs.HostConfig.Binds as string[];
+    expect(binds).toContainEqual(`${runUploadsDir(dir, run.id)}:/fbi/uploads:ro`);
   });
 
   it('rejects a run without a captured session id', async () => {
