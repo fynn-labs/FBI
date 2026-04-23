@@ -5,3 +5,4 @@ export * from './TimestampRelative.js';
 export * from './CodeBlock.js';
 export * from './FilterChip.js';
 export * from './DiffRow.js';
+export * from './DiffBlock.js';
