@@ -41,29 +41,27 @@ emit_ok() {
   printf '%s\n' "{\"ok\":true,\"sha\":\"${sha}\",\"message\":\"\"}"
 }
 
-WORK=$(mktemp -d)
-cleanup() {
-  git -C /workspace worktree remove --force "$WORK" 2>/dev/null || rm -rf "$WORK"
-}
-trap cleanup EXIT
+# push-submodule doesn't need a worktree — it operates on the existing
+# /workspace/<path> submodule clone directly.
+if [ "$FBI_OP" != "push-submodule" ]; then
+  WORK=$(mktemp -d)
+  cleanup() {
+    git -C /workspace worktree remove --force "$WORK" 2>/dev/null || rm -rf "$WORK"
+  }
+  trap cleanup EXIT
 
-# Fetch all branches so origin/$FBI_BRANCH and origin/$FBI_DEFAULT are both
-# up-to-date. Important for live containers: post-commit pushed the branch
-# but the orchestrator's container doesn't have the remote-tracking ref
-# updated until we fetch.
-if ! out=$(git -C /workspace fetch --quiet --recurse-submodules=on-demand origin '+refs/heads/*:refs/remotes/origin/*' 2>&1); then
-  emit_fail gh-error "fetch failed: $out"
-  exit 0
+  if ! out=$(git -C /workspace fetch --quiet --recurse-submodules=on-demand origin '+refs/heads/*:refs/remotes/origin/*' 2>&1); then
+    emit_fail gh-error "fetch failed: $out"
+    exit 0
+  fi
+
+  if ! out=$(git -C /workspace worktree add --detach "$WORK" "origin/$FBI_DEFAULT" 2>&1); then
+    emit_fail gh-error "worktree add failed: $out"
+    exit 0
+  fi
+
+  cd "$WORK"
 fi
-
-# Check out default in the isolated worktree (detached — we don't need a
-# local branch name here, pushes use explicit refspec below).
-if ! out=$(git -C /workspace worktree add --detach "$WORK" "origin/$FBI_DEFAULT" 2>&1); then
-  emit_fail gh-error "worktree add failed: $out"
-  exit 0
-fi
-
-cd "$WORK"
 
 run_merge() {
   strategy="${FBI_STRATEGY:-merge}"
@@ -176,10 +174,25 @@ run_squash_local() {
   emit_ok "$sha"
 }
 
+run_push_submodule() {
+  : "${FBI_PATH:?FBI_PATH required for push-submodule}"
+  if [ ! -d "/workspace/$FBI_PATH/.git" ] && [ ! -f "/workspace/$FBI_PATH/.git" ]; then
+    emit_fail gh-error "not a git repo: $FBI_PATH"
+    exit 0
+  fi
+  if ! out=$(git -C "/workspace/$FBI_PATH" push origin HEAD 2>&1); then
+    emit_fail gh-error "submodule push failed: $out"
+    exit 0
+  fi
+  sha=$(git -C "/workspace/$FBI_PATH" rev-parse HEAD 2>/dev/null || echo '')
+  emit_ok "$sha"
+}
+
 case "$FBI_OP" in
   merge) run_merge ;;
   sync) run_sync ;;
   squash-local) run_squash_local ;;
+  push-submodule) run_push_submodule ;;
   *)
     emit_fail gh-error "unknown op $FBI_OP"
     exit 0
