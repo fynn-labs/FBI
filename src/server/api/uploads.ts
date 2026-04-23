@@ -1,4 +1,4 @@
-import type { FastifyInstance } from 'fastify';
+import type { FastifyInstance, FastifyRequest } from 'fastify';
 import fs from 'node:fs';
 import fsp from 'node:fs/promises';
 import path from 'node:path';
@@ -146,7 +146,7 @@ interface ConsumeErr {
 }
 
 async function consumeOneFile(
-  req: Parameters<Parameters<FastifyInstance['post']>[1]>[0],
+  req: FastifyRequest,
   targetDir: string,
   cumulativeLimit: number,
 ): Promise<ConsumeOk | ConsumeErr> {
