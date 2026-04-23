@@ -17,47 +17,58 @@ describe('snapshotScripts', () => {
   it('copies both scripts with executable permission', () => {
     const srcSup = path.join(root, 'src-sup.sh');
     const srcFin = path.join(root, 'src-fin.sh');
+    const srcHist = path.join(root, 'src-hist.sh');
     fs.writeFileSync(srcSup, '#!/bin/sh\necho sup\n', { mode: 0o644 });
     fs.writeFileSync(srcFin, '#!/bin/sh\necho fin\n', { mode: 0o644 });
+    fs.writeFileSync(srcHist, '#!/bin/sh\necho hist\n', { mode: 0o644 });
     const dest = path.join(root, 'dest');
 
-    snapshotScripts(dest, srcSup, srcFin);
+    snapshotScripts(dest, srcSup, srcFin, srcHist);
 
     expect(fs.readFileSync(path.join(dest, 'supervisor.sh'), 'utf8')).toBe('#!/bin/sh\necho sup\n');
     expect(fs.readFileSync(path.join(dest, 'finalizeBranch.sh'), 'utf8')).toBe('#!/bin/sh\necho fin\n');
+    expect(fs.readFileSync(path.join(dest, 'fbi-history-op.sh'), 'utf8')).toBe('#!/bin/sh\necho hist\n');
     // Executable bits — the container runs the supervisor as entrypoint.
     expect(fs.statSync(path.join(dest, 'supervisor.sh')).mode & 0o111).not.toBe(0);
     expect(fs.statSync(path.join(dest, 'finalizeBranch.sh')).mode & 0o111).not.toBe(0);
+    expect(fs.statSync(path.join(dest, 'fbi-history-op.sh')).mode & 0o111).not.toBe(0);
   });
 
   it('produces an independent copy — later source edits do not reach the snapshot', () => {
     const srcSup = path.join(root, 'sup.sh');
     const srcFin = path.join(root, 'fin.sh');
+    const srcHist = path.join(root, 'hist.sh');
     fs.writeFileSync(srcSup, 'ORIGINAL_SUP\n');
     fs.writeFileSync(srcFin, 'ORIGINAL_FIN\n');
+    fs.writeFileSync(srcHist, 'ORIGINAL_HIST\n');
     const dest = path.join(root, 'dest');
 
-    snapshotScripts(dest, srcSup, srcFin);
+    snapshotScripts(dest, srcSup, srcFin, srcHist);
     // Rewrite the sources post-snapshot. The fix's whole point: the snapshot
     // must not reflect edits made after container-create.
     fs.writeFileSync(srcSup, 'MUTATED_SUP\n');
     fs.writeFileSync(srcFin, 'MUTATED_FIN\n');
+    fs.writeFileSync(srcHist, 'MUTATED_HIST\n');
 
     expect(fs.readFileSync(path.join(dest, 'supervisor.sh'), 'utf8')).toBe('ORIGINAL_SUP\n');
     expect(fs.readFileSync(path.join(dest, 'finalizeBranch.sh'), 'utf8')).toBe('ORIGINAL_FIN\n');
+    expect(fs.readFileSync(path.join(dest, 'fbi-history-op.sh'), 'utf8')).toBe('ORIGINAL_HIST\n');
   });
 
   it('creates destDir when it does not yet exist', () => {
     const srcSup = path.join(root, 'sup.sh');
     const srcFin = path.join(root, 'fin.sh');
+    const srcHist = path.join(root, 'hist.sh');
     fs.writeFileSync(srcSup, 'a');
     fs.writeFileSync(srcFin, 'b');
+    fs.writeFileSync(srcHist, 'c');
     const nested = path.join(root, 'a', 'b', 'c');
 
-    snapshotScripts(nested, srcSup, srcFin);
+    snapshotScripts(nested, srcSup, srcFin, srcHist);
 
     expect(fs.existsSync(path.join(nested, 'supervisor.sh'))).toBe(true);
     expect(fs.existsSync(path.join(nested, 'finalizeBranch.sh'))).toBe(true);
+    expect(fs.existsSync(path.join(nested, 'fbi-history-op.sh'))).toBe(true);
   });
 });
 
@@ -142,10 +153,12 @@ echo END
   it('snapshot is immune — mutating the source after snapshotScripts leaves the bind target intact', async () => {
     const srcSup = path.join(root, 'source-supervisor.sh');
     const srcFin = path.join(root, 'source-finalize.sh');
+    const srcHist = path.join(root, 'source-history-op.sh');
     fs.writeFileSync(srcSup, V1);
     fs.writeFileSync(srcFin, '#!/bin/sh\nexit 0\n');
+    fs.writeFileSync(srcHist, '#!/bin/sh\nexit 0\n');
     const dest = path.join(root, 'snapshot');
-    snapshotScripts(dest, srcSup, srcFin);
+    snapshotScripts(dest, srcSup, srcFin, srcHist);
     const pinned = path.join(dest, 'supervisor.sh');
 
     // Bash runs the *snapshot* file; meanwhile we mutate only the *source*.
