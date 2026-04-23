@@ -896,6 +896,16 @@ export class Orchestrator {
       onError: () => { /* swallow — best effort */ },
     });
     titleWatcher.start();
+    const gitWatcher = new GitStateWatcher({
+      container,
+      defaultBranch: project?.default_branch ?? 'main',
+      pollMs: 2000,
+      onSnapshot: (snap) => {
+        this.lastFiles.set(runId, snap);
+        events.publish({ type: 'files', ...snap });
+      },
+    });
+    gitWatcher.start();
 
     try {
       const waitRes = await container.wait();
@@ -948,6 +958,7 @@ export class Orchestrator {
     } finally {
       await tailer.stop();
       await titleWatcher.stop();
+      await gitWatcher.stop();
       limitMonitor.stop();
       waitingWatcher.stop();
       events.end();
