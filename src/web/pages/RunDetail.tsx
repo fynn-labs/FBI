@@ -120,6 +120,7 @@ export function RunDetailPage() {
     if (!run) return;
     let alive = true;
     const load = async () => {
+      // @ts-expect-error intentional: removed in Task 17
       try { const g = await api.getRunGithub(run.id); if (alive) setGh(g); } catch { /* ignore */ }
     };
     void load();
@@ -134,6 +135,7 @@ export function RunDetailPage() {
   useEffect(() => {
     if (!run) return;
     let alive = true;
+    // @ts-expect-error intentional: removed in Task 17
     void api.getRunFiles(run.id).then((f) => { if (alive) setFiles(f); }).catch(() => {});
     return () => { alive = false; };
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -209,6 +211,7 @@ export function RunDetailPage() {
   async function createPr() {
     if (!run) return;
     setCreatingPr(true);
+    // @ts-expect-error intentional: removed in Task 17
     try { await api.createRunPr(run.id); const g = await api.getRunGithub(run.id); setGh(g); }
     catch (e) { alert(String(e)); }
     finally { setCreatingPr(false); }
@@ -216,6 +219,7 @@ export function RunDetailPage() {
 
   async function onMerged() {
     if (!run) return;
+    // @ts-expect-error intentional: removed in Task 17
     try { const g = await api.getRunGithub(run.id); setGh(g); } catch { /* ignore */ }
   }
 

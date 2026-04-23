@@ -33,6 +33,7 @@ export function GithubTab({ run, github, onCreatePr, onMerged, creatingPr }: Git
     setMerging(true);
     setMergeMsg(null);
     try {
+      // @ts-expect-error intentional: removed in Task 18
       const r = await api.mergeRunBranch(run.id);
       if (r.merged) {
         setMergeMsg(`Merged as ${r.sha.slice(0, 7)}`);

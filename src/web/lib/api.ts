@@ -1,6 +1,6 @@
 import type {
   DailyUsage, ListeningPort, McpServer, Project, Run, RunUsageBreakdownRow, SecretName, Settings,
-  UsageState, FilesPayload, FileDiffPayload, GithubPayload, MergeResponse,
+  UsageState, FileDiffPayload, ChangesPayload, HistoryOp, HistoryResult, FilesHeadEntry,
 } from '@shared/types.js';
 
 function xhrUploadJson<T>(url: string, file: File, onProgress?: (pct: number) => void): Promise<T> {
@@ -150,15 +150,19 @@ export const api = {
     '/api/config/defaults'
   ),
 
-  getRunGithub: (id: number) => request<GithubPayload>(`/api/runs/${id}/github`),
-
   createRunPr: (id: number) => request<{ number: number; url: string; state: string; title: string }>(
     `/api/runs/${id}/github/pr`, { method: 'POST', body: JSON.stringify({}) }),
 
-  mergeRunBranch: (id: number) =>
-    request<MergeResponse>(`/api/runs/${id}/github/merge`, { method: 'POST', body: JSON.stringify({}) }),
+  getRunChanges: (id: number) => request<ChangesPayload>(`/api/runs/${id}/changes`),
 
-  getRunFiles: (id: number) => request<FilesPayload>(`/api/runs/${id}/files`),
+  getRunCommitFiles: (id: number, sha: string) =>
+    request<{ files: FilesHeadEntry[] }>(`/api/runs/${id}/commits/${encodeURIComponent(sha)}/files`),
+
+  postRunHistory: (id: number, op: HistoryOp) =>
+    request<HistoryResult>(`/api/runs/${id}/history`, {
+      method: 'POST',
+      body: JSON.stringify(op),
+    }),
 
   getRunFileDiff: (id: number, path: string, ref: string = 'worktree') =>
     request<FileDiffPayload>(
