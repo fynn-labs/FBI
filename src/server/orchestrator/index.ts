@@ -33,6 +33,8 @@ import { LimitMonitor } from './limitMonitor.js';
 import { WaitingWatcher } from './waitingWatcher.js';
 import { GitStateWatcher } from './gitStateWatcher.js';
 import { dockerExec, type DockerExecOptions, type DockerExecResult } from './dockerExec.js';
+import { buildEnv, runHistoryOpInContainer, runHistoryOpInTransientContainer, type ParsedOpResult } from './historyOp.js';
+import type { HistoryOp } from '../../shared/types.js';
 import { nudgeClaudeToExit } from './nudgeClaude.js';
 import { checkContinueEligibility } from './continueEligibility.js';
 import type { FilesPayload } from '../../shared/types.js';
@@ -742,6 +744,31 @@ export class Orchestrator {
   /** Return the most recent GitStateWatcher snapshot for a run, if any. */
   getLastFiles(runId: number): FilesPayload | null {
     return this.lastFiles.get(runId) ?? null;
+  }
+
+  async execHistoryOp(runId: number, op: HistoryOp): Promise<ParsedOpResult> {
+    const run = this.deps.runs.get(runId);
+    if (!run) throw new Error('run not found');
+    if (!run.branch_name) throw new Error('run has no branch');
+    const project = this.deps.projects.get(run.project_id);
+    if (!project) throw new Error('project missing');
+    const env = buildEnv(runId, run.branch_name, project.default_branch, op);
+
+    const active = this.active.get(runId);
+    if (active) {
+      return runHistoryOpInContainer(active.container, env);
+    }
+    // Finished run: transient container.
+    return runHistoryOpInTransientContainer({
+      docker: this.deps.docker,
+      image: 'alpine/git:latest',
+      repoUrl: project.repo_url,
+      historyOpScriptPath: HISTORY_OP,
+      env,
+      sshSocket: this.deps.config.hostSshAuthSock,
+      authorName: project.git_author_name ?? this.deps.config.gitAuthorName,
+      authorEmail: project.git_author_email ?? this.deps.config.gitAuthorEmail,
+    });
   }
 
   /** Run a command inside the container backing `runId`. Throws if no
