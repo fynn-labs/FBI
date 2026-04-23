@@ -2,7 +2,8 @@ import { useState } from 'react';
 import { api } from '../../lib/api.js';
 import { DiffBlock } from '@ui/data/DiffBlock.js';
 import { Pill, type PillTone } from '@ui/primitives/Pill.js';
-import type { FileDiffPayload, FilesDirtyEntry, FilesHeadEntry } from '@shared/types.js';
+import type { FileDiffPayload, FilesDirtyEntry, FilesHeadEntry, SubmoduleBump } from '@shared/types.js';
+import { SubmoduleBumpRow } from './SubmoduleBumpRow.js';
 
 type FileRow = FilesDirtyEntry | FilesHeadEntry;
 type DiffState = FileDiffPayload | 'loading' | 'error';
@@ -24,11 +25,12 @@ export interface CommitRowProps {
   defaultOpen?: boolean;
   initialFiles?: FileRow[];
   initialFilesLoaded?: boolean;
+  submoduleBumps?: SubmoduleBump[];
 }
 
 export function CommitRow({
   runId, sha, subject, shortSha, pushed, fileCount, relativeTime,
-  uncommitted, defaultOpen, initialFiles, initialFilesLoaded,
+  uncommitted, defaultOpen, initialFiles, initialFilesLoaded, submoduleBumps,
 }: CommitRowProps) {
   const [open, setOpen] = useState(defaultOpen ?? false);
   const [files, setFiles] = useState<FileRow[] | null>(initialFilesLoaded ? (initialFiles ?? []) : null);
@@ -109,6 +111,9 @@ export function CommitRow({
               </div>
             );
           })}
+          {submoduleBumps?.map((b) => (
+            <SubmoduleBumpRow key={`bump:${b.path}`} runId={runId} bump={b} />
+          ))}
         </div>
       )}
     </div>
