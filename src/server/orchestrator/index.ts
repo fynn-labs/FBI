@@ -29,7 +29,7 @@ import type { RateLimitStateRepo } from '../db/rateLimitState.js';
 import type { UsageRepo } from '../db/usage.js';
 import { UsageTailer } from './usageTailer.js';
 import { LimitMonitor } from './limitMonitor.js';
-import { WaitingMonitor } from './waitingMonitor.js';
+import { WaitingWatcher } from './waitingWatcher.js';
 import { nudgeClaudeToExit } from './nudgeClaude.js';
 import { checkContinueEligibility } from './continueEligibility.js';
 
@@ -264,7 +264,7 @@ export class Orchestrator {
     let tailer: UsageTailer | null = null;
     let titleWatcher: TitleWatcher | null = null;
     let limitMonitor: LimitMonitor | null = null;
-    let waitingMonitor: WaitingMonitor | null = null;
+    let waitingWatcher: WaitingWatcher | null = null;
 
     try {
       const { container, projectSecrets } = await this.createContainerForRun(
@@ -284,7 +284,7 @@ export class Orchestrator {
       await injectFiles(container, '/home/agent', { '.claude.json': claudeJson }, 1000);
       await injectFiles(
         container, '/home/agent/.claude',
-        { 'settings.json': JSON.stringify({ skipDangerousModePermissionPrompt: true }) },
+        { 'settings.json': buildClaudeSettingsJson() },
         1000,
       );
 
@@ -292,15 +292,14 @@ export class Orchestrator {
         stream: true, stdin: true, stdout: true, stderr: true, hijack: true,
       });
       limitMonitor = this.makeLimitMonitor(runId, container, attach, onBytes);
-      waitingMonitor = this.makeWaitingMonitor(runId, onBytes);
+      waitingWatcher = this.makeWaitingWatcher(runId);
       attach.on('data', (c: Buffer) => {
         limitMonitor!.feedLog(c);
-        waitingMonitor!.feedLog(c);
         onBytes(c);
       });
       await container.start();
       limitMonitor.start();
-      waitingMonitor.start();
+      waitingWatcher.start();
       this.active.set(runId, { container, attachStream: attach });
       this.deps.runs.markStarted(runId, container.id);
       this.publishState(runId);
@@ -346,7 +345,7 @@ export class Orchestrator {
       if (tailer) await tailer.stop();
       if (titleWatcher) await titleWatcher.stop();
       if (limitMonitor) limitMonitor.stop();
-      if (waitingMonitor) waitingMonitor.stop();
+      if (waitingWatcher) waitingWatcher.stop();
     }
   }
 
@@ -522,7 +521,7 @@ export class Orchestrator {
       await injectFiles(container, '/home/agent', { '.claude.json': claudeJson }, 1000);
       await injectFiles(
         container, '/home/agent/.claude',
-        { 'settings.json': JSON.stringify({ skipDangerousModePermissionPrompt: true }) },
+        { 'settings.json': buildClaudeSettingsJson() },
         1000,
       );
 
@@ -530,11 +529,11 @@ export class Orchestrator {
         stream: true, stdin: true, stdout: true, stderr: true, hijack: true,
       });
       const limitMonitor = this.makeLimitMonitor(runId, container, attach, onBytes);
-      const waitingMonitor = this.makeWaitingMonitor(runId, onBytes);
-      attach.on('data', (c: Buffer) => { limitMonitor.feedLog(c); waitingMonitor.feedLog(c); onBytes(c); });
+      const waitingWatcher = this.makeWaitingWatcher(runId);
+      attach.on('data', (c: Buffer) => { limitMonitor.feedLog(c); onBytes(c); });
       await container.start();
       limitMonitor.start();
-      waitingMonitor.start();
+      waitingWatcher.start();
       this.active.set(runId, { container, attachStream: attach });
       this.deps.runs.markResuming(runId, container.id);
       this.publishState(runId);
@@ -552,7 +551,7 @@ export class Orchestrator {
       } finally {
         await titleWatcher.stop();
         limitMonitor.stop();
-        waitingMonitor.stop();
+        waitingWatcher.stop();
       }
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
@@ -591,7 +590,7 @@ export class Orchestrator {
       await injectFiles(container, '/home/agent', { '.claude.json': claudeJson }, 1000);
       await injectFiles(
         container, '/home/agent/.claude',
-        { 'settings.json': JSON.stringify({ skipDangerousModePermissionPrompt: true }) },
+        { 'settings.json': buildClaudeSettingsJson() },
         1000,
       );
 
@@ -599,11 +598,11 @@ export class Orchestrator {
         stream: true, stdin: true, stdout: true, stderr: true, hijack: true,
       });
       const limitMonitor = this.makeLimitMonitor(runId, container, attach, onBytes);
-      const waitingMonitor = this.makeWaitingMonitor(runId, onBytes);
-      attach.on('data', (c: Buffer) => { limitMonitor.feedLog(c); waitingMonitor.feedLog(c); onBytes(c); });
+      const waitingWatcher = this.makeWaitingWatcher(runId);
+      attach.on('data', (c: Buffer) => { limitMonitor.feedLog(c); onBytes(c); });
       await container.start();
       limitMonitor.start();
-      waitingMonitor.start();
+      waitingWatcher.start();
       this.active.set(runId, { container, attachStream: attach });
       this.deps.runs.markContinuing(runId, container.id);
       this.publishState(runId);
@@ -621,7 +620,7 @@ export class Orchestrator {
       } finally {
         await titleWatcher.stop();
         limitMonitor.stop();
-        waitingMonitor.stop();
+        waitingWatcher.stop();
       }
     } catch (err) {
       if (err instanceof ContinueNotEligibleError) throw err;
@@ -663,21 +662,16 @@ export class Orchestrator {
     });
   }
 
-  private makeWaitingMonitor(
-    runId: number,
-    onBytes: (chunk: Uint8Array) => void,
-  ): WaitingMonitor {
-    return new WaitingMonitor({
-      mountDir: this.mountDirFor(runId),
+  private makeWaitingWatcher(runId: number): WaitingWatcher {
+    return new WaitingWatcher({
+      path: `${this.stateDirFor(runId)}/waiting`,
       onEnter: () => {
         this.deps.runs.markWaiting(runId);
         this.publishState(runId);
-        onBytes(Buffer.from('\n[fbi] waiting for user input\n'));
       },
       onExit: () => {
         this.deps.runs.markRunningFromWaiting(runId);
         this.publishState(runId);
-        onBytes(Buffer.from('\n[fbi] user responded; resuming\n'));
       },
     });
   }
@@ -808,7 +802,7 @@ export class Orchestrator {
     // same LimitMonitor used by fresh launches so a pre-existing container
     // stuck on the in-TUI rate-limit message also gets nudged out.
     const limitMonitor = this.makeLimitMonitor(runId, container, attachStream, onBytes);
-    const waitingMonitor = this.makeWaitingMonitor(runId, onBytes);
+    const waitingWatcher = this.makeWaitingWatcher(runId);
     const sinceSec = Math.floor((run.started_at ?? Date.now()) / 1000);
     const logsStream = (await container.logs({
       follow: true,
@@ -816,9 +810,9 @@ export class Orchestrator {
       stderr: true,
       since: sinceSec,
     })) as unknown as NodeJS.ReadableStream;
-    logsStream.on('data', (c: Buffer) => { limitMonitor.feedLog(c); waitingMonitor.feedLog(c); onBytes(c); });
+    logsStream.on('data', (c: Buffer) => { limitMonitor.feedLog(c); onBytes(c); });
     limitMonitor.start();
-    waitingMonitor.start();
+    waitingWatcher.start();
     const events = this.deps.streams.getOrCreateEvents(runId);
     const tailer = new UsageTailer({
       dir: claudeProjectsDir,
@@ -899,7 +893,7 @@ export class Orchestrator {
       await tailer.stop();
       await titleWatcher.stop();
       limitMonitor.stop();
-      waitingMonitor.stop();
+      waitingWatcher.stop();
       events.end();
       this.active.delete(runId);
       this.lastRateLimit.delete(runId);
@@ -922,6 +916,26 @@ function claudeAuthMounts(hostClaudeDir: string): string[] {
 
 function uniq(xs: string[]): string[] {
   return [...new Set(xs)];
+}
+
+// ~/.claude/settings.json injected into every run container. `hooks` wires
+// Claude Code's Stop and UserPromptSubmit events to a /fbi-state/waiting
+// sentinel that WaitingWatcher polls; Stop means "turn ended, waiting for
+// user", UserPromptSubmit means "user replied". This replaces the old
+// TTY-scraping WaitingMonitor. `skipDangerousModePermissionPrompt` pairs
+// with supervisor.sh's --dangerously-skip-permissions.
+export function buildClaudeSettingsJson(): string {
+  return JSON.stringify({
+    skipDangerousModePermissionPrompt: true,
+    hooks: {
+      Stop: [
+        { hooks: [{ type: 'command', command: 'touch /fbi-state/waiting', timeout: 5 }] },
+      ],
+      UserPromptSubmit: [
+        { hooks: [{ type: 'command', command: 'rm -f /fbi-state/waiting', timeout: 5 }] },
+      ],
+    },
+  });
 }
 
 async function injectFiles(
