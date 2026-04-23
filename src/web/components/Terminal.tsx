@@ -159,12 +159,13 @@ export function Terminal({ runId, interactive }: Props) {
         ansiPreview: strPreview(snap.ansi),
       });
       clearQueue();
-      // Full-ish reset: exit then re-enter alt screen to wipe cells and
-      // cursor/save state, then reset DECSTBM so a stale scroll region
-      // from a previous snapshot can't persist. The snapshot itself
-      // appends its tracked modes at the end, which set the correct
-      // scroll region / cursor visibility / etc. at our current dims.
-      term.write('\x1b[?1049l\x1b[?1049h\x1b[r');
+      // No pre-reset: the snapshot's leading modesAnsi takes care of
+      // buffer selection (?1049h/l), viewport clear, and scroll region.
+      // Previously this wrote \x1b[?1049l\x1b[?1049h to force alt-buffer,
+      // but Claude Code renders its TUI inline in the *main* buffer —
+      // forcing alt diverged the client from the server and the TUI's
+      // relative cursor moves landed on wrong rows.
+      //
       // Snapshots are bounded by viewport size (scrollback:0 server-side),
       // so write synchronously — going through the rAF queue makes the
       // user see the snapshot drawn line-by-line on tab switch.

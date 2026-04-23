@@ -121,10 +121,27 @@ class ModeScanner {
 
   /** ANSI that replays the current mode state. Scroll region is clamped
    *  to the provided row count so a stale DECSTBM captured at smaller
-   *  dims still resolves to a valid range on replay. */
+   *  dims still resolves to a valid range on replay.
+   *
+   *  Also emits the buffer toggle (`?1049h/l`) and a viewport clear so
+   *  the client lands in the same buffer as the server. Without this,
+   *  if the client was left in the alt buffer from a previous snapshot
+   *  but the server is rendering in the main buffer (Claude Code's TUI
+   *  runs inline in main — no `?1049h` in its byte stream), relative
+   *  cursor moves execute against the wrong buffer's cursor and
+   *  scrollback semantics, and the TUI's redraw lands on wrong rows. */
   emit(rows: number): string {
     let out = '';
-    // Scroll region first so subsequent cursor ops observe it.
+    // Buffer first. ?1049h enters alt *and* clears it, so no extra clear
+    // is needed when entering alt. For main we clear explicitly — ?1049l
+    // restores the saved main-buffer cursor but doesn't wipe content.
+    if (this.altScreen) {
+      out += '\x1b[?1049h';
+    } else {
+      out += '\x1b[?1049l\x1b[H\x1b[2J';
+    }
+    // Scroll region after buffer, since DECSTBM also homes the cursor
+    // and is scoped to the current buffer.
     if (this.stbmTop !== null && this.stbmBottom !== null) {
       const top = Math.max(1, Math.min(rows, this.stbmTop));
       const bot = Math.max(top, Math.min(rows, this.stbmBottom));
