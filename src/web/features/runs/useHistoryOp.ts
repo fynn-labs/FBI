@@ -24,6 +24,8 @@ export function useHistoryOp(runId: number, onDone?: () => void) {
         setMsg('Agent not available — try again when the run is live.');
       } else if (r.kind === 'invalid') {
         setMsg(`Invalid: ${r.message}`);
+      } else if (r.kind === 'git-error') {
+        setMsg(`Git: ${r.message}`);
       } else if (r.kind === 'git-unavailable') {
         setMsg('Git operation failed.');
       }

@@ -220,6 +220,7 @@ export type HistoryResult =
   | { kind: 'conflict'; child_run_id: number }
   | { kind: 'agent-busy' }
   | { kind: 'invalid'; message: string }
+  | { kind: 'git-error'; message: string }
   | { kind: 'git-unavailable' };
 
 export interface ChangeCommit {

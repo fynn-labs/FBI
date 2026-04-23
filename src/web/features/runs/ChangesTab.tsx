@@ -62,7 +62,7 @@ export function ChangesTab({ run, project, changes, onCreatePr, creatingPr, onRe
               shortSha={c.sha.slice(0, 7)}
               pushed={c.pushed}
               subject={c.subject}
-              fileCount={c.files_loaded ? c.files.length : 0}
+              fileCount={c.files_loaded ? c.files.length : null}
               relativeTime={relativeTime(c.committed_at)}
               initialFiles={c.files_loaded ? c.files : undefined}
               initialFilesLoaded={c.files_loaded}

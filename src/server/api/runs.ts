@@ -453,8 +453,9 @@ export function registerRunsRoutes(app: FastifyInstance, deps: Deps): void {
       const childId = await deps.orchestrator.spawnSubRun(runId, 'merge-conflict', argsJson);
       return { kind: 'conflict', child_run_id: childId } satisfies HistoryResult;
     }
-    // gh-error
-    return reply.code(500).send({ kind: 'invalid', message: result.message } satisfies HistoryResult);
+    // gh-error: return 200 with the structured message so the client can
+    // surface it instead of throwing on HTTP 500.
+    return { kind: 'git-error', message: result.message } satisfies HistoryResult;
   });
 
 }

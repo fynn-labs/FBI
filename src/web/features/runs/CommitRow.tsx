@@ -17,7 +17,8 @@ export interface CommitRowProps {
   subject: string;
   shortSha: string | null;           // null for uncommitted
   pushed: boolean | null;            // null for uncommitted
-  fileCount: number;
+  /** null = unknown (not loaded yet); omits the "N files" label. */
+  fileCount: number | null;
   relativeTime: string;
   uncommitted?: boolean;
   defaultOpen?: boolean;
@@ -76,7 +77,14 @@ export function CommitRow({
           title={pushed ? 'pushed to origin' : 'local only — not yet pushed'} />}
         {shortSha && <span className="font-mono text-[11px] text-text-faint bg-surface-raised px-1.5 py-0.5 rounded">{shortSha}</span>}
         <span className={`flex-1 truncate ${uncommitted ? 'italic' : ''}`}>{subject}</span>
-        <span className="text-[11px] text-text-faint font-mono">{fileCount} {fileCount === 1 ? 'file' : 'files'}</span>
+        {(() => {
+          const loaded = files?.length ?? null;
+          const shown = loaded ?? fileCount;
+          if (shown == null) return null;
+          return (
+            <span className="text-[11px] text-text-faint font-mono">{shown} {shown === 1 ? 'file' : 'files'}</span>
+          );
+        })()}
         <span className="text-[11px] text-text-faint">{relativeTime}</span>
       </button>
       {open && (
