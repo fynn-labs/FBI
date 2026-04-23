@@ -148,11 +148,12 @@ export function Terminal({ runId, interactive }: Props) {
         ansiPreview: strPreview(ansi),
       });
       clearQueue();
-      // Don't full-reset (RIS clears mode state — DECSTBM scroll region,
-      // DECTCEM cursor visibility — that the live PTY's subsequent updates
-      // assume); just clear the visible screen. The snapshot's leading
-      // ?1049h gives a fresh alt-screen buffer either way.
-      term.write('\x1b[2J\x1b[H');
+      // Full-ish reset: exit then re-enter alt screen to wipe cells and
+      // cursor/save state, then reset DECSTBM so a stale scroll region
+      // from a previous snapshot can't persist. The snapshot itself
+      // appends its tracked modes at the end, which set the correct
+      // scroll region / cursor visibility / etc. at our current dims.
+      term.write('\x1b[?1049l\x1b[?1049h\x1b[r');
       // Snapshots are bounded by viewport size (scrollback:0 server-side),
       // so write synchronously — going through the rAF queue makes the
       // user see the snapshot drawn line-by-line on tab switch.

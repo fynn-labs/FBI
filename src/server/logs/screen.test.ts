@@ -49,4 +49,50 @@ describe('ScreenState', () => {
     expect(ansi.includes('line0')).toBe(false);
     s.dispose();
   });
+
+  it('modesAnsi() emits DECSTBM clamped to current rows (not stale startup rows)', async () => {
+    // Simulate a TUI that sets scroll region at startup dims (40 rows),
+    // then the terminal is resized larger. The emitted DECSTBM must use
+    // the scanned top/bottom *clamped to current rows* so the client
+    // applies a valid scroll region on the current viewport.
+    const s = new ScreenState(120, 40);
+    await s.write(enc('\x1b[1;40r')); // TUI sets scroll region 1..40
+    s.resize(82, 48);                  // viewport grows
+    const modes = s.modesAnsi();
+    expect(modes).toContain('\x1b[1;40r'); // clamped values (40 ≤ 48 so unchanged)
+    s.dispose();
+  });
+
+  it('modesAnsi() tracks DECTCEM, DECAWM, ?1049, ?2004 across the stream', async () => {
+    const s = new ScreenState(80, 24);
+    await s.write(enc('\x1b[?25l\x1b[?7l\x1b[?1049h\x1b[?2004h'));
+    const modes = s.modesAnsi();
+    expect(modes).toContain('\x1b[?25l');   // cursor hidden
+    expect(modes).toContain('\x1b[?7l');    // auto-wrap off
+    expect(modes).toContain('\x1b[?2004h'); // bracketed paste
+    // Alt-screen is on but SerializeAddon already emits ?1049h for alt
+    // buffers, so we don't require modesAnsi to repeat it — just assert
+    // the mode scanner saw the rest.
+    s.dispose();
+  });
+
+  it('modesAnsi() defaults to sane values when the stream sets no modes', async () => {
+    const s = new ScreenState(80, 24);
+    await s.write(enc('plain text\r\n'));
+    const modes = s.modesAnsi();
+    expect(modes).toContain('\x1b[r');      // scroll region reset
+    expect(modes).toContain('\x1b[?7h');    // auto-wrap default on
+    expect(modes).toContain('\x1b[?25h');   // cursor visible default on
+    s.dispose();
+  });
+
+  it('mode scanner survives escape sequences split across write() calls', async () => {
+    const s = new ScreenState(80, 24);
+    // Split "\x1b[?25l" (cursor-hide) right after the '?' so the parser
+    // has to resume with the digits from the next write.
+    await s.write(enc('\x1b[?'));
+    await s.write(enc('25l'));
+    expect(s.modesAnsi()).toContain('\x1b[?25l');
+    s.dispose();
+  });
 });

@@ -85,7 +85,10 @@ export function registerWsRoute(app: FastifyInstance, deps: Deps): void {
       if (socket.readyState !== socket.OPEN) return;
       socket.send(JSON.stringify({
         type: 'snapshot',
-        ansi: screen.preambleAnsi() + screen.serialize(),
+        // Cell contents first (SerializeAddon), then tracked modes at
+        // *current* dims. Modes-last means DECSTBM etc. are correct for
+        // the live bytes that follow; content doesn't depend on modes.
+        ansi: screen.serialize() + screen.modesAnsi(),
         cols: screen.cols,
         rows: screen.rows,
       }));
@@ -151,7 +154,7 @@ export function registerWsRoute(app: FastifyInstance, deps: Deps): void {
             if (screen && socket.readyState === socket.OPEN) {
               socket.send(JSON.stringify({
                 type: 'snapshot',
-                ansi: screen.preambleAnsi() + screen.serialize(),
+                ansi: screen.serialize() + screen.modesAnsi(),
                 cols: screen.cols,
                 rows: screen.rows,
               }));
@@ -170,7 +173,7 @@ export function registerWsRoute(app: FastifyInstance, deps: Deps): void {
             if (screen && socket.readyState === socket.OPEN) {
               socket.send(JSON.stringify({
                 type: 'snapshot',
-                ansi: screen.preambleAnsi() + screen.serialize(),
+                ansi: screen.serialize() + screen.modesAnsi(),
                 cols: screen.cols,
                 rows: screen.rows,
               }));
