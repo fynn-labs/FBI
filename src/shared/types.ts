@@ -277,6 +277,17 @@ export interface RunWsResyncMessage {
   type: 'resync';
 }
 
+/** Sent by the client as the first text frame after the WebSocket opens.
+ *  Carries the client's xterm dimensions; the server applies them to the
+ *  PTY and ScreenState before serializing the opening snapshot, so the
+ *  snapshot always matches the client's dims. No response frame type —
+ *  the response is the snapshot. */
+export interface RunWsHelloMessage {
+  type: 'hello';
+  cols: number;
+  rows: number;
+}
+
 export interface ListeningPort {
   port: number;
   proto: 'tcp';
