@@ -219,7 +219,7 @@ describe('OAuthUsagePoller threshold_crossed events', () => {
 });
 
 describe('OAuthUsagePoller cadence', () => {
-  it('nudge within 60s of last poll is suppressed', async () => {
+  it('nudge within 5 min of last poll is suppressed, allowed after', async () => {
     const db = openDb(':memory:');
     const state = new RateLimitStateRepo(db);
     const buckets = new RateLimitBucketsRepo(db);
@@ -235,11 +235,92 @@ describe('OAuthUsagePoller cadence', () => {
     });
     await poller.pollOnce();
     const before = fetchSpy.mock.calls.length;
-    nowMs += 30_000;
+    nowMs += 60_000;
     await poller.nudge();
-    expect(fetchSpy.mock.calls.length).toBe(before);          // suppressed
-    nowMs += 35_000; // >60s after the original poll
+    expect(fetchSpy.mock.calls.length).toBe(before);          // still suppressed at 1 min
+    nowMs += 4 * 60_000 + 1000; // >5 min total since last poll
     await poller.nudge();
     expect(fetchSpy.mock.calls.length).toBeGreaterThan(before);
+  });
+
+  it('nudge is gated by last attempt, not last success (errors still cost a poll)', async () => {
+    const db = openDb(':memory:');
+    const state = new RateLimitStateRepo(db);
+    const buckets = new RateLimitBucketsRepo(db);
+    let nowMs = 1_700_000_000_000;
+    // First call errors (429), subsequent nudge within 5 min must be suppressed
+    // even though observed_at was never set.
+    let callCount = 0;
+    const fetchSpy = vi.fn(async (url: string) => {
+      callCount += 1;
+      if (String(url).endsWith('/profile')) return jsonResponse({}, { status: 500 });
+      return jsonResponse({}, { status: 429 });
+    });
+    const poller = new OAuthUsagePoller({
+      fetch: fetchSpy as unknown as typeof fetch,
+      readToken: () => 'tok', state, buckets,
+      now: () => nowMs, onEvent: () => {},
+    });
+    await poller.pollOnce();
+    expect(callCount).toBeGreaterThan(0);
+    const before = callCount;
+    nowMs += 30_000;
+    await poller.nudge();
+    expect(callCount).toBe(before); // suppressed — last_error_at gates nudges too
+  });
+
+  it('start() defers the first poll when observed_at is still fresh across a restart', async () => {
+    vi.useFakeTimers();
+    try {
+      const db = openDb(':memory:');
+      const state = new RateLimitStateRepo(db);
+      const buckets = new RateLimitBucketsRepo(db);
+      let nowMs = 1_700_000_000_000;
+      // Simulate a previous process that successfully polled 1 minute ago.
+      state.setObserved(nowMs - 60_000);
+      const fetchSpy = vi.fn(async (url: string) => {
+        if (String(url).endsWith('/profile')) return jsonResponse({ plan: 'max' });
+        return jsonResponse({ buckets: [{ id: 'five_hour', utilization: 10, resets_at: nowMs + 3600_000 }] });
+      });
+      const poller = new OAuthUsagePoller({
+        fetch: fetchSpy as unknown as typeof fetch,
+        readToken: () => 'tok', state, buckets,
+        now: () => nowMs, onEvent: () => {},
+      });
+      poller.start();
+      // Run any immediately-queued timers; a naive start() would fire pollOnce now.
+      await vi.advanceTimersByTimeAsync(100);
+      expect(fetchSpy).not.toHaveBeenCalled();
+      poller.stop();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('start() polls immediately when observed_at is stale', async () => {
+    vi.useFakeTimers();
+    try {
+      const db = openDb(':memory:');
+      const state = new RateLimitStateRepo(db);
+      const buckets = new RateLimitBucketsRepo(db);
+      const nowMs = 1_700_000_000_000;
+      // Previous success was 10 minutes ago (>intervalMs).
+      state.setObserved(nowMs - 10 * 60_000);
+      const fetchSpy = vi.fn(async (url: string) => {
+        if (String(url).endsWith('/profile')) return jsonResponse({ plan: 'max' });
+        return jsonResponse({ buckets: [{ id: 'five_hour', utilization: 10, resets_at: nowMs + 3600_000 }] });
+      });
+      const poller = new OAuthUsagePoller({
+        fetch: fetchSpy as unknown as typeof fetch,
+        readToken: () => 'tok', state, buckets,
+        now: () => nowMs, onEvent: () => {},
+      });
+      poller.start();
+      await vi.advanceTimersByTimeAsync(10);
+      expect(fetchSpy.mock.calls.length).toBeGreaterThan(0);
+      poller.stop();
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });
