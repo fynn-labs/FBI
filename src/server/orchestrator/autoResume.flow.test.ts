@@ -14,6 +14,7 @@ import { RateLimitStateRepo } from '../db/rateLimitState.js';
 import { UsageRepo } from '../db/usage.js';
 import { RunStreamRegistry } from '../logs/registry.js';
 import { Orchestrator } from './index.js';
+import { runUploadsDir } from './sessionId.js';
 import type { Config } from '../config.js';
 
 vi.mock('./image.js', () => ({
@@ -125,7 +126,7 @@ function setup() {
 
 describe('autoResume flow (stubbed Docker)', () => {
   it('launch: rate-limit exit transitions run to awaiting_resume', async () => {
-    const { runs, p, settings, makeOrchestrator } = setup();
+    const { dir, runs, p, settings, makeOrchestrator } = setup();
     const run = runs.create({
       project_id: p.id, prompt: 'fix tests',
       log_path_tmpl: (id) => path.join(os.tmpdir(), `flow-${id}.log`),
@@ -149,10 +150,14 @@ describe('autoResume flow (stubbed Docker)', () => {
     expect(updated.state).toBe('awaiting_resume');
     expect(updated.next_resume_at).not.toBeNull();
     expect(updated.resume_attempts).toBe(1);
+
+    const createArgs = vi.mocked(mockDocker.createContainer).mock.calls[0][0];
+    const binds = createArgs.HostConfig!.Binds as string[];
+    expect(binds).toContainEqual(`${runUploadsDir(dir, run.id)}:/fbi/uploads:ro`);
   });
 
   it('resume: success exit transitions run from awaiting_resume to succeeded', async () => {
-    const { runs, p, makeOrchestrator } = setup();
+    const { dir, runs, p, makeOrchestrator } = setup();
     const run = runs.create({
       project_id: p.id, prompt: 'fix tests',
       log_path_tmpl: (id) => path.join(os.tmpdir(), `flow-resume-${id}.log`),
@@ -175,5 +180,9 @@ describe('autoResume flow (stubbed Docker)', () => {
 
     const final = runs.get(run.id)!;
     expect(final.state).toBe('succeeded');
+
+    const createArgs = vi.mocked(mockDocker.createContainer).mock.calls[0][0];
+    const binds = createArgs.HostConfig!.Binds as string[];
+    expect(binds).toContainEqual(`${runUploadsDir(dir, run.id)}:/fbi/uploads:ro`);
   });
 });

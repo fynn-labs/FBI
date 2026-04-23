@@ -11,6 +11,10 @@ export function runStateDir(runsDir: string, runId: number): string {
   return path.join(runsDir, String(runId), 'state');
 }
 
+export function runUploadsDir(runsDir: string, runId: number): string {
+  return path.join(runsDir, String(runId), 'uploads');
+}
+
 export function scanSessionId(mountDir: string): string | null {
   let subs: string[];
   try {

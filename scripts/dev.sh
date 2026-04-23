@@ -36,6 +36,7 @@ export GIT_AUTHOR_NAME="${GIT_AUTHOR_NAME:-Dev}"
 export GIT_AUTHOR_EMAIL="${GIT_AUTHOR_EMAIL:-dev@example.com}"
 export DB_PATH="${DB_PATH:-/tmp/fbi.db}"
 export RUNS_DIR="${RUNS_DIR:-/tmp/fbi-runs}"
+export DRAFT_UPLOADS_DIR="${DRAFT_UPLOADS_DIR:-/tmp/fbi-draft-uploads}"
 export SECRETS_KEY_FILE
 
 echo "▸ npm run dev  (server :3000, vite :5173)"

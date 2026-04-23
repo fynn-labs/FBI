@@ -7,7 +7,7 @@ import type { Run } from '@shared/types.js';
 const baseRun: Run = {
   id: 1, project_id: 1, prompt: 'p', branch_name: 'b', state: 'succeeded',
   container_id: null, log_path: '/l', exit_code: 0, error: null, head_commit: null,
-  started_at: 0, finished_at: 0, created_at: 0,
+  started_at: 0, finished_at: 0, created_at: 0, state_entered_at: 0,
   resume_attempts: 0, next_resume_at: null, claude_session_id: null,
   last_limit_reset_at: null,
   tokens_input: 100, tokens_output: 200, tokens_cache_read: 5000, tokens_cache_create: 1000,

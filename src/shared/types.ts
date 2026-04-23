@@ -210,3 +210,13 @@ export interface ListeningPort {
   port: number;
   proto: 'tcp';
 }
+
+export interface UploadedFile {
+  filename: string;
+  size: number;
+  uploaded_at: number;
+}
+
+export interface DraftUploadResponse extends UploadedFile {
+  draft_token: string;
+}

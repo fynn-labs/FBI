@@ -223,7 +223,7 @@ describe('WS /api/runs/:id/proxy/:port', () => {
     const { runs, make } = setupRunsRepo();
     const run = make(); runs.markStarted(run.id, 'cid');
     const streams = new RunStreamRegistry();
-    streams.getOrCreateState(run.id).publish({ type: 'state', state: 'running', next_resume_at: null, resume_attempts: 0, last_limit_reset_at: null });
+    streams.getOrCreateState(run.id).publish({ type: 'state', state: 'running', state_entered_at: Date.now(), next_resume_at: null, resume_attempts: 0, last_limit_reset_at: null });
     const container: Container = {
       inspect: async () => ({
         State: { Pid: 1 },
@@ -237,7 +237,7 @@ describe('WS /api/runs/:id/proxy/:port', () => {
     await new Promise<void>((resolve, reject) => { ws.once('open', () => resolve()); ws.once('error', reject); });
 
     // Transition to 'waiting' — container is still alive, tunnel must stay open.
-    streams.getOrCreateState(run.id).publish({ type: 'state', state: 'waiting', next_resume_at: null, resume_attempts: 0, last_limit_reset_at: null });
+    streams.getOrCreateState(run.id).publish({ type: 'state', state: 'waiting', state_entered_at: Date.now(), next_resume_at: null, resume_attempts: 0, last_limit_reset_at: null });
 
     // Race a close event against an echo round-trip. The tunnel staying open
     // is proved by a successful echo *after* the waiting frame has published.

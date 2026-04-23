@@ -1,5 +1,39 @@
 import type { DailyUsage, ListeningPort, McpServer, Project, Run, RunUsageBreakdownRow, SecretName, Settings, UsageState } from '@shared/types.js';
 
+function xhrUploadJson<T>(url: string, file: File, onProgress?: (pct: number) => void): Promise<T> {
+  return new Promise<T>((resolve, reject) => {
+    const xhr = new XMLHttpRequest();
+    xhr.open('POST', url);
+    xhr.responseType = 'text';
+    if (onProgress) {
+      xhr.upload.onprogress = (e) => {
+        if (e.lengthComputable) onProgress(Math.round((e.loaded / e.total) * 100));
+      };
+    }
+    xhr.onload = () => {
+      if (xhr.status >= 200 && xhr.status < 300) {
+        try {
+          resolve(JSON.parse(xhr.responseText) as T);
+        } catch {
+          reject(new Error(`Non-JSON response: ${xhr.responseText}`));
+        }
+      } else {
+        let err = 'unknown';
+        try {
+          const body = JSON.parse(xhr.responseText) as { error?: string };
+          if (body.error) err = body.error;
+        } catch { /* keep 'unknown' */ }
+        reject(new Error(`HTTP ${xhr.status}: ${err}`));
+      }
+    };
+    xhr.onerror = () => reject(new Error('Network error'));
+    xhr.onabort = () => reject(new Error('aborted'));
+    const form = new FormData();
+    form.append('file', file, file.name);
+    xhr.send(form);
+  });
+}
+
 async function request<T>(url: string, init?: RequestInit): Promise<T> {
   let res: Response;
   try {
@@ -76,12 +110,13 @@ export const api = {
     request<{ prompt: string; last_used_at: number; run_id: number }[]>(
       `/api/projects/${projectId}/prompts/recent?limit=${limit}`
     ),
-  createRun: (projectId: number, prompt: string, branch?: string) =>
+  createRun: (projectId: number, prompt: string, branch?: string, draftToken?: string) =>
     request<Run>(`/api/projects/${projectId}/runs`, {
       method: 'POST',
       body: JSON.stringify({
         prompt,
         branch: branch && branch.trim() !== '' ? branch.trim() : undefined,
+        draft_token: draftToken ?? undefined,
       }),
     }),
   deleteRun: (id: number) => request<void>(`/api/runs/${id}`, { method: 'DELETE' }),
@@ -158,4 +193,40 @@ export const api = {
     }),
   deleteProjectMcpServer: (projectId: number, serverId: number) =>
     request<void>(`/api/projects/${projectId}/mcp-servers/${serverId}`, { method: 'DELETE' }),
+
+  // Draft and run file uploads
+  uploadDraftFile: (
+    file: File,
+    draftToken: string | null,
+    onProgress?: (pct: number) => void,
+  ): Promise<{ draft_token: string; filename: string; size: number; uploaded_at: number }> => {
+    const url = draftToken
+      ? `/api/draft-uploads?draft_token=${encodeURIComponent(draftToken)}`
+      : '/api/draft-uploads';
+    return xhrUploadJson(url, file, onProgress);
+  },
+
+  deleteDraftFile: (draftToken: string, filename: string) =>
+    request<void>(
+      `/api/draft-uploads/${encodeURIComponent(draftToken)}/${encodeURIComponent(filename)}`,
+      { method: 'DELETE' },
+    ),
+
+  uploadRunFile: (
+    runId: number,
+    file: File,
+    onProgress?: (pct: number) => void,
+  ): Promise<{ filename: string; size: number; uploaded_at: number }> =>
+    xhrUploadJson(`/api/runs/${runId}/uploads`, file, onProgress),
+
+  listRunUploads: (runId: number) =>
+    request<{ files: Array<{ filename: string; size: number; uploaded_at: number }> }>(
+      `/api/runs/${runId}/uploads`,
+    ),
+
+  deleteRunUpload: (runId: number, filename: string) =>
+    request<void>(
+      `/api/runs/${runId}/uploads/${encodeURIComponent(filename)}`,
+      { method: 'DELETE' },
+    ),
 };

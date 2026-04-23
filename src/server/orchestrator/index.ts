@@ -23,7 +23,7 @@ import { SshAgentForwarding, type GitAuth } from './gitAuth.js';
 import { classify, type RateLimitStateInput } from './resumeDetector.js';
 import type { RateLimitSnapshot } from '../../shared/types.js';
 import { ResumeScheduler } from './resumeScheduler.js';
-import { scanSessionId, runMountDir, runStateDir } from './sessionId.js';
+import { scanSessionId, runMountDir, runStateDir, runUploadsDir } from './sessionId.js';
 import { TitleWatcher } from './titleWatcher.js';
 import type { RateLimitStateRepo } from '../db/rateLimitState.js';
 import type { UsageRepo } from '../db/usage.js';
@@ -123,6 +123,16 @@ export class Orchestrator {
     return dir;
   }
 
+  private uploadsDirFor(runId: number): string {
+    return runUploadsDir(this.deps.config.runsDir, runId);
+  }
+
+  private ensureUploadsDir(runId: number): string {
+    const dir = this.uploadsDirFor(runId);
+    fs.mkdirSync(dir, { recursive: true });
+    return dir;
+  }
+
   private publishState(runId: number): void {
     const run = this.deps.runs.get(runId);
     if (!run) return;
@@ -219,6 +229,7 @@ export class Orchestrator {
           `${FINALIZE_BRANCH}:/usr/local/bin/fbi-finalize-branch.sh:ro`,
           `${mountDir}:/home/agent/.claude/projects/`,
           `${this.ensureStateDir(runId)}:/fbi-state/`,
+          `${this.ensureUploadsDir(runId)}:/fbi/uploads:ro`,
           ...claudeAuthMounts(this.deps.config.hostClaudeDir),
           ...auth.mounts().map((m) =>
             `${m.source}:${m.target}${m.readOnly ? ':ro' : ''}`

@@ -40,6 +40,7 @@ const mkRun = (patch: Partial<Run> = {}): Run => ({
   id: 1, project_id: 1, prompt: '', branch_name: '', state: 'running',
   container_id: null, log_path: '', exit_code: null, error: null,
   head_commit: null, started_at: 0, finished_at: null, created_at: 0,
+  state_entered_at: 0,
   resume_attempts: 0, next_resume_at: null, claude_session_id: null,
   last_limit_reset_at: null, tokens_input: 0, tokens_output: 0,
   tokens_cache_read: 0, tokens_cache_create: 0, tokens_total: 0,

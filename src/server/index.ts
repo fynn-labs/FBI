@@ -1,6 +1,7 @@
 import Fastify from 'fastify';
 import fastifyStatic from '@fastify/static';
 import fastifyWebsocket from '@fastify/websocket';
+import fastifyMultipart from '@fastify/multipart';
 import Docker from 'dockerode';
 import fs from 'node:fs';
 import path from 'node:path';
@@ -31,6 +32,8 @@ import { registerWsRoute } from './api/ws.js';
 import { registerUsageRoutes } from './api/usage.js';
 import { registerUsageWsRoute } from './api/wsUsage.js';
 import { registerProxyRoutes } from './api/proxy.js';
+import { registerUploadsRoutes } from './api/uploads.js';
+import { startDraftUploadsGc } from './housekeeping/draftUploads.js';
 import { GhClient } from './github/gh.js';
 
 async function main() {
@@ -86,6 +89,9 @@ async function main() {
 
   const app = Fastify({ logger: true });
   await app.register(fastifyWebsocket);
+  await app.register(fastifyMultipart, {
+    limits: { fileSize: 100 * 1024 * 1024, files: 1, fields: 2 },
+  });
   await app.register(fastifyStatic, {
     root: config.webDir,
     prefix: '/',
@@ -98,6 +104,7 @@ async function main() {
     runs, projects, gh,
     streams,
     runsDir: config.runsDir,
+    draftUploadsDir: config.draftUploadsDir,
     launch: (id) => orchestrator.launch(id),
     cancel: (id) => orchestrator.cancel(id),
     fireResumeNow: (id) => orchestrator.fireResumeNow(id),
@@ -120,6 +127,18 @@ async function main() {
   registerProxyRoutes(app, {
     runs, streams,
     orchestrator: { getLiveContainer: (id) => orchestrator.getLiveContainer(id) },
+  });
+
+  fs.mkdirSync(config.draftUploadsDir, { recursive: true });
+  registerUploadsRoutes(app, {
+    runs,
+    runsDir: config.runsDir,
+    draftUploadsDir: config.draftUploadsDir,
+  });
+
+  const stopDraftUploadsGc = startDraftUploadsGc({
+    runsDir: config.runsDir,
+    draftDir: config.draftUploadsDir,
   });
 
   registerCliRoutes(app, {
