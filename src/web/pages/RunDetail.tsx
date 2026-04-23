@@ -14,7 +14,7 @@ import { TunnelTab } from '../features/runs/TunnelTab.js';
 import { useBottomPaneHeight } from '../features/runs/useBottomPaneHeight.js';
 import type { ListeningPort } from '@shared/types.js';
 import { useKeyBinding } from '@ui/shell/KeyMap.js';
-import { subscribeState, subscribeTitle, subscribeFiles } from '../features/runs/usageBus.js';
+import { subscribeState, subscribeTitle, subscribeChanges } from '../features/runs/usageBus.js';
 import { UploadTray, type UploadTrayFile } from '../components/UploadTray.js';
 import { acquireShell, releaseShell } from '../lib/shellRegistry.js';
 
@@ -110,10 +110,8 @@ export function RunDetailPage() {
   }, []);
 
   useEffect(() => {
-    return subscribeFiles((id, payload) => {
-      if (id !== runId) return;
-      setFiles(payload);
-    });
+    // TODO(Task 17): wire to new ChangesPayload shape; for now this is a no-op.
+    return subscribeChanges((_id, _payload) => { /* no-op until Task 17 */ });
   }, [runId]);
 
   // GitHub tab: poll every 10s regardless of run state, so commits/PR/CI stay

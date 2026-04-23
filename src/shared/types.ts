@@ -206,8 +206,6 @@ export interface FilesPayload {
   live: boolean;
 }
 
-export type RunWsFilesMessage = { type: 'files' } & FilesPayload;
-
 export type MergeStrategy = 'merge' | 'rebase' | 'squash';
 
 export type HistoryOp =

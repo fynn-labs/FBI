@@ -368,7 +368,14 @@ export class Orchestrator {
         pollMs: 2000,
         onSnapshot: (snap) => {
           this.lastFiles.set(runId, snap);
-          events.publish({ type: 'files', ...snap });
+          events.publish({
+            type: 'changes',
+            branch_name: null,
+            branch_base: snap.branchBase,
+            commits: [],
+            uncommitted: snap.dirty,
+            integrations: {},
+          });
         },
       });
       gitWatcher.start();
@@ -962,7 +969,14 @@ export class Orchestrator {
       pollMs: 2000,
       onSnapshot: (snap) => {
         this.lastFiles.set(runId, snap);
-        events.publish({ type: 'files', ...snap });
+        events.publish({
+          type: 'changes',
+          branch_name: null,
+          branch_base: snap.branchBase,
+          commits: [],
+          uncommitted: snap.dirty,
+          integrations: {},
+        });
       },
     });
     gitWatcher.start();

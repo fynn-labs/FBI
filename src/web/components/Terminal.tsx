@@ -8,7 +8,7 @@ import {
   getLastSnapshot,
   requestResync,
 } from '../lib/shellRegistry.js';
-import { publishUsage, publishState, publishTitle, publishFiles } from '../features/runs/usageBus.js';
+import { publishUsage, publishState, publishTitle, publishChanges } from '../features/runs/usageBus.js';
 import {
   record as traceRecord,
   strPreview,
@@ -22,6 +22,7 @@ import type {
   UsageSnapshot,
   RunWsStateMessage,
   RunWsTitleMessage,
+  ChangesPayload,
 } from '@shared/types.js';
 
 interface Props {
@@ -248,7 +249,7 @@ export function Terminal({ runId, interactive }: Props) {
       if (msg.type === 'usage') publishUsage(runId, msg.snapshot as UsageSnapshot);
       else if (msg.type === 'state') publishState(runId, msg as unknown as RunWsStateMessage);
       else if (msg.type === 'title') publishTitle(runId, msg as unknown as RunWsTitleMessage);
-      else if (msg.type === 'files') publishFiles(runId, msg as unknown as import('@shared/types.js').FilesPayload);
+      else if (msg.type === 'changes') publishChanges(runId, msg as unknown as ChangesPayload);
     });
 
     // Focus/blur/visibility triggers the fast-forward fix. When the window
