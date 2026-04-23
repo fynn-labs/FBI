@@ -10,6 +10,8 @@ import { RunDrawer } from '../features/runs/RunDrawer.js';
 import { ChangesTab } from '../features/runs/ChangesTab.js';
 import { MetaTab } from '../features/runs/MetaTab.js';
 import { TunnelTab } from '../features/runs/TunnelTab.js';
+import { ShipTab } from '../features/runs/ship/ShipTab.js';
+import { computeShipDot, type ShipDot } from '../features/runs/ship/computeShipDot.js';
 import { useBottomPaneHeight } from '../features/runs/useBottomPaneHeight.js';
 import type { ListeningPort } from '@shared/types.js';
 import { useKeyBinding } from '@ui/shell/KeyMap.js';
@@ -224,6 +226,7 @@ export function RunDetailPage() {
   }
 
   const changesCount = (changes?.uncommitted.length ?? 0) + (changes?.commits.length ?? 0);
+  const shipDot: ShipDot = changes ? computeShipDot(changes) : null;
 
   return (
     <div className="h-full flex flex-col min-h-0">
@@ -268,14 +271,17 @@ export function RunDetailPage() {
           onToggle={setDrawerOpen}
           changesCount={changesCount}
           portsCount={run.state === 'running' || run.state === 'waiting' ? ports.length : null}
-          shipDot={null}
+          shipDot={shipDot}
           height={height}
           onHeightChange={setHeight}
         >
           {(t) =>
             t === 'changes' ? <ChangesTab run={run} project={project} changes={changes} /> :
-            t === 'tunnel' ? <TunnelTab runId={run.id} runState={run.state} origin={window.location.origin} ports={ports} /> :
-            <MetaTab run={run} siblings={siblings} />
+            t === 'ship'    ? <ShipTab run={run} project={project} changes={changes}
+                                       onCreatePr={onCreatePr} creatingPr={creatingPr} onReload={onReload} /> :
+            t === 'tunnel'  ? <TunnelTab runId={run.id} runState={run.state}
+                                         origin={window.location.origin} ports={ports} /> :
+                              <MetaTab run={run} siblings={siblings} />
           }
         </RunDrawer>
       </div>
