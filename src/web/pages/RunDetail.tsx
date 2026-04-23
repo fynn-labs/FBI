@@ -268,6 +268,7 @@ export function RunDetailPage() {
           onToggle={setDrawerOpen}
           changesCount={changesCount}
           portsCount={run.state === 'running' || run.state === 'waiting' ? ports.length : null}
+          shipDot={null}
           height={height}
           onHeightChange={setHeight}
         >
