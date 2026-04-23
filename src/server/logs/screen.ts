@@ -179,9 +179,11 @@ export class ScreenState {
 
   /** ANSI that replays the current mode state (scroll region, cursor
    *  visibility, auto-wrap, mouse / bracketed-paste / focus reporting
-   *  modes) at the screen's current rows. Append AFTER serialize() when
-   *  building a snapshot so modes are correct for the live bytes that
-   *  follow. */
+   *  modes) at the screen's current rows. Prepend BEFORE serialize()
+   *  when building a snapshot: DECSTBM homes the cursor, so it must be
+   *  set before SerializeAddon's output — SerializeAddon ends with a
+   *  CUP that places the cursor at its proper row, which must win so
+   *  the TUI's subsequent relative-move sequences anchor correctly. */
   modesAnsi(): string {
     return this.modes.emit(this.term.rows);
   }

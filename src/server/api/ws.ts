@@ -85,10 +85,13 @@ export function registerWsRoute(app: FastifyInstance, deps: Deps): void {
       if (socket.readyState !== socket.OPEN) return;
       socket.send(JSON.stringify({
         type: 'snapshot',
-        // Cell contents first (SerializeAddon), then tracked modes at
-        // *current* dims. Modes-last means DECSTBM etc. are correct for
-        // the live bytes that follow; content doesn't depend on modes.
-        ansi: screen.serialize() + screen.modesAnsi(),
+        // Modes FIRST, then cell contents. DECSTBM (via modesAnsi) homes
+        // the cursor to (1,1), so we set it before SerializeAddon's
+        // output — SerializeAddon ends with a CUP that places the cursor
+        // at its proper row, which must win so subsequent relative-move
+        // sequences from the TUI (e.g. \x1b[3A to reach the prompt
+        // input line) land in the right place.
+        ansi: screen.modesAnsi() + screen.serialize(),
         cols: screen.cols,
         rows: screen.rows,
       }));
@@ -154,7 +157,7 @@ export function registerWsRoute(app: FastifyInstance, deps: Deps): void {
             if (screen && socket.readyState === socket.OPEN) {
               socket.send(JSON.stringify({
                 type: 'snapshot',
-                ansi: screen.serialize() + screen.modesAnsi(),
+                ansi: screen.modesAnsi() + screen.serialize(),
                 cols: screen.cols,
                 rows: screen.rows,
               }));
@@ -173,7 +176,7 @@ export function registerWsRoute(app: FastifyInstance, deps: Deps): void {
             if (screen && socket.readyState === socket.OPEN) {
               socket.send(JSON.stringify({
                 type: 'snapshot',
-                ansi: screen.serialize() + screen.modesAnsi(),
+                ansi: screen.modesAnsi() + screen.serialize(),
                 cols: screen.cols,
                 rows: screen.rows,
               }));
