@@ -368,9 +368,10 @@ export class Orchestrator {
         pollMs: 2000,
         onSnapshot: (snap) => {
           this.lastFiles.set(runId, snap);
+          const runNow = this.deps.runs.get(runId);
           events.publish({
             type: 'changes',
-            branch_name: null,
+            branch_name: runNow?.branch_name || null,
             branch_base: snap.branchBase,
             commits: [],
             uncommitted: snap.dirty,
@@ -969,9 +970,10 @@ export class Orchestrator {
       pollMs: 2000,
       onSnapshot: (snap) => {
         this.lastFiles.set(runId, snap);
+        const runNow = this.deps.runs.get(runId);
         events.publish({
           type: 'changes',
-          branch_name: null,
+          branch_name: runNow?.branch_name || null,
           branch_base: snap.branchBase,
           commits: [],
           uncommitted: snap.dirty,

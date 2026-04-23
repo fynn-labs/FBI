@@ -111,9 +111,12 @@ export function RunDetailPage() {
     return subscribeChanges((id, payload) => {
       if (id !== runId) return;
       setChanges((prev) => {
-        // WS update brings live working-tree + branch-base. Preserve commits +
-        // integrations from polled data.
-        if (!prev) return payload;
+        // WS update brings live working-tree + branch-base only. If nothing
+        // has been fetched yet, ignore it — we let the initial /changes poll
+        // populate commits + integrations + branch_name. Otherwise patch the
+        // live fields onto the polled state so a late WS frame never clobbers
+        // the authoritative fields it doesn't carry (esp. branch_name).
+        if (!prev) return prev;
         return {
           ...prev,
           branch_base: payload.branch_base,
