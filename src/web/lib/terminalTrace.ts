@@ -28,6 +28,7 @@ type EventKind =
   | 'term.fit'
   | 'term.applySnapshot'
   | 'term.dropSnapshot'
+  | 'term.adoptSnapDims'
   | 'term.write'
   | 'term.input'
   | 'term.history.start'

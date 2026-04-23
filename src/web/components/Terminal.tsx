@@ -140,12 +140,23 @@ export function Terminal({ runId, interactive }: Props) {
     let unsubSnapshot: (() => void) | null = null;
     let ready = false; // true once first snapshot has been applied
 
-    const applySnapshot = (ansi: string) => {
+    const applySnapshot = (snap: { ansi: string; cols: number; rows: number }) => {
+      // Non-interactive views don't drive the server's dims (an interactive
+      // tab owns the PTY size), so we adopt whatever the server sends rather
+      // than drop the snapshot. Resize before writing so the alt-screen
+      // reset and content land on a buffer of the correct shape.
+      if (!interactive && (snap.cols !== term.cols || snap.rows !== term.rows)) {
+        traceRecord('term.adoptSnapDims', {
+          fromCols: term.cols, fromRows: term.rows,
+          toCols: snap.cols, toRows: snap.rows,
+        });
+        term.resize(snap.cols, snap.rows);
+      }
       traceRecord('term.applySnapshot', {
-        ansiLen: ansi.length,
+        ansiLen: snap.ansi.length,
         termCols: term.cols,
         termRows: term.rows,
-        ansiPreview: strPreview(ansi),
+        ansiPreview: strPreview(snap.ansi),
       });
       clearQueue();
       // Full-ish reset: exit then re-enter alt screen to wipe cells and
@@ -157,28 +168,25 @@ export function Terminal({ runId, interactive }: Props) {
       // Snapshots are bounded by viewport size (scrollback:0 server-side),
       // so write synchronously — going through the rAF queue makes the
       // user see the snapshot drawn line-by-line on tab switch.
-      term.write(new TextEncoder().encode(ansi));
+      term.write(new TextEncoder().encode(snap.ansi));
       ready = true;
       if (!disposed) setLoaded(true);
     };
 
-    // Only apply snapshots that match the client's current viewport dims.
-    // Mismatched ones (e.g. the server's first auto-snapshot before our
-    // resize lands) would render with wrong wrapping for a moment until
-    // the post-resize snapshot replaces them — visible flash. Drop them;
-    // the server re-sends a snapshot after every resize, and a matching
-    // one will arrive shortly. The loading overlay covers the gap.
-    const isMatchingDims = (snap: { cols: number; rows: number }): boolean =>
-      snap.cols === term.cols && snap.rows === term.rows;
+    // For interactive views we drop mismatched snapshots (e.g. the server's
+    // first auto-snapshot before our resize lands) to avoid a visible flash
+    // of mis-wrapped content — the server re-sends a matching snapshot after
+    // our resize reaches it. Non-interactive views always accept.
+    const shouldApply = (snap: { cols: number; rows: number }): boolean =>
+      !interactive || (snap.cols === term.cols && snap.rows === term.rows);
 
     // If another component has already acquired the shell and cached a
-    // snapshot for this run, apply it synchronously on mount — but only
-    // if its dims match what we just fit to.
+    // snapshot for this run, apply it synchronously on mount.
     const cached = getLastSnapshot(runId);
-    if (cached && isMatchingDims(cached)) applySnapshot(cached.ansi);
+    if (cached && shouldApply(cached)) applySnapshot(cached);
 
     unsubSnapshot = shell.onSnapshot((snap) => {
-      if (!isMatchingDims(snap)) {
+      if (!shouldApply(snap)) {
         traceRecord('term.dropSnapshot', {
           reason: 'dimMismatch',
           snapCols: snap.cols, snapRows: snap.rows,
@@ -186,7 +194,7 @@ export function Terminal({ runId, interactive }: Props) {
         });
         return;
       }
-      applySnapshot(snap.ansi);
+      applySnapshot(snap);
     });
 
     unsubBytes = shell.onBytes((data) => {
@@ -206,10 +214,15 @@ export function Terminal({ runId, interactive }: Props) {
 
     // Debounced resize — the fit addon's getBoundingClientRect can be
     // expensive, and SplitPane/window drags fire continuously.
+    // Non-interactive views skip fit entirely: they adopt the server's
+    // dims via applySnapshot, and auto-fitting to container would fight
+    // that and can re-flow content that was absolute-positioned at the
+    // server's dims.
     let roTimer: ReturnType<typeof setTimeout> | null = null;
     const runFit = () => {
       roTimer = null;
-      if (safeFit() && interactive) shell.resize(term.cols, term.rows);
+      if (!interactive) return;
+      if (safeFit()) shell.resize(term.cols, term.rows);
     };
     const ro = new ResizeObserver(() => {
       if (roTimer !== null) clearTimeout(roTimer);
@@ -221,10 +234,11 @@ export function Terminal({ runId, interactive }: Props) {
     // fires continuously; fit once after they stop.
     let winResizeTimer: ReturnType<typeof setTimeout> | null = null;
     const onResize = () => {
+      if (!interactive) return;
       if (winResizeTimer !== null) clearTimeout(winResizeTimer);
       winResizeTimer = setTimeout(() => {
         winResizeTimer = null;
-        if (safeFit() && interactive) shell.resize(term.cols, term.rows);
+        if (safeFit()) shell.resize(term.cols, term.rows);
       }, 120);
     };
     window.addEventListener('resize', onResize);
@@ -258,7 +272,7 @@ export function Terminal({ runId, interactive }: Props) {
     document.addEventListener('visibilitychange', onVisChange);
 
     shell.onOpen(() => {
-      if (safeFit() && interactive) shell.resize(term.cols, term.rows);
+      if (interactive && safeFit()) shell.resize(term.cols, term.rows);
     });
 
     // "Load full history": fetch the log file and render it instead of the
@@ -306,7 +320,7 @@ export function Terminal({ runId, interactive }: Props) {
       ready = false;
       setLoaded(false); // show loading until the resync snapshot lands
       unsubSnapshot = shell.onSnapshot((snap) => {
-        if (!isMatchingDims(snap)) {
+        if (!shouldApply(snap)) {
           traceRecord('term.dropSnapshot', {
             reason: 'dimMismatch.resume',
             snapCols: snap.cols, snapRows: snap.rows,
@@ -314,7 +328,7 @@ export function Terminal({ runId, interactive }: Props) {
           });
           return;
         }
-        applySnapshot(snap.ansi);
+        applySnapshot(snap);
       });
       unsubBytes = shell.onBytes((data) => { if (ready) enqueueWrite(data); });
       traceRecord('term.resync.request', { reason: 'resumeLive' });
