@@ -26,8 +26,9 @@ describe('useRunsView', () => {
     expect(result.current.groupByState).toBe(false);
   });
 
-  it('persists toggleState to localStorage', () => {
+  it('persists toggleState to localStorage (only on setter call)', () => {
     const { result } = renderHook(() => useRunsView());
+    expect(localStorage.getItem(STORAGE_KEY)).toBeNull();
     act(() => result.current.toggleState('running'));
     const stored = JSON.parse(localStorage.getItem(STORAGE_KEY)!);
     expect(stored.filter).toEqual(['running']);

@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useMemo, useState } from 'react';
 import type { Run, RunState } from '@shared/types.js';
 
 export const STORAGE_KEY = 'fbi.runs.view.v1';
@@ -55,22 +55,30 @@ export function useRunsView(): RunsView {
   const [state, setState] = useState<StoredView>(() => loadStored());
   const filterSet = useMemo(() => new Set<RunState>(state.filter), [state.filter]);
 
-  useEffect(() => { saveStored(state); }, [state]);
-
   const toggleState = useCallback((s: RunState) => {
     setState((prev) => {
       const next = new Set(prev.filter);
       if (next.has(s)) next.delete(s); else next.add(s);
-      return { ...prev, filter: [...next] };
+      const updated: StoredView = { ...prev, filter: [...next] };
+      saveStored(updated);
+      return updated;
     });
   }, []);
 
   const clearFilter = useCallback(() => {
-    setState((prev) => ({ ...prev, filter: [] }));
+    setState((prev) => {
+      const updated: StoredView = { ...prev, filter: [] };
+      saveStored(updated);
+      return updated;
+    });
   }, []);
 
   const setGroupByState = useCallback((v: boolean) => {
-    setState((prev) => ({ ...prev, groupByState: v }));
+    setState((prev) => {
+      const updated: StoredView = { ...prev, groupByState: v };
+      saveStored(updated);
+      return updated;
+    });
   }, []);
 
   return { filter: filterSet, groupByState: state.groupByState, toggleState, clearFilter, setGroupByState };
