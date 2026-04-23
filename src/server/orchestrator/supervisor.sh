@@ -56,6 +56,16 @@ fi
 git config user.name  "$GIT_AUTHOR_NAME"
 git config user.email "$GIT_AUTHOR_EMAIL"
 
+# Silent post-commit push hook: so the GitHub tab's commits/PR/CI views and
+# the Merge-to-main button have up-to-date remote state mid-run. Runs in the
+# background so a slow or offline push never blocks the commit itself.
+mkdir -p .git/hooks
+cat > .git/hooks/post-commit <<'HOOK'
+#!/bin/sh
+( git push -u origin HEAD > /tmp/last-push.log 2>&1 || true ) &
+HOOK
+chmod +x .git/hooks/post-commit
+
 # Run the agent. Two modes:
 #   fresh: compose /tmp/prompt.txt from /fbi/*.txt and stdin-pipe into claude.
 #   resume: use $FBI_RESUME_SESSION_ID to continue an existing session. The

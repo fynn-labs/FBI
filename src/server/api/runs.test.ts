@@ -18,6 +18,16 @@ const stubGh = {
   prChecks: async () => [],
   createPr: async () => ({ number: 1, url: 'u', state: 'OPEN' as const, title: 't' }),
   compareFiles: async () => [],
+  commitsOnBranch: async () => [],
+  mergeBranch: async () => ({ merged: false as const, reason: 'gh-error' as const }),
+};
+
+const stubOrchestrator = {
+  writeStdin: (_runId: number, _bytes: Uint8Array) => { /* noop */ },
+  getLastFiles: (_runId: number) => null,
+  execInContainer: async (_runId: number, _cmd: string[], _opts?: { timeoutMs?: number }) => {
+    throw new Error('container not active');
+  },
 };
 
 function setup() {
@@ -47,6 +57,7 @@ function setup() {
     },
     fireResumeNow: (_id: number) => {},
     continueRun: async (_id: number) => {},
+    orchestrator: stubOrchestrator,
   });
   return { app, projectId: p.id, launched, cancelled, streams, runs };
 }
@@ -79,6 +90,7 @@ function setupWithUploads() {
     cancel: async (_id: number) => {},
     fireResumeNow: (_id: number) => {},
     continueRun: async (_id: number) => {},
+    orchestrator: stubOrchestrator,
   });
   registerUploadsRoutes(app, { runs, runsDir, draftUploadsDir });
   return { app, projectId: p.id, launched, runs, runsDir, draftUploadsDir };
@@ -100,6 +112,7 @@ function makeApp() {
     cancel: async (_id: number) => {},
     fireResumeNow: (_id: number) => {},
     continueRun: async (_id: number) => {},
+    orchestrator: stubOrchestrator,
   });
   return { app, projects, runs, streams };
 }
@@ -208,6 +221,7 @@ describe('runs routes', () => {
       cancel: async (_id: number) => {},
       fireResumeNow: (id: number) => { fired.push(id); },
       continueRun: async (_id: number) => {},
+    orchestrator: stubOrchestrator,
     });
     const res = await app2.inject({ method: 'POST', url: `/api/runs/${r.id}/resume-now` });
     expect(res.statusCode).toBe(204);
@@ -245,11 +259,11 @@ describe('runs routes', () => {
     const continued: number[] = [];
     const app = Fastify();
     registerRunsRoutes(app, {
-      runs, projects, gh: stubGh, streams: new RunStreamRegistry(), runsDir: dir,
-      draftUploadsDir: dir,
+      runs, projects, gh: stubGh, streams: new RunStreamRegistry(), runsDir: dir, draftUploadsDir: dir,
       launch: async () => {}, cancel: async () => {},
       fireResumeNow: () => {},
       continueRun: async (id: number) => { continued.push(id); },
+      orchestrator: stubOrchestrator,
     });
     const res = await app.inject({ method: 'POST', url: `/api/runs/${run.id}/continue` });
     expect(res.statusCode).toBe(204);
@@ -285,11 +299,11 @@ describe('runs routes', () => {
     const longContinue = new Promise<void>((r) => { resolveContinue = r; });
     const app = Fastify();
     registerRunsRoutes(app, {
-      runs, projects, gh: stubGh, streams: new RunStreamRegistry(), runsDir: dir,
-      draftUploadsDir: dir,
+      runs, projects, gh: stubGh, streams: new RunStreamRegistry(), runsDir: dir, draftUploadsDir: dir,
       launch: async () => {}, cancel: async () => {},
       fireResumeNow: () => {},
       continueRun: () => longContinue,
+      orchestrator: stubOrchestrator,
     });
     const start = Date.now();
     const res = await app.inject({ method: 'POST', url: `/api/runs/${run.id}/continue` });
@@ -342,6 +356,130 @@ describe('runs routes', () => {
     });
   });
 
+  describe('GET /api/runs/:id/files', () => {
+    it('returns the orchestrator snapshot when live', async () => {
+      const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'fbi-'));
+      const db = openDb(path.join(dir, 'db.sqlite'));
+      const projects = new ProjectsRepo(db);
+      const runs = new RunsRepo(db);
+      const p = projects.create({ name: 'p', repo_url: 'https://github.com/me/foo.git', default_branch: 'main',
+        devcontainer_override_json: null, instructions: null,
+        git_author_name: null, git_author_email: null });
+      const r = runs.create({ project_id: p.id, prompt: 'x', branch_hint: 'feat/x', log_path_tmpl: (id) => `/tmp/${id}.log` });
+      runs.markStarted(r.id, 'c');
+
+      const snap = {
+        dirty: [{ path: 'a.ts', status: 'M' as const, additions: 1, deletions: 0 }],
+        head: null, headFiles: [], branchBase: null, live: true,
+      };
+      const app = Fastify();
+      registerRunsRoutes(app, {
+        runs, projects, gh: stubGh, streams: new RunStreamRegistry(), runsDir: dir, draftUploadsDir: dir,
+        launch: async () => {}, cancel: async () => {},
+        fireResumeNow: () => {}, continueRun: async () => {},
+        orchestrator: { ...stubOrchestrator, getLastFiles: () => snap },
+      });
+      const res = await app.inject({ method: 'GET', url: `/api/runs/${r.id}/files` });
+      expect(res.statusCode).toBe(200);
+      expect(res.json()).toEqual(snap);
+    });
+
+    it('falls back to gh compare when no live container', async () => {
+      const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'fbi-'));
+      const db = openDb(path.join(dir, 'db.sqlite'));
+      const projects = new ProjectsRepo(db);
+      const runs = new RunsRepo(db);
+      const p = projects.create({ name: 'p', repo_url: 'https://github.com/me/foo.git', default_branch: 'main',
+        devcontainer_override_json: null, instructions: null,
+        git_author_name: null, git_author_email: null });
+      const r = runs.create({ project_id: p.id, prompt: 'x', branch_hint: 'feat/x', log_path_tmpl: (id) => `/tmp/${id}.log` });
+      runs.markStarted(r.id, 'c');
+      runs.markFinished(r.id, { state: 'succeeded', branch_name: 'feat/x' });
+      const app = Fastify();
+      registerRunsRoutes(app, {
+        runs, projects, streams: new RunStreamRegistry(), runsDir: dir, draftUploadsDir: dir,
+        launch: async () => {}, cancel: async () => {},
+        fireResumeNow: () => {}, continueRun: async () => {},
+        gh: { ...stubGh,
+          compareFiles: async () => [{ filename: 'x.ts', additions: 3, deletions: 1, status: 'modified' }],
+        },
+        orchestrator: stubOrchestrator,
+      });
+      const res = await app.inject({ method: 'GET', url: `/api/runs/${r.id}/files` });
+      expect(res.statusCode).toBe(200);
+      const body = res.json() as { headFiles: Array<{ path: string; status: string }>; live: boolean };
+      expect(body.live).toBe(false);
+      expect(body.headFiles[0]).toMatchObject({ path: 'x.ts', status: 'M' });
+    });
+  });
+
+  describe('POST /api/runs/:id/github/merge', () => {
+    function setupRun(state: 'running' | 'succeeded') {
+      const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'fbi-'));
+      const db = openDb(path.join(dir, 'db.sqlite'));
+      const projects = new ProjectsRepo(db);
+      const runs = new RunsRepo(db);
+      const p = projects.create({ name: 'p', repo_url: 'https://github.com/me/foo.git', default_branch: 'main',
+        devcontainer_override_json: null, instructions: null,
+        git_author_name: null, git_author_email: null });
+      const r = runs.create({ project_id: p.id, prompt: 'x', branch_hint: 'feat/x', log_path_tmpl: (id) => `/tmp/${id}.log` });
+      runs.markStarted(r.id, 'c');
+      if (state === 'succeeded') runs.markFinished(r.id, { state: 'succeeded', branch_name: 'feat/x' });
+      return { dir, projects, runs, run: runs.get(r.id)! };
+    }
+
+    it('fast path: returns merged:true on gh success', async () => {
+      const { dir, projects, runs, run } = setupRun('succeeded');
+      const app = Fastify();
+      registerRunsRoutes(app, {
+        runs, projects, streams: new RunStreamRegistry(), runsDir: dir, draftUploadsDir: dir,
+        launch: async () => {}, cancel: async () => {},
+        fireResumeNow: () => {}, continueRun: async () => {},
+        gh: { ...stubGh, mergeBranch: async () => ({ merged: true as const, sha: 'deadbeef' }) },
+        orchestrator: stubOrchestrator,
+      });
+      const res = await app.inject({ method: 'POST', url: `/api/runs/${run.id}/github/merge` });
+      expect(res.statusCode).toBe(200);
+      expect(res.json()).toEqual({ merged: true, sha: 'deadbeef' });
+    });
+
+    it('conflict + running: delegates to agent via writeStdin', async () => {
+      const { dir, projects, runs, run } = setupRun('running');
+      const writes: Array<{ runId: number; text: string }> = [];
+      const app = Fastify();
+      registerRunsRoutes(app, {
+        runs, projects, streams: new RunStreamRegistry(), runsDir: dir, draftUploadsDir: dir,
+        launch: async () => {}, cancel: async () => {},
+        fireResumeNow: () => {}, continueRun: async () => {},
+        gh: { ...stubGh, mergeBranch: async () => ({ merged: false as const, reason: 'conflict' as const }) },
+        orchestrator: {
+          ...stubOrchestrator,
+          writeStdin: (runId, bytes) => writes.push({ runId, text: Buffer.from(bytes).toString('utf8') }),
+        },
+      });
+      const res = await app.inject({ method: 'POST', url: `/api/runs/${run.id}/github/merge` });
+      expect(res.statusCode).toBe(200);
+      expect(res.json()).toEqual({ merged: false, reason: 'conflict', agent: true });
+      expect(writes).toHaveLength(1);
+      expect(writes[0].text).toMatch(/Merge branch feat\/x/);
+    });
+
+    it('conflict + succeeded: returns 409 agent-busy', async () => {
+      const { dir, projects, runs, run } = setupRun('succeeded');
+      const app = Fastify();
+      registerRunsRoutes(app, {
+        runs, projects, streams: new RunStreamRegistry(), runsDir: dir, draftUploadsDir: dir,
+        launch: async () => {}, cancel: async () => {},
+        fireResumeNow: () => {}, continueRun: async () => {},
+        gh: { ...stubGh, mergeBranch: async () => ({ merged: false as const, reason: 'conflict' as const }) },
+        orchestrator: stubOrchestrator,
+      });
+      const res = await app.inject({ method: 'POST', url: `/api/runs/${run.id}/github/merge` });
+      expect(res.statusCode).toBe(409);
+      expect(res.json()).toEqual({ merged: false, reason: 'agent-busy' });
+    });
+  });
+
   it('POST /api/runs/:id/continue returns 409 with code when ineligible', async () => {
     const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'fbi-'));
     const db = openDb(path.join(dir, 'db.sqlite'));
@@ -361,11 +499,11 @@ describe('runs routes', () => {
     runs.markFinished(run.id, { state: 'failed' });
     const app = Fastify();
     registerRunsRoutes(app, {
-      runs, projects, gh: stubGh, streams: new RunStreamRegistry(), runsDir: dir,
-      draftUploadsDir: dir,
+      runs, projects, gh: stubGh, streams: new RunStreamRegistry(), runsDir: dir, draftUploadsDir: dir,
       launch: async () => {}, cancel: async () => {},
       fireResumeNow: () => {},
       continueRun: async () => { throw new Error('should not be called'); },
+      orchestrator: stubOrchestrator,
     });
     const res = await app.inject({ method: 'POST', url: `/api/runs/${run.id}/continue` });
     expect(res.statusCode).toBe(409);

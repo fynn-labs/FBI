@@ -109,6 +109,11 @@ async function main() {
     cancel: (id) => orchestrator.cancel(id),
     fireResumeNow: (id) => orchestrator.fireResumeNow(id),
     continueRun: (id) => orchestrator.continueRun(id),
+    orchestrator: {
+      writeStdin: (id, bytes) => orchestrator.writeStdin(id, bytes),
+      getLastFiles: (id) => orchestrator.getLastFiles(id),
+      execInContainer: (id, cmd, opts) => orchestrator.execInContainer(id, cmd, opts),
+    },
   });
   registerSettingsRoutes(app, {
     settings,

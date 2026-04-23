@@ -10,6 +10,10 @@ import type { RunStreamRegistry } from '../logs/registry.js';
 import { checkContinueEligibility } from '../orchestrator/continueEligibility.js';
 import { promoteDraft } from '../uploads/promote.js';
 import { isDraftToken } from '../uploads/token.js';
+import type {
+  FilesPayload, FilesHeadEntry, FileDiffPayload, FileDiffHunk,
+  GithubPayload, MergeResponse,
+} from '../../shared/types.js';
 
 interface GhDeps {
   available(): Promise<boolean>;
@@ -17,6 +21,16 @@ interface GhDeps {
   prChecks(repo: string, branch: string): Promise<Check[]>;
   createPr(repo: string, p: { head: string; base: string; title: string; body: string }): Promise<{ number: number; url: string; state: 'OPEN' | 'CLOSED' | 'MERGED'; title: string }>;
   compareFiles(repo: string, base: string, head: string): Promise<Array<{ filename: string; additions: number; deletions: number; status: string }>>;
+  commitsOnBranch(repo: string, branch: string): Promise<Array<{ sha: string; subject: string; committed_at: number; pushed: boolean }>>;
+  mergeBranch(repo: string, head: string, base: string, commit_message: string): Promise<
+    { merged: true; sha: string } | { merged: false; reason: 'conflict' | 'gh-error' }
+  >;
+}
+
+interface OrchestratorDep {
+  writeStdin(runId: number, bytes: Uint8Array): void;
+  getLastFiles(runId: number): FilesPayload | null;
+  execInContainer(runId: number, cmd: string[], opts?: { timeoutMs?: number }): Promise<{ stdout: string; stderr: string; exitCode: number }>;
 }
 
 interface Deps {
@@ -30,30 +44,40 @@ interface Deps {
   cancel: (runId: number) => Promise<void>;
   fireResumeNow: (runId: number) => void;
   continueRun: (runId: number) => Promise<void>;
+  orchestrator: OrchestratorDep;
 }
 
 const GH_STATUS_TTL_MS = 10_000;
-interface GhStatusCache { value: unknown; expiresAt: number }
+interface GhStatusCache { value: GithubPayload; expiresAt: number }
 const ghStatusCache = new Map<number, GhStatusCache>();
-function getCached(runId: number): unknown | null {
+function getCached(runId: number): GithubPayload | null {
   const e = ghStatusCache.get(runId);
   if (!e || Date.now() > e.expiresAt) return null;
   return e.value;
 }
-function setCached(runId: number, value: unknown): void {
+function setCached(runId: number, value: GithubPayload): void {
   ghStatusCache.set(runId, { value, expiresAt: Date.now() + GH_STATUS_TTL_MS });
 }
 function invalidate(runId: number): void { ghStatusCache.delete(runId); }
 
-const DIFF_TTL_MS = 60_000;
-const diffCache = new Map<number, { value: unknown; expiresAt: number }>();
-function getDiffCached(runId: number): unknown | null {
-  const e = diffCache.get(runId);
-  if (!e || Date.now() > e.expiresAt) return null;
-  return e.value;
-}
-function setDiffCached(runId: number, value: unknown): void {
-  diffCache.set(runId, { value, expiresAt: Date.now() + DIFF_TTL_MS });
+function parseUnifiedDiff(raw: string, path: string, ref: string): FileDiffPayload {
+  const MAX = 256 * 1024;
+  const truncated = raw.length > MAX;
+  const body = truncated ? raw.slice(0, MAX) : raw;
+  const hunks: FileDiffHunk[] = [];
+  let current: FileDiffHunk | null = null;
+  for (const line of body.split('\n')) {
+    if (line.startsWith('@@')) {
+      current = { header: line, lines: [] };
+      hunks.push(current);
+      continue;
+    }
+    if (!current) continue;
+    if (line.startsWith('+') && !line.startsWith('+++')) current.lines.push({ kind: 'add', text: line.slice(1) });
+    else if (line.startsWith('-') && !line.startsWith('---')) current.lines.push({ kind: 'del', text: line.slice(1) });
+    else if (line.startsWith(' ')) current.lines.push({ kind: 'ctx', text: line.slice(1) });
+  }
+  return { path, ref: ref === 'worktree' ? 'worktree' : ref, hunks, truncated };
 }
 
 export function registerRunsRoutes(app: FastifyInstance, deps: Deps): void {
@@ -210,13 +234,16 @@ export function registerRunsRoutes(app: FastifyInstance, deps: Deps): void {
     const repo = project ? parseGitHubRepo(project.repo_url) : null;
     const available = await deps.gh.available();
     if (!available || !repo || !run.branch_name) {
-      const payload = { pr: null, checks: null, github_available: available && !!repo };
+      const payload: GithubPayload = {
+        pr: null, checks: null, commits: [], github_available: available && !!repo,
+      };
       setCached(runId, payload);
       return payload;
     }
 
     const pr = await deps.gh.prForBranch(repo, run.branch_name).catch(() => null);
     const checks = await deps.gh.prChecks(repo, run.branch_name).catch(() => [] as Check[]);
+    const commits = await deps.gh.commitsOnBranch(repo, run.branch_name).catch(() => []);
     const passed = checks.filter((c) => c.conclusion === 'success').length;
     const failed = checks.filter((c) => c.conclusion === 'failure').length;
     const total = checks.length;
@@ -224,49 +251,76 @@ export function registerRunsRoutes(app: FastifyInstance, deps: Deps): void {
       (failed > 0 ? 'failure' :
        checks.every((c) => c.status === 'completed') ? 'success' : 'pending');
 
-    const payload = {
+    const payload: GithubPayload = {
       pr: pr ? { number: pr.number, url: pr.url, state: pr.state, title: pr.title } : null,
-      checks: total === 0 ? null : { state, passed, failed, total },
+      checks: total === 0 || state === null ? null : {
+        state, passed, failed, total,
+        items: checks.map((c) => ({
+          name: c.name, status: c.status, conclusion: c.conclusion, duration_ms: null,
+        })),
+      },
+      commits,
       github_available: true,
     };
     setCached(runId, payload);
     return payload;
   });
 
-  app.get('/api/runs/:id/diff', async (req, reply) => {
+  app.get('/api/runs/:id/files', async (req, reply) => {
     const { id } = req.params as { id: string };
     const runId = Number(id);
     const run = deps.runs.get(runId);
     if (!run) return reply.code(404).send({ error: 'not found' });
 
-    const cached = getDiffCached(runId);
-    if (cached) return cached;
+    const live = deps.orchestrator.getLastFiles(runId);
+    if (live) return live;
 
     const project = deps.projects.get(run.project_id);
     const repo = project ? parseGitHubRepo(project.repo_url) : null;
     const available = await deps.gh.available();
     if (!project || !repo || !run.branch_name || !available) {
-      const payload = {
-        base: project?.default_branch ?? '',
-        head: run.branch_name,
-        files: [],
-        github_available: available && !!repo,
-      };
-      setDiffCached(runId, payload);
-      return payload;
+      return {
+        dirty: [], head: null, headFiles: [], branchBase: null, live: false,
+      } satisfies FilesPayload;
     }
+    const files = await deps.gh.compareFiles(repo, project.default_branch, run.branch_name).catch(() => []);
+    const headFiles: FilesHeadEntry[] = files.map((f) => {
+      const status = f.status === 'added' ? 'A'
+        : f.status === 'removed' ? 'D'
+        : f.status === 'renamed' ? 'R'
+        : 'M';
+      return { path: f.filename, status, additions: f.additions, deletions: f.deletions };
+    });
+    return {
+      dirty: [],
+      head: null,
+      headFiles,
+      branchBase: { base: project.default_branch, ahead: headFiles.length > 0 ? 1 : 0, behind: 0 },
+      live: false,
+    } satisfies FilesPayload;
+  });
 
-    const files = await deps.gh
-      .compareFiles(repo, project.default_branch, run.branch_name)
-      .catch(() => []);
-    const payload = {
-      base: project.default_branch,
-      head: run.branch_name,
-      files,
-      github_available: true,
-    };
-    setDiffCached(runId, payload);
-    return payload;
+  app.get('/api/runs/:id/file-diff', async (req, reply) => {
+    const { id } = req.params as { id: string };
+    const runId = Number(id);
+    const q = req.query as { path?: string; ref?: string };
+    if (!q.path) return reply.code(400).send({ error: 'path required' });
+    const run = deps.runs.get(runId);
+    if (!run) return reply.code(404).send({ error: 'not found' });
+    const safePath = q.path.replace(/[^\w./@+-]/g, '');
+    if (safePath !== q.path) return reply.code(400).send({ error: 'invalid path' });
+    const ref = q.ref && q.ref !== 'worktree' ? q.ref : 'worktree';
+    const safeRef = ref === 'worktree' ? 'worktree' : ref.replace(/[^\w./@+-]/g, '');
+    if (safeRef !== ref) return reply.code(400).send({ error: 'invalid ref' });
+    const cmd = ref === 'worktree'
+      ? ['git', '-C', '/workspace', 'diff', '--', safePath]
+      : ['git', '-C', '/workspace', 'show', safeRef, '--', safePath];
+    try {
+      const r = await deps.orchestrator.execInContainer(runId, cmd, { timeoutMs: 5000 });
+      return parseUnifiedDiff(r.stdout, safePath, ref);
+    } catch (e) {
+      return reply.code(409).send({ error: 'no container', message: (e as Error).message });
+    }
   });
 
   app.get('/api/runs/:id/siblings', async (req, reply) => {
@@ -282,8 +336,8 @@ export function registerRunsRoutes(app: FastifyInstance, deps: Deps): void {
     const runId = Number(id);
     const run = deps.runs.get(runId);
     if (!run) return reply.code(404).send({ error: 'not found' });
-    if (run.state !== 'succeeded' || !run.branch_name) {
-      return reply.code(400).send({ error: 'run not eligible for PR' });
+    if (!run.branch_name) {
+      return reply.code(400).send({ error: 'run has no branch to open a PR from' });
     }
     const project = deps.projects.get(run.project_id);
     const repo = project ? parseGitHubRepo(project.repo_url) : null;
@@ -299,5 +353,54 @@ export function registerRunsRoutes(app: FastifyInstance, deps: Deps): void {
     });
     invalidate(runId);
     return pr;
+  });
+
+  app.post('/api/runs/:id/github/merge', async (req, reply) => {
+    const { id } = req.params as { id: string };
+    const runId = Number(id);
+    const run = deps.runs.get(runId);
+    if (!run) return reply.code(404).send({ error: 'not found' });
+    const project = deps.projects.get(run.project_id);
+    const repo = project ? parseGitHubRepo(project.repo_url) : null;
+    if (!project || !repo) {
+      return reply.code(400).send({ merged: false, reason: 'not-github' } satisfies MergeResponse);
+    }
+    if (!run.branch_name) {
+      return reply.code(400).send({ merged: false, reason: 'no-branch' } satisfies MergeResponse);
+    }
+    if (!(await deps.gh.available())) {
+      return reply.code(503).send({ merged: false, reason: 'gh-not-available' } satisfies MergeResponse);
+    }
+
+    const commitMsg = `Merge branch '${run.branch_name}' (FBI run #${runId})`;
+    const r = await deps.gh.mergeBranch(repo, run.branch_name, project.default_branch, commitMsg);
+    if (r.merged) {
+      invalidate(runId);
+      return { merged: true, sha: r.sha } satisfies MergeResponse;
+    }
+    if (r.reason !== 'conflict') {
+      return reply.code(500).send({ merged: false, reason: 'gh-error' } satisfies MergeResponse);
+    }
+
+    // Conflict. If the run's container is alive, inject a merge prompt via
+    // stdin so Claude resolves it. Otherwise the user needs a live container.
+    if (run.state !== 'running' && run.state !== 'waiting') {
+      return reply.code(409).send({ merged: false, reason: 'agent-busy' } satisfies MergeResponse);
+    }
+    const prompt =
+      `Merge branch ${run.branch_name} into ${project.default_branch}, ` +
+      `resolve conflicts, and push ${project.default_branch}. Steps:\n` +
+      `1. git fetch origin\n` +
+      `2. git checkout ${project.default_branch}\n` +
+      `3. git pull --ff-only origin ${project.default_branch}\n` +
+      `4. git merge --no-ff ${run.branch_name}\n` +
+      `5. If conflicts: resolve, git add, git commit.\n` +
+      `6. git push origin ${project.default_branch}\n`;
+    try {
+      deps.orchestrator.writeStdin(runId, Buffer.from(prompt + '\n'));
+      return { merged: false, reason: 'conflict', agent: true } satisfies MergeResponse;
+    } catch {
+      return reply.code(409).send({ merged: false, reason: 'agent-busy' } satisfies MergeResponse);
+    }
   });
 }

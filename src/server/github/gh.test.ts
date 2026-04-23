@@ -55,4 +55,44 @@ describe('GhClient', () => {
     const pr = await gh.createPr('me/foo', { head: 'bar', base: 'main', title: 'T', body: 'B' });
     expect(pr.number).toBe(9);
   });
+
+  it('commitsOnBranch parses commit list', async () => {
+    mockOk(JSON.stringify([
+      { sha: 'aaa', commit: { message: 'feat: x\n\nbody', committer: { date: '2026-04-23T10:00:00Z' } } },
+      { sha: 'bbb', commit: { message: 'test: y', committer: { date: '2026-04-23T10:05:00Z' } } },
+    ]));
+    const gh = new GhClient();
+    const commits = await gh.commitsOnBranch('me/foo', 'feat/x');
+    expect(commits).toEqual([
+      { sha: 'aaa', subject: 'feat: x', committed_at: Date.parse('2026-04-23T10:00:00Z') / 1000, pushed: true },
+      { sha: 'bbb', subject: 'test: y', committed_at: Date.parse('2026-04-23T10:05:00Z') / 1000, pushed: true },
+    ]);
+  });
+
+  it('commitsOnBranch returns [] on error', async () => {
+    mockErr(1, 'nope');
+    const gh = new GhClient();
+    expect(await gh.commitsOnBranch('me/foo', 'feat/x')).toEqual([]);
+  });
+
+  it('mergeBranch returns merged:true with sha on success', async () => {
+    mockOk(JSON.stringify({ sha: 'deadbeef' }));
+    const gh = new GhClient();
+    const r = await gh.mergeBranch('me/foo', 'feat/x', 'main', 'msg');
+    expect(r).toEqual({ merged: true, sha: 'deadbeef' });
+  });
+
+  it('mergeBranch returns merged:false reason=conflict on 409', async () => {
+    mockErr(1, 'HTTP 409: Merge conflict');
+    const gh = new GhClient();
+    const r = await gh.mergeBranch('me/foo', 'feat/x', 'main', 'msg');
+    expect(r).toEqual({ merged: false, reason: 'conflict' });
+  });
+
+  it('mergeBranch returns reason=gh-error for unknown failures', async () => {
+    mockErr(1, 'HTTP 500: Something broke');
+    const gh = new GhClient();
+    const r = await gh.mergeBranch('me/foo', 'feat/x', 'main', 'msg');
+    expect(r).toEqual({ merged: false, reason: 'gh-error' });
+  });
 });

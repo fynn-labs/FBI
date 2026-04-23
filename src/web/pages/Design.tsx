@@ -3,9 +3,10 @@ import {
   Button, IconButton, Link, Kbd, Pill, StatusDot, Tag,
   Input, Textarea, Toggle, Checkbox, Select,
   Card, Section, Tabs, Dialog, Drawer, Menu, Tooltip, Table, THead, TR, TH, TD,
+  ExternalLink,
 } from '@ui/primitives/index.js';
 import { FormRow, KeyboardHint, EmptyState, LoadingState, ErrorState, SplitPane } from '@ui/patterns/index.js';
-import { StatCard, ProgressBar, Sparkline, TimestampRelative, CodeBlock, FilterChip, DiffRow } from '@ui/data/index.js';
+import { StatCard, ProgressBar, Sparkline, TimestampRelative, CodeBlock, FilterChip, DiffRow, DiffBlock } from '@ui/data/index.js';
 import { toggleTheme } from '@ui/theme.js';
 
 export function DesignPage() {
@@ -35,6 +36,9 @@ export function DesignPage() {
           <Button disabled>Disabled</Button>
           <IconButton aria-label="settings">⚙</IconButton>
           <Link href="#">A link</Link>
+          <a href="#" className="text-accent">
+            Open docs <ExternalLink />
+          </a>
         </div>
       </Section>
 
@@ -129,6 +133,17 @@ export function DesignPage() {
           </div>
           <Sparkline values={[3, 5, 2, 7, 4, 9, 6, 11, 8, 14]} aria-label="runs per day" />
         </div>
+      </Section>
+
+      <Section title="DiffBlock">
+        <DiffBlock hunks={[{
+          header: '@@ -1,3 +1,3 @@',
+          lines: [
+            { kind: 'ctx', text: 'unchanged line' },
+            { kind: 'del', text: 'removed line' },
+            { kind: 'add', text: 'added line' },
+          ],
+        }]} />
       </Section>
 
       <Section title="Filters + Table">

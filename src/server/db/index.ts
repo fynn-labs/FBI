@@ -115,6 +115,10 @@ export function migrate(db: DB): void {
         WHERE state_entered_at = 0`,
     );
   }
+  if (!runCols.has('parent_run_id')) {
+    db.exec('ALTER TABLE runs ADD COLUMN parent_run_id INTEGER REFERENCES runs(id) ON DELETE SET NULL');
+    db.exec('CREATE INDEX IF NOT EXISTS idx_runs_parent ON runs(parent_run_id)');
+  }
 
   // --- TokenEater usage migration ---
 

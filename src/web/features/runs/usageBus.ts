@@ -1,12 +1,14 @@
-import type { UsageSnapshot, RunWsStateMessage, RunWsTitleMessage } from '@shared/types.js';
+import type { UsageSnapshot, RunWsStateMessage, RunWsTitleMessage, FilesPayload } from '@shared/types.js';
 
 type UsageListener = (runId: number, snapshot: UsageSnapshot) => void;
 type StateListener = (runId: number, frame: RunWsStateMessage) => void;
 type TitleListener = (runId: number, frame: RunWsTitleMessage) => void;
+type FilesListener = (runId: number, payload: FilesPayload) => void;
 
 const usageListeners = new Set<UsageListener>();
 const stateListeners = new Set<StateListener>();
 const titleListeners = new Set<TitleListener>();
+const filesListeners = new Set<FilesListener>();
 
 export function publishUsage(runId: number, s: UsageSnapshot): void {
   for (const l of usageListeners) l(runId, s);
@@ -16,6 +18,9 @@ export function publishState(runId: number, frame: RunWsStateMessage): void {
 }
 export function publishTitle(runId: number, frame: RunWsTitleMessage): void {
   for (const l of titleListeners) l(runId, frame);
+}
+export function publishFiles(runId: number, payload: FilesPayload): void {
+  for (const l of filesListeners) l(runId, payload);
 }
 export function subscribeUsage(l: UsageListener): () => void {
   usageListeners.add(l);
@@ -28,4 +33,8 @@ export function subscribeState(l: StateListener): () => void {
 export function subscribeTitle(l: TitleListener): () => void {
   titleListeners.add(l);
   return () => { titleListeners.delete(l); };
+}
+export function subscribeFiles(l: FilesListener): () => void {
+  filesListeners.add(l);
+  return () => { filesListeners.delete(l); };
 }
