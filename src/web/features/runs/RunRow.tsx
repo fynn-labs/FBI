@@ -1,6 +1,5 @@
 import { NavLink } from 'react-router-dom';
 import { Pill, type PillTone } from '@ui/primitives/index.js';
-import { TimestampRelative } from '@ui/data/TimestampRelative.js';
 import type { Run } from '@shared/types.js';
 
 function fmt(n: number): string {
@@ -41,7 +40,22 @@ export function RunRow({ run, to }: RunRowProps) {
         <span className="font-mono text-[12px] text-text-faint">{fmt(run.tokens_input + run.tokens_output)}</span>
       )}
       <Pill tone={TONE[run.state]}>{run.state}</Pill>
-      <TimestampRelative iso={new Date(run.created_at).toISOString()} />
+      <time
+        dateTime={new Date(run.state_entered_at).toISOString()}
+        title={`entered ${run.state} at ${new Date(run.state_entered_at).toLocaleString()}`}
+        className="font-mono text-[13px] text-text-faint"
+      >
+        {formatRelative(run.state_entered_at)}
+      </time>
     </NavLink>
   );
+}
+
+function formatRelative(ms: number): string {
+  const diff = (Date.now() - ms) / 1000;
+  if (diff < 10) return 'now';
+  if (diff < 60) return `${Math.round(diff)}s`;
+  if (diff < 3600) return `${Math.round(diff / 60)}m`;
+  if (diff < 86400) return `${Math.round(diff / 3600)}h`;
+  return `${Math.round(diff / 86400)}d`;
 }
