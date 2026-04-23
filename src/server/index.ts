@@ -33,6 +33,7 @@ import { registerUsageRoutes } from './api/usage.js';
 import { registerUsageWsRoute } from './api/wsUsage.js';
 import { registerProxyRoutes } from './api/proxy.js';
 import { registerUploadsRoutes } from './api/uploads.js';
+import { startDraftUploadsGc } from './housekeeping/draftUploads.js';
 import { GhClient } from './github/gh.js';
 
 async function main() {
@@ -132,6 +133,11 @@ async function main() {
     runs,
     runsDir: config.runsDir,
     draftUploadsDir: config.draftUploadsDir,
+  });
+
+  const stopDraftUploadsGc = startDraftUploadsGc({
+    runsDir: config.runsDir,
+    draftDir: config.draftUploadsDir,
   });
 
   registerCliRoutes(app, {
