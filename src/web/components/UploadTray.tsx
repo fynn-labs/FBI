@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState, type RefObject } from 'react';
-import { IconButton } from '@ui/primitives/IconButton.js';
+import { cn } from '@ui/cn.js';
 
 export interface UploadTrayFile {
   filename: string;
@@ -107,6 +107,7 @@ export function UploadTray(props: UploadTrayProps) {
 
     const onDragEnter = (e: DragEvent) => {
       if (!hasFiles(e)) return;
+      e.preventDefault();
       depth += 1;
       el.setAttribute('data-upload-drag-active', 'true');
     };
@@ -122,31 +123,52 @@ export function UploadTray(props: UploadTrayProps) {
     };
     const onDrop = (e: DragEvent) => {
       if (!hasFiles(e)) return;
+      // preventDefault must win over the native handlers of any child that
+      // accepts drops (e.g. a <textarea> would otherwise insert the file path
+      // or, for an image, navigate away from the page). That's why these
+      // listeners run in the capture phase — so our handler fires on the
+      // ancestor *before* the event reaches the target's native handlers.
       e.preventDefault();
+      e.stopPropagation();
       depth = 0;
       el.removeAttribute('data-upload-drag-active');
       const file = e.dataTransfer?.files?.[0];
       if (file) void handleFile(file);
     };
 
-    el.addEventListener('dragenter', onDragEnter);
-    el.addEventListener('dragover', onDragOver);
-    el.addEventListener('dragleave', onDragLeave);
-    el.addEventListener('drop', onDrop);
+    el.addEventListener('dragenter', onDragEnter, true);
+    el.addEventListener('dragover', onDragOver, true);
+    el.addEventListener('dragleave', onDragLeave, true);
+    el.addEventListener('drop', onDrop, true);
     return () => {
-      el.removeEventListener('dragenter', onDragEnter);
-      el.removeEventListener('dragover', onDragOver);
-      el.removeEventListener('dragleave', onDragLeave);
-      el.removeEventListener('drop', onDrop);
+      el.removeEventListener('dragenter', onDragEnter, true);
+      el.removeEventListener('dragover', onDragOver, true);
+      el.removeEventListener('dragleave', onDragLeave, true);
+      el.removeEventListener('drop', onDrop, true);
       el.removeAttribute('data-upload-drag-active');
     };
   }, [props.dropZoneRef, props.disabled, handleFile]);
 
   const title = props.disabled ? (props.disabledReason ?? '') : 'Attach a file';
 
+  // A <label> wrapping the input is the most robust way to trigger the
+  // native file picker across all browsers: clicking the label IS clicking
+  // the input via HTML semantics, no JS .click() involved.
+  const buttonClass = cn(
+    'inline-flex items-center justify-center w-7 h-7 rounded-md text-text-dim transition-colors duration-fast ease-out',
+    props.disabled
+      ? 'opacity-50 cursor-not-allowed'
+      : 'cursor-pointer hover:text-text hover:bg-surface-raised',
+  );
+
   return (
     <div className="flex flex-col gap-2">
-      <div className="inline-flex items-center">
+      <label
+        aria-label="Attach a file"
+        title={title}
+        aria-disabled={props.disabled}
+        className={buttonClass}
+      >
         <input
           ref={inputRef}
           data-testid="upload-input"
@@ -160,16 +182,8 @@ export function UploadTray(props: UploadTrayProps) {
           }}
           className="sr-only"
         />
-        <IconButton
-          type="button"
-          aria-label="Attach a file"
-          title={title}
-          disabled={props.disabled}
-          onClick={() => inputRef.current?.click()}
-        >
-          <PaperclipIcon />
-        </IconButton>
-      </div>
+        <PaperclipIcon />
+      </label>
       {error && (
         <div className="text-attn text-sm" role="alert">
           {error}
