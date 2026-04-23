@@ -113,6 +113,8 @@ async function main() {
       writeStdin: (id, bytes) => orchestrator.writeStdin(id, bytes),
       getLastFiles: (id) => orchestrator.getLastFiles(id),
       execInContainer: (id, cmd, opts) => orchestrator.execInContainer(id, cmd, opts),
+      execHistoryOp: (id, op) => orchestrator.execHistoryOp(id, op),
+      spawnSubRun: (id, kind, argsJson) => orchestrator.spawnSubRun(id, kind, argsJson),
     },
   });
   registerSettingsRoutes(app, {

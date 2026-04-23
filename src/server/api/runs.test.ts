@@ -28,6 +28,8 @@ const stubOrchestrator = {
   execInContainer: async (_runId: number, _cmd: string[], _opts?: { timeoutMs?: number }) => {
     throw new Error('container not active');
   },
+  execHistoryOp: async () => ({ kind: 'complete' as const, sha: 'deadbeef' }),
+  spawnSubRun: async () => 0,
 };
 
 function setup() {
@@ -510,6 +512,80 @@ describe('runs routes', () => {
     const body = res.json() as { code: string; message: string };
     expect(body.code).toBe('no_session');
     expect(body.message).toMatch(/session/i);
+  });
+
+  describe('POST /api/runs/:id/history', () => {
+    function setupRun() {
+      const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'fbi-'));
+      const db = openDb(path.join(dir, 'db.sqlite'));
+      const projects = new ProjectsRepo(db);
+      const runs = new RunsRepo(db);
+      const p = projects.create({ name: 'p', repo_url: 'https://github.com/me/foo.git', default_branch: 'main',
+        devcontainer_override_json: null, instructions: null,
+        git_author_name: null, git_author_email: null });
+      const r = runs.create({ project_id: p.id, prompt: 'x', branch_hint: 'feat/x', log_path_tmpl: (id) => `/tmp/${id}.log` });
+      runs.markStarted(r.id, 'c');
+      return { dir, projects, runs, run: runs.get(r.id)! };
+    }
+
+    it('merge: returns complete on successful op', async () => {
+      const { dir, projects, runs, run } = setupRun();
+      const app = Fastify();
+      registerRunsRoutes(app, {
+        runs, projects, streams: new RunStreamRegistry(), runsDir: dir, draftUploadsDir: dir,
+        launch: async () => {}, cancel: async () => {},
+        fireResumeNow: () => {}, continueRun: async () => {},
+        gh: stubGh,
+        orchestrator: {
+          ...stubOrchestrator,
+          execHistoryOp: async () => ({ kind: 'complete' as const, sha: 'abc123' }),
+        },
+      });
+      const res = await app.inject({ method: 'POST', url: `/api/runs/${run.id}/history`, payload: { op: 'merge' } });
+      expect(res.statusCode).toBe(200);
+      expect(res.json()).toEqual({ kind: 'complete', sha: 'abc123' });
+    });
+
+    it('merge with conflict spawns a sub-run and returns conflict kind', async () => {
+      const { dir, projects, runs, run } = setupRun();
+      const spawned: Array<{ parent: number; kind: string }> = [];
+      const app = Fastify();
+      registerRunsRoutes(app, {
+        runs, projects, streams: new RunStreamRegistry(), runsDir: dir, draftUploadsDir: dir,
+        launch: async () => {}, cancel: async () => {},
+        fireResumeNow: () => {}, continueRun: async () => {},
+        gh: stubGh,
+        orchestrator: {
+          ...stubOrchestrator,
+          execHistoryOp: async () => ({ kind: 'conflict-detected' as const, message: 'conflict' }),
+          spawnSubRun: async (parent, kind) => { spawned.push({ parent, kind }); return 99; },
+        },
+      });
+      const res = await app.inject({ method: 'POST', url: `/api/runs/${run.id}/history`, payload: { op: 'merge' } });
+      expect(res.statusCode).toBe(200);
+      expect(res.json()).toEqual({ kind: 'conflict', child_run_id: 99 });
+      expect(spawned).toEqual([{ parent: run.id, kind: 'merge-conflict' }]);
+    });
+
+    it('polish always spawns a sub-run with agent kind', async () => {
+      const { dir, projects, runs, run } = setupRun();
+      const spawned: Array<{ parent: number; kind: string }> = [];
+      const app = Fastify();
+      registerRunsRoutes(app, {
+        runs, projects, streams: new RunStreamRegistry(), runsDir: dir, draftUploadsDir: dir,
+        launch: async () => {}, cancel: async () => {},
+        fireResumeNow: () => {}, continueRun: async () => {},
+        gh: stubGh,
+        orchestrator: {
+          ...stubOrchestrator,
+          spawnSubRun: async (parent, kind) => { spawned.push({ parent, kind }); return 88; },
+        },
+      });
+      const res = await app.inject({ method: 'POST', url: `/api/runs/${run.id}/history`, payload: { op: 'polish' } });
+      expect(res.statusCode).toBe(200);
+      expect(res.json()).toEqual({ kind: 'agent', child_run_id: 88 });
+      expect(spawned).toEqual([{ parent: run.id, kind: 'polish' }]);
+    });
   });
 
   describe('draft_token integration', () => {

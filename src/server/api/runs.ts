@@ -12,8 +12,9 @@ import { promoteDraft } from '../uploads/promote.js';
 import { isDraftToken } from '../uploads/token.js';
 import type {
   FilesPayload, FilesHeadEntry, FileDiffPayload, FileDiffHunk,
-  GithubPayload, MergeResponse,
+  GithubPayload, MergeResponse, HistoryOp, HistoryResult, MergeStrategy,
 } from '../../shared/types.js';
+import type { ParsedOpResult } from '../orchestrator/historyOp.js';
 
 interface GhDeps {
   available(): Promise<boolean>;
@@ -31,6 +32,8 @@ interface OrchestratorDep {
   writeStdin(runId: number, bytes: Uint8Array): void;
   getLastFiles(runId: number): FilesPayload | null;
   execInContainer(runId: number, cmd: string[], opts?: { timeoutMs?: number }): Promise<{ stdout: string; stderr: string; exitCode: number }>;
+  execHistoryOp(runId: number, op: HistoryOp): Promise<ParsedOpResult>;
+  spawnSubRun(parentRunId: number, kind: 'merge-conflict' | 'polish', argsJson: string): Promise<number>;
 }
 
 interface Deps {
@@ -353,6 +356,64 @@ export function registerRunsRoutes(app: FastifyInstance, deps: Deps): void {
     });
     invalidate(runId);
     return pr;
+  });
+
+  app.post('/api/runs/:id/history', async (req, reply) => {
+    const { id } = req.params as { id: string };
+    const runId = Number(id);
+    const run = deps.runs.get(runId);
+    if (!run) return reply.code(404).send({ error: 'not found' });
+    if (!run.branch_name) {
+      return reply.code(400).send({ kind: 'invalid', message: 'run has no branch' } satisfies HistoryResult);
+    }
+    const body = req.body as Partial<HistoryOp> | null;
+    if (!body || typeof body !== 'object' || typeof (body as { op?: unknown }).op !== 'string') {
+      return reply.code(400).send({ kind: 'invalid', message: 'op required' } satisfies HistoryResult);
+    }
+    const op = body as HistoryOp;
+
+    // 'polish' is always agent-driven — no direct git path.
+    if (op.op === 'polish') {
+      const project = deps.projects.get(run.project_id);
+      const argsJson = JSON.stringify({
+        branch: run.branch_name,
+        default: project?.default_branch ?? 'main',
+      });
+      const childId = await deps.orchestrator.spawnSubRun(runId, 'polish', argsJson);
+      return { kind: 'agent', child_run_id: childId } satisfies HistoryResult;
+    }
+
+    // For merge/sync/squash-local: resolve strategy default, then dispatch.
+    let resolved: HistoryOp = op;
+    if (op.op === 'merge' && !op.strategy) {
+      const project = deps.projects.get(run.project_id);
+      resolved = { op: 'merge', strategy: project?.default_merge_strategy ?? 'squash' };
+    }
+
+    let result: ParsedOpResult;
+    try {
+      result = await deps.orchestrator.execHistoryOp(runId, resolved);
+    } catch {
+      return reply.code(503).send({ kind: 'git-unavailable' } satisfies HistoryResult);
+    }
+
+    if (result.kind === 'complete') {
+      return { kind: 'complete', sha: result.sha } satisfies HistoryResult;
+    }
+    if (result.kind === 'conflict-detected') {
+      const project = deps.projects.get(run.project_id);
+      const strategy: MergeStrategy =
+        resolved.op === 'merge' ? (resolved.strategy ?? 'merge') : 'merge';
+      const argsJson = JSON.stringify({
+        branch: run.branch_name,
+        default: project?.default_branch ?? 'main',
+        strategy,
+      });
+      const childId = await deps.orchestrator.spawnSubRun(runId, 'merge-conflict', argsJson);
+      return { kind: 'conflict', child_run_id: childId } satisfies HistoryResult;
+    }
+    // gh-error
+    return reply.code(500).send({ kind: 'invalid', message: result.message } satisfies HistoryResult);
   });
 
   app.post('/api/runs/:id/github/merge', async (req, reply) => {
