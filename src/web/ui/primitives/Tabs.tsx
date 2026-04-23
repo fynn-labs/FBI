@@ -3,7 +3,7 @@ import { cn } from '../cn.js';
 
 export interface TabDef<T extends string> {
   value: T;
-  label: string | ReactNode;
+  label: ReactNode;
   count?: number;
 }
 

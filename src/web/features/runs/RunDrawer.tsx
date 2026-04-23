@@ -30,6 +30,7 @@ export function RunDrawer({
       ship
       {shipDot && (
         <span
+          role="img"
           aria-label={shipDot === 'amber' ? 'branch is stale' : 'ready to ship'}
           className={`inline-block w-1.5 h-1.5 rounded-full ${shipDot === 'amber' ? 'bg-warn' : 'bg-accent'}`}
         />
