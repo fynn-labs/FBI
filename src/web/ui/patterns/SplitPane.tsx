@@ -160,9 +160,8 @@ export function SplitPane({
         onMouseDown={handleMouseDown}
         onKeyDown={handleKeyDown}
         className={cn(
-          'shrink-0 w-[4px] cursor-col-resize relative',
-          'border-r border-border-strong',
-          'hover:bg-accent/30 focus:outline-none focus:bg-accent/40 focus-visible:bg-accent/40',
+          'shrink-0 w-[6px] cursor-col-resize relative bg-border',
+          'hover:bg-border-strong focus:outline-none focus-visible:bg-accent/40',
           dragging && 'bg-accent/50',
           'transition-colors duration-fast',
         )}

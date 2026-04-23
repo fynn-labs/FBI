@@ -3,6 +3,7 @@ import { useUsage } from './useUsage.js';
 import { api } from '../../lib/api.js';
 import type { DailyUsage, Run, UsageBucket, PacingVerdict } from '@shared/types.js';
 import { cn } from '../../ui/cn.js';
+import { pacingDisplay, PACING_TONE_CLASS } from './pacingDisplay.js';
 
 const LABELS: Record<string, string> = {
   five_hour: '5-hour window',
@@ -95,20 +96,19 @@ function BucketCard({ bucket: b, pacing }: { bucket: UsageBucket; pacing: Pacing
       </div>
       <div className="text-[12px] text-text-dim">resets in {fmtCountdown(countdown)}</div>
       {b.reset_at && <div className="text-[11px] text-text-faint">{new Date(b.reset_at).toLocaleString()}</div>}
-      {pacing && pacing.zone !== 'none' && (
-        <div className="mt-2 text-[12px]">
-          <span className={cn('font-medium',
-            pacing.zone === 'hot' ? 'text-fail' :
-            pacing.zone === 'chill' ? 'text-ok' : 'text-text-dim')}>
-            {pacing.zone === 'on_track' ? 'on track' : pacing.zone}
-          </span>
-          {pacing.zone !== 'on_track' && (
-            <span className="ml-2 font-mono text-text-faint">
-              {(pacing.delta >= 0 ? '+' : '') + Math.round(pacing.delta * 100) + '%'}
-            </span>
-          )}
-        </div>
-      )}
+      <PacingBadge pacing={pacing} />
+    </div>
+  );
+}
+
+function PacingBadge({ pacing }: { pacing: PacingVerdict | undefined }) {
+  if (!pacing) return null;
+  const d = pacingDisplay(pacing);
+  if (!d) return null;
+  return (
+    <div className="mt-2 text-[12px]">
+      <span className={cn('font-medium', PACING_TONE_CLASS[d.tone])}>{d.label}</span>
+      <span className={cn('ml-2 font-mono', PACING_TONE_CLASS[d.tone])}>{d.deltaPct}</span>
     </div>
   );
 }
