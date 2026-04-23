@@ -19,6 +19,12 @@ class MockWs {
     arr.push(fn);
     this.listeners.set(type, arr);
   }
+  removeEventListener(type: string, fn: (e: Event) => void) {
+    const arr = this.listeners.get(type);
+    if (!arr) return;
+    const i = arr.indexOf(fn);
+    if (i !== -1) arr.splice(i, 1);
+  }
   send() {}
   close() { this.readyState = MockWs.CLOSED; }
   fireOpen() {
@@ -72,5 +78,16 @@ describe('ShellHandle.onOpenOrNow', () => {
     await Promise.resolve();
     expect(cb1).toHaveBeenCalledTimes(1);
     expect(cb2).toHaveBeenCalledTimes(1);
+  });
+
+  it('returns an unregister function that cancels a pending listener', async () => {
+    const { openShell } = await import('./ws.js');
+    const shell = openShell(45);
+    const ws = MockWs.instances[0];
+    const cb = vi.fn();
+    const off = shell.onOpenOrNow(cb);
+    off();
+    ws.fireOpen();
+    expect(cb).not.toHaveBeenCalled();
   });
 });

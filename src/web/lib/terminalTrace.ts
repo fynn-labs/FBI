@@ -33,7 +33,8 @@ type EventKind =
   | 'term.input'
   | 'term.history.start'
   | 'term.history.end'
-  | 'term.resync.request';
+  | 'term.resync.request'
+  | 'term.interactiveFit';
 
 interface TraceEvent {
   t: number; // ms since trace start

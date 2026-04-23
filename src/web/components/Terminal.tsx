@@ -23,6 +23,7 @@ import type {
   RunWsStateMessage,
   RunWsTitleMessage,
 } from '@shared/types.js';
+import type { ShellHandle } from '../lib/ws.js';
 
 interface Props {
   runId: number;
@@ -64,6 +65,12 @@ export function Terminal({ runId, interactive }: Props) {
     return () => window.removeEventListener('keydown', onKey);
   }, []);
 
+  const termRef = useRef<Xterm | null>(null);
+  const shellRef = useRef<ShellHandle | null>(null);
+  const fitRef = useRef<FitAddon | null>(null);
+  const interactiveRef = useRef<boolean>(interactive);
+  useEffect(() => { interactiveRef.current = interactive; }, [interactive]);
+
   useEffect(() => {
     const host = hostRef.current;
     if (!host) return;
@@ -78,7 +85,7 @@ export function Terminal({ runId, interactive }: Props) {
     const fit = new FitAddon();
     term.loadAddon(fit);
     term.open(host);
-    traceRecord('term.mount', { runId, interactive });
+    traceRecord('term.mount', { runId, interactive: interactiveRef.current });
 
     const safeFit = () => {
       const rect = host.getBoundingClientRect();
@@ -136,6 +143,9 @@ export function Terminal({ runId, interactive }: Props) {
     const clearQueue = () => { writeQueue.length = 0; };
 
     const shell = acquireShell(runId);
+    termRef.current = term;
+    fitRef.current = fit;
+    shellRef.current = shell;
     let unsubBytes: (() => void) | null = null;
     let unsubSnapshot: (() => void) | null = null;
     let ready = false; // true once first snapshot has been applied
@@ -145,7 +155,7 @@ export function Terminal({ runId, interactive }: Props) {
       // tab owns the PTY size), so we adopt whatever the server sends rather
       // than drop the snapshot. Resize before writing so the alt-screen
       // reset and content land on a buffer of the correct shape.
-      if (!interactive && (snap.cols !== term.cols || snap.rows !== term.rows)) {
+      if (!interactiveRef.current && (snap.cols !== term.cols || snap.rows !== term.rows)) {
         traceRecord('term.adoptSnapDims', {
           fromCols: term.cols, fromRows: term.rows,
           toCols: snap.cols, toRows: snap.rows,
@@ -179,7 +189,7 @@ export function Terminal({ runId, interactive }: Props) {
     // of mis-wrapped content — the server re-sends a matching snapshot after
     // our resize reaches it. Non-interactive views always accept.
     const shouldApply = (snap: { cols: number; rows: number }): boolean =>
-      !interactive || (snap.cols === term.cols && snap.rows === term.rows);
+      !interactiveRef.current || (snap.cols === term.cols && snap.rows === term.rows);
 
     // If another component has already acquired the shell and cached a
     // snapshot for this run, apply it synchronously on mount.
@@ -206,7 +216,7 @@ export function Terminal({ runId, interactive }: Props) {
       enqueueWrite(data);
     });
 
-    if (interactive) term.focus();
+    if (interactiveRef.current) term.focus();
 
     const observer = new MutationObserver(() => {
       term.options.theme = readTheme();
@@ -222,7 +232,7 @@ export function Terminal({ runId, interactive }: Props) {
     let roTimer: ReturnType<typeof setTimeout> | null = null;
     const runFit = () => {
       roTimer = null;
-      if (!interactive) return;
+      if (!interactiveRef.current) return;
       if (safeFit()) shell.resize(term.cols, term.rows);
     };
     const ro = new ResizeObserver(() => {
@@ -235,7 +245,7 @@ export function Terminal({ runId, interactive }: Props) {
     // fires continuously; fit once after they stop.
     let winResizeTimer: ReturnType<typeof setTimeout> | null = null;
     const onResize = () => {
-      if (!interactive) return;
+      if (!interactiveRef.current) return;
       if (winResizeTimer !== null) clearTimeout(winResizeTimer);
       winResizeTimer = setTimeout(() => {
         winResizeTimer = null;
@@ -272,10 +282,6 @@ export function Terminal({ runId, interactive }: Props) {
     window.addEventListener('blur', markStale);
     window.addEventListener('focus', refresh);
     document.addEventListener('visibilitychange', onVisChange);
-
-    shell.onOpenOrNow(() => {
-      if (interactive && safeFit()) shell.resize(term.cols, term.rows);
-    });
 
     // "Load full history": fetch the log file and render it instead of the
     // live view. Exposed via loadFullRef so the JSX button can call it.
@@ -339,14 +345,6 @@ export function Terminal({ runId, interactive }: Props) {
     // Stash resumeLive on the ref so the JSX button can call it.
     (loadFullRef as unknown as { resume?: () => void }).resume = resumeLive;
 
-    if (interactive) {
-      term.onData((d) => {
-        traceRecord('term.input', strPreview(d));
-        shell.send(new TextEncoder().encode(d));
-      });
-      host.addEventListener('click', () => term.focus());
-    }
-
     return () => {
       disposed = true;
       traceRecord('term.unmount', { runId });
@@ -362,9 +360,59 @@ export function Terminal({ runId, interactive }: Props) {
       if (unsubSnapshot) unsubSnapshot();
       unsubEv();
       releaseShell(runId);
+      termRef.current = null;
+      fitRef.current = null;
+      shellRef.current = null;
       term.dispose();
     };
-  }, [runId, interactive]);
+  }, [runId]);
+
+  // Toggle input forwarding when `interactive` flips, without touching the
+  // xterm instance. `termRef` and `shellRef` outlive this effect's dep list.
+  useEffect(() => {
+    const term = termRef.current;
+    const shell = shellRef.current;
+    if (!term || !shell) return;
+    if (!interactive) return;
+    const dataDisposable = term.onData((d) => {
+      traceRecord('term.input', strPreview(d));
+      shell.send(new TextEncoder().encode(d));
+    });
+    const onClick = () => term.focus();
+    const host = hostRef.current;
+    host?.addEventListener('click', onClick);
+    return () => {
+      // The mount effect (defined above) runs its cleanup first on unmount,
+      // so `term` is already disposed here. xterm's IDisposable.dispose()
+      // is idempotent, so calling dispose() on a disposed instance is safe.
+      dataDisposable.dispose();
+      host?.removeEventListener('click', onClick);
+    };
+  }, [interactive]);
+
+  // Each time `interactive` becomes true, run the dim handshake: fit the
+  // xterm to its host and tell the server. The WS's 'open' event only fires
+  // once per socket, but a run transitioning into 'running'/'waiting' still
+  // needs the server to learn the client's dims — onOpenOrNow handles both
+  // the already-open and not-yet-open cases.
+  useEffect(() => {
+    if (!interactive) return;
+    const term = termRef.current;
+    const shell = shellRef.current;
+    const host = hostRef.current;
+    const fit = fitRef.current;
+    if (!term || !shell || !host || !fit) return;
+    const off = shell.onOpenOrNow(() => {
+      const rect = host.getBoundingClientRect();
+      if (rect.width < 4 || rect.height < 4) return;
+      try {
+        fit.fit();
+        shell.resize(term.cols, term.rows);
+        traceRecord('term.interactiveFit', { cols: term.cols, rows: term.rows });
+      } catch { /* retry via ResizeObserver */ }
+    });
+    return off;
+  }, [interactive]);
 
   return (
     <div className="relative h-full w-full bg-surface-sunken">
