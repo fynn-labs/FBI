@@ -14,12 +14,6 @@ import type {
 
 const CHUNK_SIZE = 512 * 1024;
 const RESUME_SNAPSHOT_TIMEOUT_MS = 2000;
-// After a chunk load, we park the viewport just past the NEAR_TOP_LINES
-// prefetch threshold. Close enough that the user still sees the top of
-// what they just loaded; far enough that the settling scroll event
-// doesn't immediately re-fire loadOlderChunk and cascade-fetch everything.
-// Keep in sync with scrollDetection.NEAR_TOP_LINES (= 100).
-const NEAR_TOP_LINES_LANDING = 150;
 
 export type ChunkLoadState = 'idle' | 'loading' | 'error';
 
