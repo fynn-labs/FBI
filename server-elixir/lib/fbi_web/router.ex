@@ -61,6 +61,9 @@ defmodule FBIWeb.Router do
     get "/runs/:id/uploads", UploadsController, :index
     post "/runs/:id/uploads", UploadsController, :create
     delete "/runs/:id/uploads/:filename", UploadsController, :delete
+
+    post "/draft-uploads", DraftUploadsController, :create
+    delete "/draft-uploads/:token/:filename", DraftUploadsController, :delete
   end
 
   # WebSocket upgrade routes must not go through the :api pipeline — the
