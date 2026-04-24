@@ -61,7 +61,15 @@ case "$1" in
   config) exit 0 ;;
   add) exit 0 ;;
   commit) exit 0 ;;
+  remote) exit 0 ;;
   rev-parse)
+    # --verify --quiet origin/claude/run-* → exit 1 (branch not yet on remote,
+    # i.e. fresh run). All other rev-parse forms succeed.
+    for arg in "$@"; do
+      case "$arg" in
+        origin/claude/run-*) exit 1 ;;
+      esac
+    done
     case "$2" in
       --abbrev-ref) echo "main" ;;
       HEAD) echo "deadbeef0000000000000000000000000000dead" ;;
@@ -159,28 +167,34 @@ describe('supervisor.sh', () => {
     expect(composed).toContain('do the thing');
   });
 
-  it('checks out FBI_CHECKOUT_BRANCH when set', () => {
+  it('checks out FBI_CHECKOUT_BRANCH when set, then creates claude/run-N', () => {
     fs.writeFileSync(path.join(sb.fbi, 'prompt.txt'), 'hi');
     const res = run(sb, { FBI_CHECKOUT_BRANCH: 'feature/x' });
     expect(res.status).toBe(0);
     const checkouts = fs.readFileSync(path.join(sb.tmpOut, 'checkouts.log'), 'utf8').trim().split('\n');
+    // [0] base branch checkout, [1] agent branch (claude/run-7)
     expect(checkouts[0]).toBe('feature/x');
+    expect(checkouts[1]).toBe('claude/run-7');
   });
 
-  it('falls through to DEFAULT_BRANCH when the requested branch is missing on remote', () => {
+  it('falls through to DEFAULT_BRANCH when the requested branch is missing on remote, then creates claude/run-N', () => {
     fs.writeFileSync(path.join(sb.fbi, 'prompt.txt'), 'hi');
     const res = run(sb, { FBI_CHECKOUT_BRANCH: 'does-not-exist' });
     expect(res.status).toBe(0);
     const checkouts = fs.readFileSync(path.join(sb.tmpOut, 'checkouts.log'), 'utf8').trim().split('\n');
+    // [0] attempted branch, [1] fallback to DEFAULT_BRANCH, [2] agent branch
     expect(checkouts[0]).toBe('does-not-exist');
     expect(checkouts[1]).toBe('main');
+    expect(checkouts[2]).toBe('claude/run-7');
   });
 
-  it('checks out DEFAULT_BRANCH when FBI_CHECKOUT_BRANCH is unset', () => {
+  it('checks out DEFAULT_BRANCH when FBI_CHECKOUT_BRANCH is unset, then creates claude/run-N', () => {
     fs.writeFileSync(path.join(sb.fbi, 'prompt.txt'), 'hi');
     const res = run(sb, {});
     expect(res.status).toBe(0);
     const checkouts = fs.readFileSync(path.join(sb.tmpOut, 'checkouts.log'), 'utf8').trim().split('\n');
+    // [0] DEFAULT_BRANCH, [1] agent branch (claude/run-7)
     expect(checkouts[0]).toBe('main');
+    expect(checkouts[1]).toBe('claude/run-7');
   });
 });

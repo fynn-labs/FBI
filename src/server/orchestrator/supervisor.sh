@@ -46,6 +46,8 @@ fi
 cd /workspace
 
 git clone --recurse-submodules "$REPO_URL" . || { echo "clone failed"; exit 10; }
+
+# Check out the user's branch for context if they specified one.
 if [ -n "${FBI_CHECKOUT_BRANCH:-}" ]; then
     git checkout "$FBI_CHECKOUT_BRANCH" \
       || { echo "[fbi] warn: branch $FBI_CHECKOUT_BRANCH not found on remote; using $DEFAULT_BRANCH"; \
@@ -53,6 +55,21 @@ if [ -n "${FBI_CHECKOUT_BRANCH:-}" ]; then
 else
     git checkout "$DEFAULT_BRANCH" || { echo "checkout failed"; exit 11; }
 fi
+
+# Pre-create the agent-owned branch. Sole writer: this container. Fast-forward
+# pushes are guaranteed — no divergence on this ref.
+AGENT_BRANCH="claude/run-$RUN_ID"
+if ! git rev-parse --verify --quiet "origin/$AGENT_BRANCH" >/dev/null; then
+    git checkout -b "$AGENT_BRANCH"
+    # Push immediately so the UI has a target and GitHub knows about the branch.
+    git push -u origin "$AGENT_BRANCH" || echo "[fbi] warn: initial push of $AGENT_BRANCH failed"
+else
+    # Branch already exists remotely (this is a resume). Land on it.
+    git checkout -B "$AGENT_BRANCH" "origin/$AGENT_BRANCH"
+fi
+
+# Register the WIP remote so the snapshot daemon can push to it.
+git remote add fbi-wip /fbi-wip.git 2>/dev/null || git remote set-url fbi-wip /fbi-wip.git
 git config user.name  "$GIT_AUTHOR_NAME"
 git config user.email "$GIT_AUTHOR_EMAIL"
 

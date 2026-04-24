@@ -287,14 +287,11 @@ export class Orchestrator {
       void screen.write(chunk).catch(() => {});
     };
 
-    const branchHint = run.branch_name;
     const preamble = [
       `You are working in /workspace on ${project.repo_url}.`,
       `Its default branch is ${project.default_branch}. Do NOT commit to ${project.default_branch}.`,
-      branchHint
-        ? `Create or check out a branch named \`${branchHint}\`,`
-        : `Create or check out a branch appropriately named for this task,`,
-      'do your work there, and leave all commits on that branch.',
+      `You are working on branch \`claude/run-${run.id}\`. Make all commits here.`,
+      `Do NOT push to or modify any other branch.`,
       '',
       'As soon as you understand the task, write a short name (4–8 words,',
       'imperative, no trailing punctuation) describing this session to',
@@ -564,10 +561,8 @@ export class Orchestrator {
         const preamble = [
           `You are working in /workspace on ${project.repo_url}.`,
           `Its default branch is ${project.default_branch}. Do NOT commit to ${project.default_branch}.`,
-          run.branch_name
-            ? `Create or check out a branch named \`${run.branch_name}\`,`
-            : `Create or check out a branch appropriately named for this task,`,
-          'do your work there, and leave all commits on that branch.',
+          `You are working on branch \`claude/run-${run.id}\`. Make all commits here.`,
+          `Do NOT push to or modify any other branch.`,
           '',
           'As soon as you understand the task, write a short name (4–8 words,',
           'imperative, no trailing punctuation) describing this session to',
