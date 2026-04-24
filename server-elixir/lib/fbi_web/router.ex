@@ -52,6 +52,7 @@ defmodule FBIWeb.Router do
     get "/projects/:id/runs", RunsController, :index_for_project
 
     get "/runs/:id/transcript", TranscriptController, :show
+    get "/runs/:id/files", FilesController, :show
 
     get "/runs/:id/github", GithubController, :show
     post "/runs/:id/github/pr", GithubController, :create_pr
