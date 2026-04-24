@@ -257,8 +257,8 @@ export class Orchestrator {
         'IS_SANDBOX=1',
         // FBI_BRANCH = where the agent checks out, commits, and pushes.
         // The user's typed branch wins; if none, supervisor.sh falls back to
-        // claude/run-N. The mirror branch (claude/run-N) is always created
-        // as a safety shadow by supervisor.sh.
+        // claude/run-N (used only as a fallback branch name when FBI_BRANCH is
+        // not provided).
         ...(run.branch_name ? [`FBI_BRANCH=${run.branch_name}`] : []),
         ...(opts.resumeSessionId ? [`FBI_RESUME_SESSION_ID=${opts.resumeSessionId}`] : []),
         ...Object.entries(auth.env()).map(([k, v]) => `${k}=${v}`),
@@ -316,6 +316,51 @@ export class Orchestrator {
     ];
   }
 
+  /**
+   * Start the SafeguardWatcher and MirrorStatusPoller for an active run.
+   * Returns handles for both so callers can stop them in a finally block.
+   */
+  private async startRunObservers(
+    runId: number,
+    branchName: string | null,
+    events: ReturnType<RunStreamRegistry['getOrCreateEvents']>,
+  ): Promise<{ safeguardWatcher: SafeguardWatcher; mirrorPoller: MirrorStatusPoller }> {
+    const safeguardWatcher = new SafeguardWatcher({
+      bareDir: this.wipRepo.path(runId),
+      branch: branchName ?? `claude/run-${runId}`,
+      onSnapshot: (snap) => {
+        this.lastFiles.set(runId, snap);
+        const runNow = this.deps.runs.get(runId);
+        events.publish({
+          type: 'changes',
+          branch_name: runNow?.branch_name || null,
+          branch_base: snap.branchBase,
+          commits: [],
+          uncommitted: snap.dirty,
+          integrations: {},
+          dirty_submodules: [],
+          children: [],
+        });
+      },
+    });
+    await safeguardWatcher.start();
+    const mirrorPoller = new MirrorStatusPoller({
+      path: `${this.stateDirFor(runId)}/mirror-status`,
+      pollMs: 1000,
+      onChange: (s) => { this.deps.runs.setMirrorStatus(runId, s); },
+    });
+    mirrorPoller.start();
+    return { safeguardWatcher, mirrorPoller };
+  }
+
+  private async stopRunObservers(obs: {
+    safeguardWatcher: SafeguardWatcher;
+    mirrorPoller: MirrorStatusPoller;
+  }): Promise<void> {
+    await obs.safeguardWatcher.stop();
+    obs.mirrorPoller.stop();
+  }
+
   /** Kicks off a queued run. Fire-and-forget; state transitions go through DB. */
   async launch(runId: number): Promise<void> {
     const run = this.deps.runs.get(runId);
@@ -346,8 +391,7 @@ export class Orchestrator {
     let titleWatcher: TitleWatcher | null = null;
     let limitMonitor: LimitMonitor | null = null;
     let runtimeWatcher: RuntimeStateWatcher | null = null;
-    let safeguardWatcher: SafeguardWatcher | null = null;
-    let mirrorPoller: MirrorStatusPoller | null = null;
+    let observers: { safeguardWatcher: SafeguardWatcher; mirrorPoller: MirrorStatusPoller } | null = null;
 
     try {
       const { container, projectSecrets } = await this.createContainerForRun(
@@ -412,31 +456,7 @@ export class Orchestrator {
         onError: () => { /* swallow — best effort */ },
       });
       titleWatcher.start();
-      safeguardWatcher = new SafeguardWatcher({
-        bareDir: this.wipRepo.path(runId),
-        branch: run.branch_name ?? `claude/run-${runId}`,
-        onSnapshot: (snap) => {
-          this.lastFiles.set(runId, snap);
-          const runNow = this.deps.runs.get(runId);
-          events.publish({
-            type: 'changes',
-            branch_name: runNow?.branch_name || null,
-            branch_base: snap.branchBase,
-            commits: [],
-            uncommitted: snap.dirty,
-            integrations: {},
-            dirty_submodules: [],
-            children: [],
-          });
-        },
-      });
-      await safeguardWatcher.start();
-      mirrorPoller = new MirrorStatusPoller({
-        path: `${this.stateDirFor(runId)}/mirror-status`,
-        pollMs: 1000,
-        onChange: (s) => { this.deps.runs.setMirrorStatus(runId, s); },
-      });
-      mirrorPoller.start();
+      observers = await this.startRunObservers(runId, run.branch_name ?? null, events);
       void this.deps.poller.nudge();
 
       await this.awaitAndComplete(runId, container, onBytes, store, broadcaster);
@@ -446,7 +466,6 @@ export class Orchestrator {
       this.deps.runs.markFinished(runId, { state: 'failed', error: msg });
       this.publishState(runId);
       this.active.delete(runId); this.lastFiles.delete(runId);
-      this.lastFiles.delete(runId);
       store.close();
       broadcaster.end();
       this.deps.streams.release(runId);
@@ -455,8 +474,7 @@ export class Orchestrator {
       if (titleWatcher) await titleWatcher.stop();
       if (limitMonitor) limitMonitor.stop();
       if (runtimeWatcher) runtimeWatcher.stop();
-      if (safeguardWatcher) await safeguardWatcher.stop();
-      if (mirrorPoller) mirrorPoller.stop();
+      if (observers) await this.stopRunObservers(observers);
     }
   }
 
@@ -662,6 +680,7 @@ export class Orchestrator {
       this.deps.runs.markStartingForResume(runId, container.id);
       this.publishState(runId);
 
+      const events = this.deps.streams.getOrCreateEvents(runId);
       const titleWatcher = new TitleWatcher({
         path: `${this.stateDirFor(runId)}/session-name`,
         pollMs: 1000,
@@ -669,11 +688,13 @@ export class Orchestrator {
         onError: () => { /* swallow — best effort */ },
       });
       titleWatcher.start();
+      const observers = await this.startRunObservers(runId, run.branch_name ?? null, events);
 
       try {
         await this.awaitAndComplete(runId, container, onBytes, store, broadcaster);
       } finally {
         await titleWatcher.stop();
+        await this.stopRunObservers(observers);
         limitMonitor.stop();
         runtimeWatcher.stop();
       }
@@ -739,6 +760,7 @@ export class Orchestrator {
       this.deps.runs.markStartingContainer(runId, container.id);
       this.publishState(runId);
 
+      const events = this.deps.streams.getOrCreateEvents(runId);
       const titleWatcher = new TitleWatcher({
         path: `${this.stateDirFor(runId)}/session-name`,
         pollMs: 1000,
@@ -746,11 +768,13 @@ export class Orchestrator {
         onError: () => { /* swallow — best effort */ },
       });
       titleWatcher.start();
+      const observers = await this.startRunObservers(runId, run.branch_name ?? null, events);
 
       try {
         await this.awaitAndComplete(runId, container, onBytes, store, broadcaster);
       } finally {
         await titleWatcher.stop();
+        await this.stopRunObservers(observers);
         limitMonitor.stop();
         runtimeWatcher.stop();
       }
@@ -1058,31 +1082,7 @@ export class Orchestrator {
       onError: () => { /* swallow — best effort */ },
     });
     titleWatcher.start();
-    const safeguardWatcher = new SafeguardWatcher({
-      bareDir: this.wipRepo.path(runId),
-      branch: run.branch_name ?? `claude/run-${runId}`,
-      onSnapshot: (snap) => {
-        this.lastFiles.set(runId, snap);
-        const runNow = this.deps.runs.get(runId);
-        events.publish({
-          type: 'changes',
-          branch_name: runNow?.branch_name || null,
-          branch_base: snap.branchBase,
-          commits: [],
-          uncommitted: snap.dirty,
-          integrations: {},
-          dirty_submodules: [],
-          children: [],
-        });
-      },
-    });
-    await safeguardWatcher.start();
-    const mirrorPoller = new MirrorStatusPoller({
-      path: `${this.stateDirFor(runId)}/mirror-status`,
-      pollMs: 1000,
-      onChange: (s) => { this.deps.runs.setMirrorStatus(runId, s); },
-    });
-    mirrorPoller.start();
+    const observers = await this.startRunObservers(runId, run.branch_name ?? null, events);
 
     try {
       const waitRes = await container.wait();
@@ -1145,8 +1145,7 @@ export class Orchestrator {
     } finally {
       await tailer.stop();
       await titleWatcher.stop();
-      await safeguardWatcher.stop();
-      mirrorPoller.stop();
+      await this.stopRunObservers(observers);
       limitMonitor.stop();
       runtimeWatcher.stop();
       events.end();

@@ -1,6 +1,6 @@
 export type ResultClassification =
   | { kind: 'completed'; exit_code: number; push_exit: number; head_sha: string; branch: string }
-  | { kind: 'resume_failed'; error: string; parent_sha?: string; snapshot_sha?: string; origin_tip?: string }
+  | { kind: 'resume_failed'; error: string }
   | { kind: 'unparseable'; raw: string };
 
 export function classifyResultJson(raw: string): ResultClassification {
@@ -10,9 +10,6 @@ export function classifyResultJson(raw: string): ResultClassification {
       return {
         kind: 'resume_failed',
         error: j.error,
-        parent_sha: j.parent_sha as string | undefined,
-        snapshot_sha: j.snapshot_sha as string | undefined,
-        origin_tip: j.origin_tip as string | undefined,
       };
     }
     if (typeof j.exit_code === 'number') {
