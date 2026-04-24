@@ -12,10 +12,10 @@ describe('MirrorStatusBanner', () => {
   it('renders with actions when status is "diverged"', () => {
     const onRebase = vi.fn(); const onStop = vi.fn();
     render(<MirrorStatusBanner status="diverged" baseBranch="feat/x" runId={1} onRebase={onRebase} onStop={onStop} />);
-    expect(screen.getByText(/Mirror to/i)).toBeTruthy();
-    fireEvent.click(screen.getByRole('button', { name: /rebase/i }));
+    expect(screen.getByText(/diverged on origin/i)).toBeTruthy();
+    fireEvent.click(screen.getByRole('button', { name: /sync/i }));
     expect(onRebase).toHaveBeenCalled();
-    fireEvent.click(screen.getByRole('button', { name: /stop mirroring/i }));
+    fireEvent.click(screen.getByRole('button', { name: /dismiss/i }));
     expect(onStop).toHaveBeenCalled();
   });
 });

@@ -47,27 +47,27 @@ cd /workspace
 
 git clone --recurse-submodules "$REPO_URL" . || { echo "clone failed"; exit 10; }
 
-# Check out the user's branch for context if they specified one.
-if [ -n "${FBI_CHECKOUT_BRANCH:-}" ]; then
-    git checkout "$FBI_CHECKOUT_BRANCH" \
-      || { echo "[fbi] warn: branch $FBI_CHECKOUT_BRANCH not found on remote; using $DEFAULT_BRANCH"; \
-           git checkout "$DEFAULT_BRANCH" || { echo "checkout failed"; exit 11; }; }
+# PRIMARY branch: where the agent checks out, commits, and pushes. Falls back
+# to the project default if not provided. If the branch exists on origin, we
+# check it out; otherwise we create it locally and push on first commit.
+PRIMARY_BRANCH="${FBI_BRANCH:-claude/run-${RUN_ID}}"
+
+if git rev-parse --verify --quiet "origin/$PRIMARY_BRANCH" >/dev/null; then
+    git checkout -B "$PRIMARY_BRANCH" "origin/$PRIMARY_BRANCH" \
+      || { echo "[fbi] fatal: could not switch to $PRIMARY_BRANCH"; exit 13; }
 else
-    git checkout "$DEFAULT_BRANCH" || { echo "checkout failed"; exit 11; }
+    git checkout -b "$PRIMARY_BRANCH" \
+      || { echo "[fbi] fatal: could not create branch $PRIMARY_BRANCH"; exit 13; }
+    # Push immediately so the UI has a target and GitHub knows about the branch.
+    git push -u origin "$PRIMARY_BRANCH" || echo "[fbi] warn: initial push of $PRIMARY_BRANCH failed"
 fi
 
-# Pre-create the agent-owned branch. Sole writer: this container. Fast-forward
-# pushes are guaranteed — no divergence on this ref.
-AGENT_BRANCH="claude/run-$RUN_ID"
-if ! git rev-parse --verify --quiet "origin/$AGENT_BRANCH" >/dev/null; then
-    git checkout -b "$AGENT_BRANCH" \
-      || { echo "[fbi] fatal: could not create branch $AGENT_BRANCH"; exit 13; }
-    # Push immediately so the UI has a target and GitHub knows about the branch.
-    git push -u origin "$AGENT_BRANCH" || echo "[fbi] warn: initial push of $AGENT_BRANCH failed"
-else
-    # Branch already exists remotely (this is a resume). Land on it.
-    git checkout -B "$AGENT_BRANCH" "origin/$AGENT_BRANCH" \
-      || { echo "[fbi] fatal: could not switch to $AGENT_BRANCH"; exit 13; }
+# MIRROR branch: safety shadow we always create to back up the primary. Skip
+# when primary IS the default claude/run-N name (nothing to mirror).
+MIRROR_BRANCH="claude/run-${RUN_ID}"
+if [ "$PRIMARY_BRANCH" != "$MIRROR_BRANCH" ]; then
+    git push origin "HEAD:refs/heads/$MIRROR_BRANCH" \
+      || echo "[fbi] warn: initial mirror push of $MIRROR_BRANCH failed"
 fi
 
 # Register the WIP remote so the snapshot daemon can push to it.
@@ -80,7 +80,7 @@ git remote add fbi-wip /fbi-wip.git 2>/dev/null \
 # structured /tmp/result.json when the restore can't apply cleanly.
 if [ -n "${FBI_RESUME_SESSION_ID:-}" ]; then
   FBI_WORKSPACE=/workspace \
-  FBI_AGENT_BRANCH="$AGENT_BRANCH" \
+  FBI_AGENT_BRANCH="$PRIMARY_BRANCH" \
   FBI_RESULT_PATH=/tmp/result.json \
   FBI_RUN_ID="$RUN_ID" \
   /usr/local/bin/fbi-resume-restore.sh
@@ -113,30 +113,32 @@ git config user.email "$GIT_AUTHOR_EMAIL"
 # subshell (a new process spawned by git) inherits them.
 export RUN_ID
 export DEFAULT_BRANCH
-export FBI_BASE_BRANCH="${FBI_BASE_BRANCH:-}"
+export PRIMARY_BRANCH
+export MIRROR_BRANCH
 
-# Silent post-commit push hook: so the GitHub tab's commits/PR/CI views and
-# the Merge-to-main button have up-to-date remote state mid-run. Runs in the
-# background so a slow or offline push never blocks the commit itself.
+# Silent post-commit push hook:
+#   - Primary push writes to $PRIMARY_BRANCH (user's branch). force-with-lease
+#     detects external divergence and surfaces it via /fbi-state/mirror-status.
+#   - Mirror push to claude/run-N is a best-effort safety copy (sole writer,
+#     always fast-forward).
 mkdir -p .git/hooks
 cat > .git/hooks/post-commit <<'HOOK'
 #!/bin/sh
-# Primary push: agent-owned branch (sole writer — always fast-forward).
-( git push --recurse-submodules=on-demand origin HEAD > /tmp/last-push.log 2>&1 || true ) &
+mkdir -p /fbi-state
+# Primary push: user's target branch with force-with-lease. If origin advanced
+# externally, the push is rejected and mirror-status reflects the divergence.
+(
+  if git push --recurse-submodules=on-demand --force-with-lease origin "HEAD:refs/heads/$PRIMARY_BRANCH" > /tmp/last-push.log 2>&1; then
+    echo ok > /fbi-state/mirror-status
+  else
+    echo diverged > /fbi-state/mirror-status
+  fi
+) &
 
-# Mirror push: to the user's feature branch, best-effort.
-if [ -n "${FBI_BASE_BRANCH:-}" ] \
-   && [ "$FBI_BASE_BRANCH" != "$DEFAULT_BRANCH" ] \
-   && [ "$FBI_BASE_BRANCH" != "claude/run-${RUN_ID}" ]; then
-  (
-    if git push --recurse-submodules=on-demand origin "HEAD:refs/heads/$FBI_BASE_BRANCH" > /tmp/last-mirror.log 2>&1; then
-      mkdir -p /fbi-state
-      echo ok > /fbi-state/mirror-status
-    else
-      mkdir -p /fbi-state
-      echo diverged > /fbi-state/mirror-status
-    fi
-  ) &
+# Mirror push: claude/run-N safety copy. Skip when primary already is that
+# name.
+if [ "$PRIMARY_BRANCH" != "$MIRROR_BRANCH" ]; then
+  ( git push --recurse-submodules=on-demand origin "HEAD:refs/heads/$MIRROR_BRANCH" > /tmp/last-mirror.log 2>&1 || true ) &
 fi
 HOOK
 chmod +x .git/hooks/post-commit

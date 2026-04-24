@@ -255,9 +255,12 @@ export class Orchestrator {
         `FBI_MARKETPLACES=${marketplaces.join('\n')}`,
         `FBI_PLUGINS=${plugins.join('\n')}`,
         'IS_SANDBOX=1',
-        ...(run.base_branch ? [`FBI_BASE_BRANCH=${run.base_branch}`] : []),
+        // FBI_BRANCH = where the agent checks out, commits, and pushes.
+        // The user's typed branch wins; if none, supervisor.sh falls back to
+        // claude/run-N. The mirror branch (claude/run-N) is always created
+        // as a safety shadow by supervisor.sh.
+        ...(run.branch_name ? [`FBI_BRANCH=${run.branch_name}`] : []),
         ...(opts.resumeSessionId ? [`FBI_RESUME_SESSION_ID=${opts.resumeSessionId}`] : []),
-        ...(opts.branchName ? [`FBI_CHECKOUT_BRANCH=${opts.branchName}`] : []),
         ...Object.entries(auth.env()).map(([k, v]) => `${k}=${v}`),
         ...Object.entries(projectSecrets).map(([k, v]) => `${k}=${v}`),
         ...modelParamEnvEntries(run),
@@ -408,7 +411,7 @@ export class Orchestrator {
       titleWatcher.start();
       gitWatcher = new GitStateWatcher({
         container,
-        defaultBranch: run.base_branch ?? project.default_branch,
+        defaultBranch: project.default_branch,
         pollMs: 2000,
         onSnapshot: (snap) => {
           this.lastFiles.set(runId, snap);
@@ -853,7 +856,7 @@ export class Orchestrator {
     if (!run.branch_name) throw new Error('run has no branch');
     const project = this.deps.projects.get(run.project_id);
     if (!project) throw new Error('project missing');
-    const env = buildEnv(runId, run.branch_name, run.base_branch ?? project.default_branch, op, run.base_branch);
+    const env = buildEnv(runId, run.branch_name, project.default_branch, op, null);
 
     const active = this.active.get(runId);
     if (active) {
@@ -1070,7 +1073,7 @@ export class Orchestrator {
     titleWatcher.start();
     const gitWatcher = new GitStateWatcher({
       container,
-      defaultBranch: run.base_branch ?? project?.default_branch ?? 'main',
+      defaultBranch: project?.default_branch ?? 'main',
       pollMs: 2000,
       onSnapshot: (snap) => {
         this.lastFiles.set(runId, snap);

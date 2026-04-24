@@ -31,9 +31,9 @@ export function ShipTab({ run, project, changes, onCreatePr, creatingPr, onReloa
     <div>
       <MirrorStatusBanner
         status={run.mirror_status}
-        baseBranch={run.base_branch}
+        baseBranch={run.branch_name}
         runId={run.id}
-        onRebase={() => void runOp({ op: 'mirror-rebase' })}
+        onRebase={() => void runOp({ op: 'sync' })}
         onStop={async () => {
           await api.clearRunBaseBranch(run.id);
           onReload();

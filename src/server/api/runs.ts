@@ -217,19 +217,14 @@ export function registerRunsRoutes(app: FastifyInstance, deps: Deps): void {
         return reply.code(422).send({ error: 'promotion_failed' });
       }
     }
-    if (hint !== '') {
-      deps.runs.setBaseBranch(run.id, hint);
-      // Reflect into the returned run object for anyone reading the handler output.
-      run.base_branch = hint;
-    }
-    // Align DB with the agent-owned branch convention: supervisor.sh creates
-    // claude/run-N inside the container and pushes it; if the DB's branch_name
-    // is still the initial hint (or empty), future `/changes` calls query the
-    // wrong branch and the UI thinks the run produced no branch.
-    const agentBranch = `claude/run-${run.id}`;
-    if (run.branch_name !== agentBranch) {
-      deps.runs.setBranchName(run.id, agentBranch);
-      run.branch_name = agentBranch;
+    // Normalize branch_name: the user's typed branch is primary. When they
+    // don't type one, we default to claude/run-N so there's still a valid
+    // target for the agent and the UI. supervisor.sh also creates a mirror
+    // claude/run-N copy alongside the primary.
+    const effectiveBranch = hint !== '' ? hint : `claude/run-${run.id}`;
+    if (run.branch_name !== effectiveBranch) {
+      deps.runs.setBranchName(run.id, effectiveBranch);
+      run.branch_name = effectiveBranch;
     }
     void deps.launch(run.id).catch((err) => app.log.error({ err }, 'launch failed'));
     reply.code(201);
@@ -337,28 +332,20 @@ export function registerRunsRoutes(app: FastifyInstance, deps: Deps): void {
     const cached = getChangesCached(runId);
     if (cached) return cached;
 
-    // Self-heal for runs created by an older API handler that stored the
-    // user's hint (or empty) in branch_name instead of claude/run-N. Only
-    // rewrite for runs whose container is live right now — supervisor.sh
-    // has created the agent-owned branch and pushed it. Finished runs on
-    // the legacy convention are left alone (their branch really is whatever
-    // was stored).
-    const expectedBranch = `claude/run-${runId}`;
-    const containerLive = run.state === 'running' || run.state === 'starting'
-      || run.state === 'waiting' || run.state === 'awaiting_resume' || run.state === 'queued';
-    if (containerLive && run.branch_name !== expectedBranch) {
-      const project0 = deps.projects.get(run.project_id);
-      const oldBranch = run.branch_name;
-      if (oldBranch && oldBranch.length > 0 && oldBranch !== project0?.default_branch && !run.base_branch) {
-        deps.runs.setBaseBranch(runId, oldBranch);
-        run.base_branch = oldBranch;
-      }
-      deps.runs.setBranchName(runId, expectedBranch);
-      run.branch_name = expectedBranch;
+    // Self-heal for runs that got stamped with claude/run-N by an earlier
+    // broken handler while their base_branch still carries the user's
+    // originally typed branch. Restore branch_name to the intended value.
+    const claudeBranch = `claude/run-${runId}`;
+    if (run.branch_name === claudeBranch && run.base_branch && run.base_branch !== claudeBranch) {
+      deps.runs.setBranchName(runId, run.base_branch);
+      run.branch_name = run.base_branch;
     }
 
     const project = deps.projects.get(run.project_id);
-    const baseBranch = run.base_branch ?? project?.default_branch ?? 'main';
+    // Base branch = what we compute ahead/behind against and what Ship-tab
+    // actions target. Always the project default under the new model —
+    // run.base_branch is no longer the mirror target.
+    const baseBranch = project?.default_branch ?? 'main';
     const repo = project ? parseGitHubRepo(project.repo_url) : null;
     const ghAvail = await deps.gh.available();
     const live = deps.orchestrator.getLastFiles(runId);
