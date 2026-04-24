@@ -341,6 +341,9 @@ export class TerminalController {
   pause(): void {
     if (this.disposed || this.paused) return;
     traceRecord('controller.pause', { runId: this.runId });
+    // Each pause session starts with a clean chunk slate — clear any
+    // stale error state from a prior paused session.
+    this.setChunkState('idle');
     this.paused = true;
     this.applyInteractive();
     this.emitPauseChange();
@@ -548,21 +551,24 @@ export class TerminalController {
           headers: { Range: `bytes=${start}-${end}` },
           signal: abort.signal,
         });
-        if (this.disposed || abort.signal.aborted) return;
+        if (this.disposed) return;
+        if (abort.signal.aborted) { this.setChunkState('idle'); return; }
         if (!res.ok && res.status !== 206) {
           this.setChunkState('error');
           traceRecord('controller.chunk.error', { status: res.status });
           return;
         }
         const chunk = new Uint8Array(await res.arrayBuffer());
-        if (this.disposed || abort.signal.aborted) return;
+        if (this.disposed) return;
+        if (abort.signal.aborted) { this.setChunkState('idle'); return; }
 
         const oldBaseY = this.term.buffer.active.baseY;
         const oldViewportY = this.term.buffer.active.viewportY;
 
         const newLoaded = concat([chunk, this.loadedBytes]);
         await this.rebuildXterm([newLoaded, this.liveTailBytes]);
-        if (this.disposed || abort.signal.aborted) return;
+        if (this.disposed) return;
+        if (abort.signal.aborted) { this.setChunkState('idle'); return; }
 
         const newBaseY = this.term.buffer.active.baseY;
         const addedLines = newBaseY - oldBaseY;
