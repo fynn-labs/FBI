@@ -21,11 +21,33 @@ interface Props {
 function readTheme() {
   const s = getComputedStyle(document.documentElement);
   const bg = s.getPropertyValue('--surface-sunken').trim() || '#0b0f14';
+  const fg = s.getPropertyValue('--text').trim() || '#e2e8f0';
+  const isLight = document.documentElement.classList.contains('light');
+
+  const base = { background: bg, foreground: fg, cursor: bg, cursorAccent: bg };
+  if (!isLight) return base;
+
+  // Remap the 16 ANSI colors for legibility on a light background.
+  // Xterm's defaults (brightYellow=#ffff00, brightWhite=#fff, etc.) are
+  // invisible on light surfaces, so we substitute darker equivalents.
   return {
-    background: bg,
-    foreground: s.getPropertyValue('--text').trim() || '#e2e8f0',
-    cursor: bg,
-    cursorAccent: bg,
+    ...base,
+    black:         '#1e293b',
+    red:           '#b91c1c',
+    green:         '#15803d',
+    yellow:        '#a16207',
+    blue:          '#1d4ed8',
+    magenta:       '#7e22ce',
+    cyan:          '#0f766e',
+    white:         '#475569',
+    brightBlack:   '#334155',
+    brightRed:     '#991b1b',
+    brightGreen:   '#166534',
+    brightYellow:  '#854d0e',
+    brightBlue:    '#1e40af',
+    brightMagenta: '#6b21a8',
+    brightCyan:    '#155e75',
+    brightWhite:   '#0f172a',
   };
 }
 
