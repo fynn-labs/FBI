@@ -9,9 +9,9 @@ export interface ResumeFailedBannerProps {
 export function ResumeFailedBanner({ patchHref, onDiscard, onCancel, parent, origin }: ResumeFailedBannerProps) {
   return (
     <div className="p-3 border-b border-border bg-fail-subtle/20 border-l-2 border-l-fail text-[13px]">
-      <div className="font-semibold text-text">⚠ Couldn't restore unsaved changes</div>
+      <div className="font-semibold text-text">⚠ Couldn&apos;t restore unsaved changes</div>
       <p className="mt-1 text-text-dim">
-        The origin branch diverged from the snapshot's parent.
+        The origin branch diverged from the snapshot&apos;s parent.
         {parent && origin && (
           <>
             {' '}Snapshot parent: <code className="font-mono">{parent.slice(0, 7)}</code>,

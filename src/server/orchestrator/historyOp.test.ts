@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { parseHistoryOpResult, runHistoryOpInTransientContainer } from './historyOp.js';
-import { PassThrough } from 'node:stream';
+import { PassThrough, Readable } from 'node:stream';
 import { vi } from 'vitest';
 
 describe('parseHistoryOpResult', () => {
@@ -68,24 +68,22 @@ describe('runHistoryOpInTransientContainer', () => {
   });
 
   it('transient container binds the safeguard bare repo at /safeguard', async () => {
-    const captured: any[] = [];
+    type CapturedSpec = { HostConfig: { Binds: string[] } };
+    const captured: CapturedSpec[] = [];
     const docker = {
-      createContainer: async (spec: any) => {
+      createContainer: async (spec: CapturedSpec) => {
         captured.push(spec);
         return {
           start: async () => {},
-          logs: async () => {
-            const stream: any = require('node:stream').Readable.from([]);
-            return stream;
-          },
+          logs: async () => Readable.from([]),
           wait: async () => ({ StatusCode: 0 }),
           remove: async () => {},
           kill: async () => {},
         };
       },
-    } as any;
+    };
     await runHistoryOpInTransientContainer({
-      docker, image: 'x', repoUrl: 'git@example:x/y.git',
+      docker: docker as never, image: 'x', repoUrl: 'git@example:x/y.git',
       historyOpScriptPath: '/tmp/fbi-history-op.sh',
       env: { FBI_OP: 'sync', FBI_BRANCH: 'feat/x', FBI_DEFAULT: 'main', FBI_RUN_ID: '7' },
       sshSocket: '/tmp/ssh',
