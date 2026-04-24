@@ -1,6 +1,6 @@
 import { useRef, useState, type FormEvent } from 'react';
 import { useNavigate, useParams, useSearchParams } from 'react-router-dom';
-import { api } from '../lib/api.js';
+import { api, ApiError } from '../lib/api.js';
 import { ModelParamsCollapse, type ModelParamsValue } from '../components/ModelParamsCollapse.js';
 import { RecentPromptsDropdown } from '../components/RecentPromptsDropdown.js';
 import { UploadTray, type UploadTrayFile } from '../components/UploadTray.js';
@@ -75,25 +75,48 @@ export function NewRunPage() {
     el.dispatchEvent(new Event('input', { bubbles: true }));
   }
 
+  async function doCreateRun(force?: boolean) {
+    const run = await api.createRun(
+      pid,
+      prompt,
+      branch || undefined,
+      draftToken ?? undefined,
+      modelParams,
+      force,
+    );
+    try {
+      localStorage.setItem(LS_KEY, JSON.stringify(modelParams));
+    } catch {
+      // storage unavailable — harmless, move on
+    }
+    nav(`/projects/${pid}/runs/${run.id}`);
+  }
+
   async function submit(e?: FormEvent) {
     e?.preventDefault();
     if (!prompt.trim()) return;
     setSubmitting(true);
     try {
-      const run = await api.createRun(
-        pid,
-        prompt,
-        branch || undefined,
-        draftToken ?? undefined,
-        modelParams,
-      );
-      try {
-        localStorage.setItem(LS_KEY, JSON.stringify(modelParams));
-      } catch {
-        // storage unavailable — harmless, move on
-      }
-      nav(`/projects/${pid}/runs/${run.id}`);
+      await doCreateRun();
     } catch (err) {
+      if (
+        err instanceof ApiError &&
+        err.status === 409 &&
+        err.body?.['error'] === 'branch_in_use'
+      ) {
+        const message = typeof err.body?.['message'] === 'string'
+          ? err.body['message']
+          : 'This branch is already in use by another run.';
+        if (window.confirm(`${message}\nProceed anyway?`)) {
+          try {
+            await doCreateRun(true);
+          } catch (retryErr) {
+            setError(String(retryErr));
+          }
+        }
+        // user cancelled — leave form as-is, no error shown
+        return;
+      }
       setError(String(err));
     } finally {
       setSubmitting(false);
