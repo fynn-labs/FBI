@@ -39,15 +39,15 @@ export SSH_AUTH_SOCK=/ssh-agent
 if [ -n "${FBI_MARKETPLACES:-}" ]; then
     while IFS= read -r mkt; do
         [ -z "$mkt" ] && continue
-        echo "[fbi] adding marketplace: $mkt"
-        claude plugin marketplace add "$mkt" || echo "[fbi] warn: marketplace add failed: $mkt"
+        _fbi_status "adding marketplace $mkt"
+        claude plugin marketplace add "$mkt" || _fbi_warn "marketplace add failed: $mkt"
     done <<< "$FBI_MARKETPLACES"
 fi
 if [ -n "${FBI_PLUGINS:-}" ]; then
     while IFS= read -r plug; do
         [ -z "$plug" ] && continue
-        echo "[fbi] installing plugin: $plug"
-        claude plugin install "$plug" || echo "[fbi] warn: plugin install failed: $plug"
+        _fbi_status "installing plugin $plug"
+        claude plugin install "$plug" || _fbi_warn "plugin install failed: $plug"
     done <<< "$FBI_PLUGINS"
 fi
 
