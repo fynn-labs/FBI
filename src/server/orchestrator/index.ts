@@ -408,7 +408,7 @@ export class Orchestrator {
       titleWatcher.start();
       gitWatcher = new GitStateWatcher({
         container,
-        defaultBranch: project.default_branch,
+        defaultBranch: run.base_branch ?? project.default_branch,
         pollMs: 2000,
         onSnapshot: (snap) => {
           this.lastFiles.set(runId, snap);
@@ -1069,7 +1069,7 @@ export class Orchestrator {
     titleWatcher.start();
     const gitWatcher = new GitStateWatcher({
       container,
-      defaultBranch: project?.default_branch ?? 'main',
+      defaultBranch: run.base_branch ?? project?.default_branch ?? 'main',
       pollMs: 2000,
       onSnapshot: (snap) => {
         this.lastFiles.set(runId, snap);
