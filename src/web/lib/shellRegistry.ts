@@ -17,7 +17,7 @@ function makeEntry(runId: number): Entry {
   const entry: Entry = { shell, refCount: 1, closeTimer: null, lastSnapshot: null };
   // Cache the most recent snapshot so a late-mounting Terminal component can
   // acquireShell() → getLastSnapshot() without needing to wait for another
-  // server message. This is also what "resync returned a snapshot" caches.
+  // server message. This also caches the initial hello-response snapshot.
   shell.onSnapshot((snap) => { entry.lastSnapshot = snap; });
   cache.set(runId, entry);
   return entry;

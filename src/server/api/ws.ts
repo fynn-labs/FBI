@@ -17,8 +17,7 @@ interface Deps {
 
 type ControlFrame =
   | { type: 'hello'; cols: number; rows: number }
-  | { type: 'resize'; cols: number; rows: number }
-  | { type: 'resync' };
+  | { type: 'resize'; cols: number; rows: number };
 
 export function registerWsRoute(app: FastifyInstance, deps: Deps): void {
   app.get('/api/runs/:id/shell', { websocket: true }, (socket: WebSocket, req) => {
@@ -186,25 +185,6 @@ export function registerWsRoute(app: FastifyInstance, deps: Deps): void {
             deps.streams.getScreen(runId)?.resize(msg.cols, msg.rows);
             // No snapshot re-send. Claude's SIGWINCH response flows
             // through the live byte stream naturally.
-            return;
-          }
-          if (msg.type === 'resync') {
-            // Re-serialize the current screen. If none exists in memory (rare —
-            // e.g. a previous rebuild failed), try a fresh rebuild from log.
-            let screen = deps.streams.getScreen(runId);
-            if (!screen) {
-              try {
-                screen = await deps.streams.rebuildScreenFromLog(runId, run.log_path);
-              } catch { /* swallow; leave screen undefined */ }
-            }
-            if (screen && socket.readyState === socket.OPEN) {
-              socket.send(JSON.stringify({
-                type: 'snapshot',
-                ansi: screen.modesAnsi() + screen.serialize(),
-                cols: screen.cols,
-                rows: screen.rows,
-              }));
-            }
             return;
           }
           return; // any other text frame: ignore, do not forward to stdin
