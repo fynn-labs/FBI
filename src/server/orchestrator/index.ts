@@ -18,7 +18,7 @@ import type { RunStreamRegistry } from '../logs/registry.js';
 import { LogStore } from '../logs/store.js';
 import { ImageBuilder, ALWAYS, POSTBUILD } from './image.js';
 import { ImageGc } from './imageGc.js';
-import { parseResultJson } from './result.js';
+import { parseResultJson, classifyResultJson } from './result.js';
 import { SshAgentForwarding, type GitAuth } from './gitAuth.js';
 import { classify, type RateLimitStateInput } from './resumeDetector.js';
 import type { RateLimitSnapshot } from '../../shared/types.js';
@@ -440,11 +440,25 @@ export class Orchestrator {
       const oomKilled = Boolean(inspect?.State?.OOMKilled);
       const wasCancelled = this.cancelled.delete(runId);
       const resultText = await readFileFromContainer(container, '/tmp/result.json').catch(() => '');
+      const classification = classifyResultJson(resultText);
       const parsed = parseResultJson(resultText);
 
       // Capture Claude session id from the mount (idempotent on repeat runs).
       const sessionId = scanSessionId(this.mountDirFor(runId));
       if (sessionId) this.deps.runs.setClaudeSessionId(runId, sessionId);
+
+      // Resume-restore failure: set resume_failed state and bail out early.
+      if (classification.kind === 'resume_failed') {
+        const errMsg = `restore failed (${classification.error})`;
+        onBytes(Buffer.from(`\n[fbi] ${errMsg}\n`));
+        this.deps.runs.markResumeFailed(runId, errMsg);
+        this.publishState(runId);
+        await container.remove({ force: true, v: true }).catch(() => {});
+        this.active.delete(runId); this.lastFiles.delete(runId);
+        store.close(); broadcaster.end();
+        this.deps.streams.release(runId);
+        return;
+      }
 
       const failedNormally =
         !(waitRes.StatusCode === 0 && parsed && parsed.push_exit === 0);
@@ -1033,6 +1047,7 @@ export class Orchestrator {
         container,
         '/tmp/result.json'
       ).catch(() => '');
+      const classification = classifyResultJson(resultText);
       const parsed = parseResultJson(resultText);
 
       // Capture Claude's session id from the mount dir — same post-mortem
@@ -1041,6 +1056,15 @@ export class Orchestrator {
       // cannot be continued later.
       const sessionId = scanSessionId(this.mountDirFor(runId));
       if (sessionId) this.deps.runs.setClaudeSessionId(runId, sessionId);
+
+      // Resume-restore failure: set resume_failed state and bail out early.
+      if (classification.kind === 'resume_failed') {
+        const errMsg = `restore failed (${classification.error})`;
+        this.deps.runs.markResumeFailed(runId, errMsg);
+        this.publishState(runId);
+        await container.remove({ force: true, v: true }).catch(() => {});
+        return;
+      }
 
       const state: 'succeeded' | 'failed' | 'cancelled' = wasCancelled
         ? 'cancelled'

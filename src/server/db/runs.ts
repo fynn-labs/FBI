@@ -220,6 +220,16 @@ export class RunsRepo {
     this.db.prepare('UPDATE runs SET last_limit_reset_at = ? WHERE id = ?').run(resetAt, id);
   }
 
+  markResumeFailed(id: number, error: string): void {
+    const now = Date.now();
+    this.db
+      .prepare(
+        `UPDATE runs SET state='resume_failed', container_id=NULL, error=?,
+         finished_at=?, state_entered_at=? WHERE id=?`
+      )
+      .run(error, now, now, id);
+  }
+
   markFinished(id: number, f: FinishInput): void {
     if (f.branch_name !== undefined && f.branch_name !== null && f.branch_name !== '') {
       this.db
