@@ -1,0 +1,20 @@
+{
+  "plan": "max",
+  "observed_at": 1700000000000,
+  "last_error": null,
+  "last_error_at": null,
+  "buckets": [
+    {
+      "id": "five_hour",
+      "utilization": 0.5,
+      "reset_at": 1700018000000,
+      "window_started_at": 1700000000000
+    }
+  ],
+  "pacing": {
+    "five_hour": {
+      "delta": 0.0,
+      "zone": "on_track"
+    }
+  }
+}
