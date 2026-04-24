@@ -6,9 +6,10 @@
   "features": {
     "ghcr.io/devcontainers/features/docker-outside-of-docker:1": {}
   },
-  "forwardPorts": [3000, 5173],
+  "forwardPorts": [3000, 4000, 5173],
   "portsAttributes": {
-    "3000": { "label": "FBI API" },
+    "3000": { "label": "FBI API (TS)" },
+    "4000": { "label": "FBI API (Elixir/Phoenix)" },
     "5173": { "label": "FBI Web (Vite)" }
   },
   "postCreateCommand": "npm install",
@@ -23,7 +24,8 @@
       "extensions": [
         "dbaeumer.vscode-eslint",
         "esbenp.prettier-vscode",
-        "ms-vscode.vscode-typescript-next"
+        "ms-vscode.vscode-typescript-next",
+        "JakeBecker.elixir-ls"
       ],
       "settings": {
         "typescript.tsdk": "node_modules/typescript/lib"
