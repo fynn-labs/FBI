@@ -2,7 +2,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { execFileSync } from 'node:child_process';
 import type { FilesDirtyEntry, FileDiffPayload } from '../../shared/types.js';
-import { parseUnifiedDiff } from '../api/runs.js';
+import { parseUnifiedDiff } from '../diffParse.js';
 
 function git(cwd: string, ...args: string[]): string {
   return execFileSync('git', args, { cwd, encoding: 'utf8' }).toString();
@@ -69,6 +69,7 @@ export class WipRepo {
     const snap = this.snapshotSha(runId);
     if (!snap) return { path: filePath, ref: 'wip', hunks: [], truncated: false };
     const parent = this.parentSha(runId);
+    if (!parent) return { path: filePath, ref: 'wip', hunks: [], truncated: false };
     const out = git(
       this.path(runId), 'diff', '--no-color', '--no-ext-diff', '-U3',
       `${parent}..${snap}`, '--', filePath,
@@ -80,6 +81,7 @@ export class WipRepo {
     const snap = this.snapshotSha(runId);
     if (!snap) return '';
     const parent = this.parentSha(runId);
+    if (!parent) return '';
     return git(this.path(runId), 'format-patch', '--stdout', `${parent}..${snap}`);
   }
 }
