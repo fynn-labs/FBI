@@ -48,10 +48,6 @@ export function getLastSnapshot(runId: number): RunWsSnapshotMessage | null {
   return cache.get(runId)?.lastSnapshot ?? null;
 }
 
-export function requestResync(runId: number): void {
-  cache.get(runId)?.shell.sendResync();
-}
-
 // For tests.
 export function _reset(): void {
   for (const e of cache.values()) {

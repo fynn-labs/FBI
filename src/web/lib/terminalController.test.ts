@@ -54,11 +54,9 @@ function makeStubShell(opts: { openState?: 'open' | 'pending' } = {}): ShellHand
       openCbs.push(cb);
       return () => { const i = openCbs.indexOf(cb); if (i !== -1) openCbs.splice(i, 1); };
     }),
-    onOpenOrNow: vi.fn(() => () => {}),
     send: vi.fn((d: Uint8Array) => { stub.sent.push(d); }),
     resize: vi.fn((cols: number, rows: number) => { stub.resizes.push({ cols, rows }); }),
     sendHello: vi.fn((cols: number, rows: number) => { stub.sentHello.push({ cols, rows }); }),
-    sendResync: vi.fn(),
     close: vi.fn(),
   };
   return stub;
