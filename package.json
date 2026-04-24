@@ -17,7 +17,9 @@
     "cli:dist": "bash cli/fbi-tunnel/scripts/build-dist.sh",
     "cli:install": "make -C cli/fbi-tunnel install",
     "cli:test": "make -C cli/fbi-tunnel test",
-    "lint": "eslint src"
+    "lint": "eslint src",
+    "tauri:dev": "cd desktop && cargo tauri dev",
+    "tauri:build": "npm run build:web && (cd desktop && cargo tauri build)"
   },
   "dependencies": {
     "@codemirror/lang-json": "^6.0.2",
@@ -27,6 +29,7 @@
     "@fastify/websocket": "^11.2.0",
     "@fontsource/inter": "^5.2.8",
     "@fontsource/jetbrains-mono": "^5.2.8",
+    "@tauri-apps/api": "^2.10.1",
     "@uiw/codemirror-themes": "^4.25.9",
     "@uiw/react-codemirror": "^4.25.9",
     "@xterm/addon-fit": "^0.10.0",
@@ -44,6 +47,7 @@
     "tar-stream": "^3.1.7"
   },
   "devDependencies": {
+    "@tauri-apps/cli": "^2.10.1",
     "@testing-library/jest-dom": "^6.4.8",
     "@testing-library/react": "^16.0.0",
     "@testing-library/user-event": "^14.5.2",
