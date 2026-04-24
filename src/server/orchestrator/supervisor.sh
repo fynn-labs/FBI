@@ -60,16 +60,20 @@ fi
 # pushes are guaranteed — no divergence on this ref.
 AGENT_BRANCH="claude/run-$RUN_ID"
 if ! git rev-parse --verify --quiet "origin/$AGENT_BRANCH" >/dev/null; then
-    git checkout -b "$AGENT_BRANCH"
+    git checkout -b "$AGENT_BRANCH" \
+      || { echo "[fbi] fatal: could not create branch $AGENT_BRANCH"; exit 13; }
     # Push immediately so the UI has a target and GitHub knows about the branch.
     git push -u origin "$AGENT_BRANCH" || echo "[fbi] warn: initial push of $AGENT_BRANCH failed"
 else
     # Branch already exists remotely (this is a resume). Land on it.
-    git checkout -B "$AGENT_BRANCH" "origin/$AGENT_BRANCH"
+    git checkout -B "$AGENT_BRANCH" "origin/$AGENT_BRANCH" \
+      || { echo "[fbi] fatal: could not switch to $AGENT_BRANCH"; exit 13; }
 fi
 
 # Register the WIP remote so the snapshot daemon can push to it.
-git remote add fbi-wip /fbi-wip.git 2>/dev/null || git remote set-url fbi-wip /fbi-wip.git
+git remote add fbi-wip /fbi-wip.git 2>/dev/null \
+  || git remote set-url fbi-wip /fbi-wip.git \
+  || { echo "[fbi] fatal: could not register fbi-wip remote"; exit 14; }
 git config user.name  "$GIT_AUTHOR_NAME"
 git config user.email "$GIT_AUTHOR_EMAIL"
 

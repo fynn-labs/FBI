@@ -266,6 +266,17 @@ export class Orchestrator {
     return { container, imageTag, projectSecrets, authCleanup: () => { /* no-op */ } };
   }
 
+  /**
+   * Preamble lines about the run branch for inclusion in prompts.
+   * Used by both launch() and resume().
+   */
+  private branchPreambleLines(runId: number): string[] {
+    return [
+      `You are working on branch \`claude/run-${runId}\`. Make all commits here.`,
+      `Do NOT push to or modify any other branch.`,
+    ];
+  }
+
   /** Kicks off a queued run. Fire-and-forget; state transitions go through DB. */
   async launch(runId: number): Promise<void> {
     const run = this.deps.runs.get(runId);
@@ -290,8 +301,7 @@ export class Orchestrator {
     const preamble = [
       `You are working in /workspace on ${project.repo_url}.`,
       `Its default branch is ${project.default_branch}. Do NOT commit to ${project.default_branch}.`,
-      `You are working on branch \`claude/run-${run.id}\`. Make all commits here.`,
-      `Do NOT push to or modify any other branch.`,
+      ...this.branchPreambleLines(run.id),
       '',
       'As soon as you understand the task, write a short name (4–8 words,',
       'imperative, no trailing punctuation) describing this session to',
@@ -561,8 +571,7 @@ export class Orchestrator {
         const preamble = [
           `You are working in /workspace on ${project.repo_url}.`,
           `Its default branch is ${project.default_branch}. Do NOT commit to ${project.default_branch}.`,
-          `You are working on branch \`claude/run-${run.id}\`. Make all commits here.`,
-          `Do NOT push to or modify any other branch.`,
+          ...this.branchPreambleLines(run.id),
           '',
           'As soon as you understand the task, write a short name (4–8 words,',
           'imperative, no trailing punctuation) describing this session to',
