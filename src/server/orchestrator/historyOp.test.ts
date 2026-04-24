@@ -24,6 +24,10 @@ describe('parseHistoryOpResult', () => {
     const r = parseHistoryOpResult('progress…\n{"ok":true,"sha":"abc"}\n', 0);
     expect(r).toEqual({ kind: 'complete', sha: 'abc' });
   });
+  it('parses mirror-rebase success', () => {
+    const r = parseHistoryOpResult('{"ok":true,"sha":"abc"}\n', 0);
+    expect(r).toEqual({ kind: 'complete', sha: 'abc' });
+  });
 });
 
 function frame(type: 1 | 2, payload: Buffer): Buffer {

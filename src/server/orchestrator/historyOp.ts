@@ -31,9 +31,10 @@ export interface HistoryOpEnv {
   FBI_SUBJECT?: string;
   FBI_RUN_ID?: string;
   FBI_PATH?: string;
+  FBI_BASE_BRANCH?: string;
 }
 
-export function buildEnv(runId: number, branch: string, defaultBranch: string, op: HistoryOp): HistoryOpEnv {
+export function buildEnv(runId: number, branch: string, defaultBranch: string, op: HistoryOp, baseBranch?: string | null): HistoryOpEnv {
   const env: HistoryOpEnv = {
     FBI_OP: op.op,
     FBI_BRANCH: branch,
@@ -46,6 +47,7 @@ export function buildEnv(runId: number, branch: string, defaultBranch: string, o
   }
   if (op.op === 'squash-local') env.FBI_SUBJECT = op.subject;
   if (op.op === 'push-submodule') env.FBI_PATH = op.path;
+  if (op.op === 'mirror-rebase' && baseBranch) env.FBI_BASE_BRANCH = baseBranch;
   return env;
 }
 

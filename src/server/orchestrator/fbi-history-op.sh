@@ -188,11 +188,40 @@ run_push_submodule() {
   emit_ok "$sha"
 }
 
+run_mirror_rebase() {
+    : "${FBI_BASE_BRANCH:?FBI_BASE_BRANCH required for mirror-rebase}"
+    if ! out=$(git -C /workspace fetch --quiet origin "$FBI_BASE_BRANCH" "$FBI_BRANCH" 2>&1); then
+        emit_fail gh-error "fetch failed: $out"
+        exit 0
+    fi
+    cd /workspace
+    if ! git checkout --detach "origin/$FBI_BRANCH" 2>/dev/null; then
+        emit_fail gh-error "checkout branch failed"
+        exit 0
+    fi
+    if ! out=$(git rebase "origin/$FBI_BASE_BRANCH" 2>&1); then
+        git rebase --abort 2>/dev/null
+        emit_fail conflict "rebase conflict: $out"
+        exit 0
+    fi
+    rebased=$(git rev-parse HEAD)
+    if ! out=$(git push --force-with-lease origin "HEAD:refs/heads/$FBI_BRANCH" 2>&1); then
+        emit_fail gh-error "push agent branch failed: $out"
+        exit 0
+    fi
+    if ! out=$(git push origin "$rebased:refs/heads/$FBI_BASE_BRANCH" 2>&1); then
+        emit_fail gh-error "mirror push failed: $out"
+        exit 0
+    fi
+    emit_ok "$rebased"
+}
+
 case "$FBI_OP" in
   merge) run_merge ;;
   sync) run_sync ;;
   squash-local) run_squash_local ;;
   push-submodule) run_push_submodule ;;
+  mirror-rebase) run_mirror_rebase ;;
   *)
     emit_fail gh-error "unknown op $FBI_OP"
     exit 0

@@ -796,7 +796,7 @@ export class Orchestrator {
     if (!run.branch_name) throw new Error('run has no branch');
     const project = this.deps.projects.get(run.project_id);
     if (!project) throw new Error('project missing');
-    const env = buildEnv(runId, run.branch_name, project.default_branch, op);
+    const env = buildEnv(runId, run.branch_name, project.default_branch, op, run.base_branch);
 
     const active = this.active.get(runId);
     if (active) {
