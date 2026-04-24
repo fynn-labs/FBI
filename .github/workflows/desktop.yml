@@ -133,7 +133,7 @@ jobs:
           pub_date = datetime.now(timezone.utc).strftime('%Y-%m-%dT%H:%M:%SZ')
           platforms = {}
 
-          for sig_file in glob.glob('artifacts/macos/*.app.tar.gz.sig'):
+          for sig_file in glob.glob('artifacts/macos/**/*.app.tar.gz.sig', recursive=True):
               tgz = sig_file[:-4]
               if os.path.exists(tgz):
                   sig = open(sig_file).read().strip()
@@ -143,7 +143,7 @@ jobs:
                       'url': f'https://github.com/fynn-labs/FBI/releases/download/{tag}/{filename}'
                   }
 
-          for sig_file in glob.glob('artifacts/linux/*.AppImage.tar.gz.sig'):
+          for sig_file in glob.glob('artifacts/linux/**/*.AppImage.tar.gz.sig', recursive=True):
               tgz = sig_file[:-4]
               if os.path.exists(tgz):
                   sig = open(sig_file).read().strip()
@@ -162,11 +162,11 @@ jobs:
         uses: softprops/action-gh-release@v2
         with:
           files: |
-            artifacts/macos/*.dmg
-            artifacts/macos/*.app.tar.gz
-            artifacts/macos/*.app.tar.gz.sig
-            artifacts/linux/*.deb
-            artifacts/linux/*.AppImage
-            artifacts/linux/*.AppImage.tar.gz
-            artifacts/linux/*.AppImage.tar.gz.sig
+            artifacts/macos/**/*.dmg
+            artifacts/macos/**/*.app.tar.gz
+            artifacts/macos/**/*.app.tar.gz.sig
+            artifacts/linux/**/*.deb
+            artifacts/linux/**/*.AppImage
+            artifacts/linux/**/*.AppImage.tar.gz
+            artifacts/linux/**/*.AppImage.tar.gz.sig
             latest.json
