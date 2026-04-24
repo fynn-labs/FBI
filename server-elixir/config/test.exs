@@ -11,11 +11,12 @@ config :fbi, credentials_path: false
 # Run `mix help test` for more information.
 config :fbi, FBI.Repo,
   database: Path.expand("../fbi_test.db", __DIR__),
-  pool_size: 5,
+  # SQLite has a single writer; async tests still run in parallel for non-DB
+  # code, but serialise DB connections so concurrent writes don't race for
+  # the file lock. Combined with the sandbox, this is the simplest correct
+  # setup; bumping pool_size makes the suite flaky on `Database busy`.
+  pool_size: 1,
   pool: Ecto.Adapters.SQL.Sandbox,
-  # Retry instead of erroring on writer contention; SQLite WAL handles the
-  # concurrency at this load but the sandbox can race when async tests share
-  # the file briefly during checkout.
   busy_timeout: 5_000
 
 # We don't run a server during test. If one is required,
