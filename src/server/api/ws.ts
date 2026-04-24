@@ -182,41 +182,10 @@ export function registerWsRoute(app: FastifyInstance, deps: Deps): void {
             return;
           }
           if (msg.type === 'resize') {
-            // Resize the PTY (sends SIGWINCH to the TUI) and the
-            // ScreenState. xterm's reflow on resize is best-effort and
-            // doesn't perfectly fix wrapping baked in at the old dims —
-            // the TUI (Claude Code) responds to SIGWINCH by emitting a
-            // fresh full-screen redraw at the new dims; once those bytes
-            // are parsed, the ScreenState reflects the correct layout.
-            //
-            // We deliberately do NOT suspend live forwarding during the
-            // wait below: keystroke echoes and other live updates need to
-            // keep flowing so input feels responsive. Brief visual
-            // overlap during the 200 ms is acceptable; the snapshot then
-            // clears and replaces.
-            const screenBefore = deps.streams.getScreen(runId);
-            const dimsChanged =
-              !screenBefore ||
-              screenBefore.cols !== msg.cols ||
-              screenBefore.rows !== msg.rows;
-            await deps.orchestrator.resize(runId, msg.cols, msg.rows);
-            if (dimsChanged) {
-              // Wait for the redraw to land before serializing. Without
-              // this wait, the snapshot captures pre-redraw content
-              // (still wrapped at old dims) and the client renders it
-              // mis-wrapped. Skip the wait for no-op resizes so refocus/
-              // idle resizes don't add visible latency.
-              await new Promise((r) => setTimeout(r, 200));
-            }
-            const screen = deps.streams.getScreen(runId);
-            if (screen && socket.readyState === socket.OPEN) {
-              socket.send(JSON.stringify({
-                type: 'snapshot',
-                ansi: screen.modesAnsi() + screen.serialize(),
-                cols: screen.cols,
-                rows: screen.rows,
-              }));
-            }
+            await deps.orchestrator.resize(runId, msg.cols, msg.rows).catch(() => {});
+            deps.streams.getScreen(runId)?.resize(msg.cols, msg.rows);
+            // No snapshot re-send. Claude's SIGWINCH response flows
+            // through the live byte stream naturally.
             return;
           }
           if (msg.type === 'resync') {

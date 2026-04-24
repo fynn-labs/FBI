@@ -361,6 +361,52 @@ describe('WS snapshot handshake', () => {
     await app.close();
   });
 
+  it('does not send a snapshot frame in response to a resize message', async () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'fbi-'));
+    const db = openDb(path.join(dir, 'db.sqlite'));
+    const projects = new ProjectsRepo(db);
+    const runs = new RunsRepo(db);
+    const streams = new RunStreamRegistry();
+    const p = projects.create({
+      name: 'p', repo_url: 'r', default_branch: 'main',
+      devcontainer_override_json: null, instructions: null,
+      git_author_name: null, git_author_email: null,
+    });
+    const logPath = path.join(dir, 'run-noresize.log');
+    fs.writeFileSync(logPath, '');
+    const run = runs.create({ project_id: p.id, prompt: 'hi', log_path_tmpl: () => logPath });
+    runs.markStarted(run.id, 'c1');
+    streams.getOrCreateScreen(run.id, 80, 24);
+
+    const orchestrator = { writeStdin: () => {}, resize: async () => {}, cancel: async () => {} };
+    const app = Fastify();
+    await app.register(fastifyWebsocket);
+    registerWsRoute(app, { runs, streams, orchestrator });
+    await app.listen({ port: 0 });
+    const address = app.server.address();
+    if (!address || typeof address === 'string') throw new Error('no port');
+
+    const ws = new WebSocket(`ws://127.0.0.1:${address.port}/api/runs/${run.id}/shell`);
+    const textFrames: string[] = [];
+    ws.on('message', (data, isBinary) => {
+      if (!isBinary) textFrames.push((data as Buffer).toString('utf8'));
+    });
+    await new Promise<void>((r) => ws.once('open', r));
+    ws.send(JSON.stringify({ type: 'hello', cols: 80, rows: 24 }));
+
+    // Wait for the opening snapshot (frame #1).
+    while (textFrames.length < 1) { await new Promise((r) => setTimeout(r, 20)); }
+    expect(JSON.parse(textFrames[0]).type).toBe('snapshot');
+
+    // Send a resize; wait 500 ms and assert no *additional* snapshot.
+    ws.send(JSON.stringify({ type: 'resize', cols: 100, rows: 30 }));
+    await new Promise((r) => setTimeout(r, 500));
+    expect(textFrames).toHaveLength(1);
+
+    ws.close();
+    await app.close();
+  });
+
   it('defers the opening snapshot until the client sends hello', async () => {
     const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'fbi-'));
     const db = openDb(path.join(dir, 'db.sqlite'));
