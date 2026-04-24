@@ -165,7 +165,8 @@ export function migrate(db: DB): void {
     const probe = db.prepare(
       "SELECT sql FROM sqlite_master WHERE type='table' AND name='runs'",
     ).get() as { sql: string } | undefined;
-    if (probe && probe.sql.includes("'ok','diverged')") && !probe.sql.includes('local_only')) {
+    const narrowCheck = probe != null && /IN \('ok',\s*'diverged'\)/.test(probe.sql);
+    if (probe && narrowCheck && !probe.sql.includes('local_only')) {
       db.exec(`BEGIN;
         CREATE TABLE runs_new AS SELECT * FROM runs;
         DROP TABLE runs;

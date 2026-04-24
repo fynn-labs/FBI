@@ -616,9 +616,8 @@ describe('base_branch and mirror_status', () => {
   });
 
   it('accepts local_only as a valid mirror_status', () => {
-    const { runs, projectId: project_id } = makeRepos();
     const r = runs.create({
-      project_id, prompt: 'x',
+      project_id: projectId, prompt: 'x',
       log_path_tmpl: (id) => `/tmp/${id}.log`,
     });
     runs.setMirrorStatus(r.id, 'local_only');
