@@ -122,6 +122,7 @@ describe('Orchestrator.continueRun', () => {
     } as unknown as Docker;
 
     const orch = makeOrchestrator(mockDocker);
+    runs.markStartingForContinueRequest(run.id);
     await orch.continueRun(run.id);
 
     const final = runs.get(run.id)!;
@@ -167,6 +168,7 @@ describe('Orchestrator.continueRun', () => {
       createContainer: vi.fn().mockResolvedValue(makeSuccessContainer()),
     } as unknown as Docker;
     const orch = makeOrchestrator(mockDocker);
+    runs.markStartingForContinueRequest(run.id);
     await orch.continueRun(run.id);
     // Let the headless xterm parser finish consuming any queued writes.
     await new Promise((r) => setTimeout(r, 20));
@@ -175,19 +177,6 @@ describe('Orchestrator.continueRun', () => {
     const ansi = captured.screen!.serialize();
     expect(ansi).toContain('continuing from session');
     expect(ansi).toContain('CONTINUE-OUTPUT-MARKER');
-  });
-
-  it('rejects a run without a captured session id', async () => {
-    const { runs, p, makeOrchestrator } = setup();
-    const run = runs.create({
-      project_id: p.id, prompt: 'x',
-      log_path_tmpl: (id) => path.join(os.tmpdir(), `cont-${id}.log`),
-    });
-    runs.markStartingFromQueued(run.id, 'c1');
-    runs.markRunning(run.id);
-    runs.markFinished(run.id, { state: 'failed' });
-    const orch = makeOrchestrator({ createContainer: vi.fn() } as unknown as Docker);
-    await expect(orch.continueRun(run.id)).rejects.toThrow(/no_session/);
   });
 
   it('revives a succeeded run (continuation is allowed after success)', async () => {
@@ -209,6 +198,7 @@ describe('Orchestrator.continueRun', () => {
       createContainer: vi.fn().mockResolvedValue(makeSuccessContainer()),
     } as unknown as Docker;
     const orch = makeOrchestrator(mockDocker);
+    runs.markStartingForContinueRequest(run.id);
     await orch.continueRun(run.id);
     expect(runs.get(run.id)!.state).toBe('succeeded');
   });

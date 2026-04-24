@@ -622,8 +622,14 @@ export class Orchestrator {
   async continueRun(runId: number): Promise<void> {
     const run = this.deps.runs.get(runId);
     if (!run) throw new Error(`run ${runId} not found`);
-    const verdict = checkContinueEligibility(run, this.deps.config.runsDir);
-    if (!verdict.ok) throw new ContinueNotEligibleError(verdict.code, verdict.message);
+    // API endpoint has already validated eligibility and flipped to 'starting'.
+    // Bail defensively if state is no longer 'starting' (e.g., a cancel raced us).
+    if (run.state !== 'starting') {
+      throw new ContinueNotEligibleError(
+        'wrong_state',
+        `continueRun: expected state 'starting' (set by API), got '${run.state}'`,
+      );
+    }
 
     const store = new LogStore(run.log_path);
     const broadcaster = this.deps.streams.getOrCreate(runId);
@@ -655,13 +661,13 @@ export class Orchestrator {
         stream: true, stdin: true, stdout: true, stderr: true, hijack: true,
       });
       const limitMonitor = this.makeLimitMonitor(runId, container, attach, onBytes);
-      const waitingWatcher = this.makeWaitingWatcher(runId);
+      const runtimeWatcher = this.makeRuntimeStateWatcher(runId);
       attach.on('data', (c: Buffer) => { limitMonitor.feedLog(c); onBytes(c); });
       await container.start();
       limitMonitor.start();
-      waitingWatcher.start();
+      runtimeWatcher.start();
       this.active.set(runId, { container, attachStream: attach });
-      this.deps.runs.markContinuing(runId, container.id);
+      this.deps.runs.markStartingContainer(runId, container.id);
       this.publishState(runId);
 
       const titleWatcher = new TitleWatcher({
@@ -677,7 +683,7 @@ export class Orchestrator {
       } finally {
         await titleWatcher.stop();
         limitMonitor.stop();
-        waitingWatcher.stop();
+        runtimeWatcher.stop();
       }
     } catch (err) {
       if (err instanceof ContinueNotEligibleError) throw err;
