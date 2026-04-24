@@ -43,6 +43,8 @@ const HERE = path.dirname(fileURLToPath(import.meta.url));
 const SUPERVISOR = path.join(HERE, 'supervisor.sh');
 const FINALIZE_BRANCH = path.join(HERE, 'finalizeBranch.sh');
 const HISTORY_OP = path.join(HERE, 'fbi-history-op.sh');
+const WIP_SNAPSHOT = path.join(HERE, 'fbi-wip-snapshot.sh');
+const RESUME_RESTORE = path.join(HERE, 'fbi-resume-restore.sh');
 
 export class ContinueNotEligibleError extends Error {
   constructor(public readonly code: 'wrong_state' | 'no_session' | 'session_files_missing', message: string) {
@@ -142,7 +144,7 @@ export class Orchestrator {
 
   private ensureScriptsDir(runId: number): string {
     const dir = runScriptsDir(this.deps.config.runsDir, runId);
-    snapshotScripts(dir, SUPERVISOR, FINALIZE_BRANCH, HISTORY_OP);
+    snapshotScripts(dir, SUPERVISOR, FINALIZE_BRANCH, HISTORY_OP, WIP_SNAPSHOT, RESUME_RESTORE);
     return dir;
   }
 
