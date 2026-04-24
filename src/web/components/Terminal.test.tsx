@@ -31,11 +31,19 @@ vi.mock('../lib/terminalController.js', () => {
 });
 
 // Mock xterm.
+const oscHandlers = new Map<number, (data: string) => boolean>();
+
 vi.mock('@xterm/xterm', () => {
   class FakeTerm {
     cols = 120; rows = 40;
     options: Record<string, unknown> = {};
     buffer = { active: { baseY: 100, viewportY: 100 } };
+    parser = {
+      registerOscHandler: vi.fn((code: number, handler: (data: string) => boolean) => {
+        oscHandlers.set(code, handler);
+        return { dispose: vi.fn() };
+      }),
+    };
     open() {}
     loadAddon() {}
     onScroll(cb: () => void) { (FakeTerm as unknown as { __scrollCbs: Array<() => void> }).__scrollCbs = [cb]; return { dispose() {} }; }
@@ -52,6 +60,8 @@ vi.mock('@xterm/addon-fit', () => ({ FitAddon: class { loadAddon() {} fit() {} }
 import { Terminal } from './Terminal.js';
 
 describe('Terminal', () => {
+  beforeEach(() => oscHandlers.clear());
+
   it('renders without crashing and has no "Load full history" button', () => {
     render(<Terminal runId={1} interactive={false} />);
     expect(screen.queryByText(/Load full history/i)).toBeNull();
@@ -87,5 +97,43 @@ describe('Terminal', () => {
     const retry = screen.getByRole('button', { name: /Retry/i });
     await userEvent.click(retry);
     expect(lastController?.loadOlderChunk).toHaveBeenCalled();
+  });
+
+  it('registers an OSC 52 handler on mount', () => {
+    render(<Terminal runId={1} interactive={false} />);
+    expect(oscHandlers.has(52)).toBe(true);
+  });
+
+  it('OSC 52 handler decodes UTF-8 base64 and writes to navigator.clipboard', async () => {
+    const writeText = vi.fn().mockResolvedValue(undefined);
+    Object.defineProperty(navigator, 'clipboard', {
+      value: { writeText },
+      writable: true,
+      configurable: true,
+    });
+    render(<Terminal runId={2} interactive={false} />);
+    const handler = oscHandlers.get(52)!;
+
+    // UTF-8 encode "héllo" then base64 it (matches what the container shim does)
+    const bytes = new TextEncoder().encode('héllo');
+    const b64 = btoa(String.fromCharCode(...bytes));
+    handler(`c;${b64}`);
+
+    await vi.waitFor(() => {
+      expect(writeText).toHaveBeenCalledWith('héllo');
+    });
+  });
+
+  it('OSC 52 handler ignores read requests (? payload) and returns true', () => {
+    render(<Terminal runId={3} interactive={false} />);
+    const handler = oscHandlers.get(52)!;
+    const result = handler('c;?');
+    expect(result).toBe(true);
+  });
+
+  it('OSC 52 handler ignores malformed base64 without throwing', () => {
+    render(<Terminal runId={4} interactive={false} />);
+    const handler = oscHandlers.get(52)!;
+    expect(() => handler('c;!!!not-valid-base64!!!')).not.toThrow();
   });
 });

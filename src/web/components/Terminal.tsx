@@ -4,6 +4,7 @@ import { FitAddon } from '@xterm/addon-fit';
 import '@xterm/xterm/css/xterm.css';
 import { TerminalController } from '../lib/terminalController.js';
 import { detectScroll } from '../lib/scrollDetection.js';
+import { writeToClipboard } from '../lib/clipboard.js';
 import {
   record as traceRecord,
   isTracing,
@@ -106,6 +107,7 @@ export function Terminal({ runId, interactive }: Props) {
     const host = hostRef.current;
     if (!host) return;
     const term = new Xterm({
+      allowProposedApi: true,
       convertEol: true,
       fontFamily:
         'ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace',
@@ -122,6 +124,20 @@ export function Terminal({ runId, interactive }: Props) {
     const fit = new FitAddon();
     term.loadAddon(fit);
     term.open(host);
+    const oscDisposable = term.parser.registerOscHandler(52, (data: string) => {
+      const semicolon = data.indexOf(';');
+      if (semicolon === -1) return false;
+      const b64 = data.slice(semicolon + 1);
+      if (!b64 || b64 === '?') return true;
+      try {
+        const bytes = Uint8Array.from(atob(b64), (c) => c.charCodeAt(0));
+        const text = new TextDecoder().decode(bytes);
+        void writeToClipboard(text);
+      } catch {
+        // malformed base64 — ignore
+      }
+      return true;
+    });
     traceRecord('term.mount', { runId });
 
     const observer = new MutationObserver(() => { term.options.theme = readTheme(); });
@@ -214,6 +230,7 @@ export function Terminal({ runId, interactive }: Props) {
       viewportEl?.removeEventListener('scroll', onViewportScroll);
       controller.dispose();
       controllerRef.current = null;
+      oscDisposable.dispose();
       term.dispose();
     };
   }, [runId]);
