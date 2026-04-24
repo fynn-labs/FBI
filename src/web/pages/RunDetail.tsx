@@ -1,20 +1,22 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
-import type { Project, Run, FilesPayload, GithubPayload } from '@shared/types.js';
+import type { Project, Run, ChangesPayload } from '@shared/types.js';
+import type { WipResponse } from '../features/runs/ChangesTab.js';
 import { api } from '../lib/api.js';
 import { LoadingState } from '@ui/patterns/LoadingState.js';
 import { ErrorState } from '@ui/patterns/index.js';
 import { RunHeader } from '../features/runs/RunHeader.js';
 import { RunTerminal } from '../features/runs/RunTerminal.js';
 import { RunDrawer } from '../features/runs/RunDrawer.js';
-import { FilesTab } from '../features/runs/FilesTab.js';
-import { GithubTab } from '../features/runs/GithubTab.js';
+import { ChangesTab } from '../features/runs/ChangesTab.js';
 import { MetaTab } from '../features/runs/MetaTab.js';
 import { TunnelTab } from '../features/runs/TunnelTab.js';
+import { ShipTab } from '../features/runs/ship/ShipTab.js';
+import { computeShipDot } from '../features/runs/ship/computeShipDot.js';
 import { useBottomPaneHeight } from '../features/runs/useBottomPaneHeight.js';
 import type { ListeningPort } from '@shared/types.js';
 import { useKeyBinding } from '@ui/shell/KeyMap.js';
-import { subscribeState, subscribeTitle, subscribeFiles } from '../features/runs/usageBus.js';
+import { subscribeState, subscribeTitle, subscribeChanges } from '../features/runs/usageBus.js';
 import { UploadTray, type UploadTrayFile } from '../components/UploadTray.js';
 import { ContinueRunDialog } from '../components/ContinueRunDialog.js';
 import { acquireShell, releaseShell } from '../lib/shellRegistry.js';
@@ -25,12 +27,12 @@ export function RunDetailPage() {
   const urlPid = params.id && params.rid ? Number(params.id) : null;
   const nav = useNavigate();
   const [run, setRun] = useState<Run | null>(null);
-  const [gh, setGh] = useState<GithubPayload | null>(null);
+  const [changes, setChanges] = useState<ChangesPayload | null>(null);
+  const [wip, setWip] = useState<WipResponse | null>(null);
   const [siblings, setSiblings] = useState<Run[]>([]);
   const [project, setProject] = useState<Project | null>(null);
   const [creatingPr, setCreatingPr] = useState(false);
   const [drawerOpen, setDrawerOpen] = useState(true);
-  const [files, setFiles] = useState<FilesPayload | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [ports, setPorts] = useState<ListeningPort[]>([]);
   const [attached, setAttached] = useState<UploadTrayFile[]>([]);
@@ -112,19 +114,31 @@ export function RunDetailPage() {
   }, []);
 
   useEffect(() => {
-    return subscribeFiles((id, payload) => {
+    return subscribeChanges((id, payload) => {
       if (id !== runId) return;
-      setFiles(payload);
+      setChanges((prev) => {
+        // WS update brings live working-tree + branch-base only. If nothing
+        // has been fetched yet, ignore it — we let the initial /changes poll
+        // populate commits + integrations + branch_name. Otherwise patch the
+        // live fields onto the polled state so a late WS frame never clobbers
+        // the authoritative fields it doesn't carry (esp. branch_name).
+        if (!prev) return prev;
+        return {
+          ...prev,
+          branch_base: payload.branch_base,
+          uncommitted: payload.uncommitted,
+        };
+      });
     });
   }, [runId]);
 
-  // GitHub tab: poll every 10s regardless of run state, so commits/PR/CI stay
+  // Changes: poll every 10s regardless of run state, so commits/PR/CI stay
   // current both during and after the run.
   useEffect(() => {
     if (!run) return;
     let alive = true;
-    const load = async () => {
-      try { const g = await api.getRunGithub(run.id); if (alive) setGh(g); } catch { /* ignore */ }
+    const load = async (): Promise<void> => {
+      try { const c = await api.getRunChanges(run.id); if (alive) setChanges(c); } catch { /* */ }
     };
     void load();
     const t = setInterval(load, 10_000);
@@ -132,16 +146,20 @@ export function RunDetailPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [run?.id]);
 
-  // Files: initial one-shot fetch. Live updates come via the `files` WS event;
-  // the initial fetch covers finished runs and gives us a fallback snapshot
-  // before the first WS event arrives.
   useEffect(() => {
     if (!run) return;
+    const live = run.state === 'running' || run.state === 'waiting';
+    if (live) { setWip(null); return; }
     let alive = true;
-    void api.getRunFiles(run.id).then((f) => { if (alive) setFiles(f); }).catch(() => {});
-    return () => { alive = false; };
+    const load = async () => {
+      try { const r = await api.getRunWip(run.id); if (alive) setWip(r); }
+      catch { /* silent */ }
+    };
+    void load();
+    const t = setInterval(load, 10_000);
+    return () => { alive = false; clearInterval(t); };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [run?.id]);
+  }, [run?.id, run?.state]);
 
   useEffect(() => {
     if (!run) return;
@@ -220,21 +238,24 @@ export function RunDetailPage() {
     }
   }
 
-  async function createPr() {
+  async function onCreatePr(): Promise<void> {
     if (!run) return;
     setCreatingPr(true);
-    try { await api.createRunPr(run.id); const g = await api.getRunGithub(run.id); setGh(g); }
-    catch (e) { alert(String(e)); }
+    try {
+      await api.createRunPr(run.id);
+      const c = await api.getRunChanges(run.id);
+      setChanges(c);
+    } catch (e) { alert(String(e)); }
     finally { setCreatingPr(false); }
   }
 
-  async function onMerged() {
+  async function onReload(): Promise<void> {
     if (!run) return;
-    try { const g = await api.getRunGithub(run.id); setGh(g); } catch { /* ignore */ }
+    try { const c = await api.getRunChanges(run.id); setChanges(c); } catch { /* */ }
   }
 
-  const fileCount = (files?.dirty.length ?? 0)
-    + (files?.headFiles.filter((h) => !files?.dirty.some((d) => d.path === h.path)).length ?? 0);
+  const changesCount = (changes?.uncommitted.length ?? 0) + (changes?.commits.length ?? 0);
+  const shipDot = changes ? computeShipDot(changes) : null;
 
   return (
     <div className="h-full flex flex-col min-h-0">
@@ -277,15 +298,20 @@ export function RunDetailPage() {
         <RunDrawer
           open={drawerOpen}
           onToggle={setDrawerOpen}
-          filesCount={fileCount}
+          changesCount={changesCount}
           portsCount={run.state === 'running' || run.state === 'waiting' ? ports.length : null}
+          shipDot={shipDot}
           height={height}
           onHeightChange={setHeight}
         >
-          {(t) => t === 'files' ? <FilesTab runId={run.id} files={files} project={project} branchName={run.branch_name || null} runState={run.state} />
-               : t === 'github' ? <GithubTab run={run} github={gh} onCreatePr={createPr} onMerged={onMerged} creatingPr={creatingPr} />
-               : t === 'tunnel' ? <TunnelTab runId={run.id} runState={run.state} origin={window.location.origin} ports={ports} />
-               : <MetaTab run={run} siblings={siblings} />}
+          {(t) =>
+            t === 'changes' ? <ChangesTab run={run} project={project} changes={changes} wip={wip} /> :
+            t === 'ship'    ? <ShipTab run={run} project={project} changes={changes}
+                                       onCreatePr={onCreatePr} creatingPr={creatingPr} onReload={onReload} /> :
+            t === 'tunnel'  ? <TunnelTab runId={run.id} runState={run.state}
+                                         origin={window.location.origin} ports={ports} /> :
+                              <MetaTab run={run} siblings={siblings} />
+          }
         </RunDrawer>
       </div>
       {run && (

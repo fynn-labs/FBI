@@ -14,6 +14,7 @@ export interface CreateProjectInput {
   mem_mb?: number | null;
   cpus?: number | null;
   pids_limit?: number | null;
+  default_merge_strategy?: 'merge' | 'rebase' | 'squash';
 }
 
 export type UpdateProjectInput = Partial<CreateProjectInput>;
@@ -32,6 +33,7 @@ interface ProjectRow {
   mem_mb: number | null;
   cpus: number | null;
   pids_limit: number | null;
+  default_merge_strategy: 'merge' | 'rebase' | 'squash';
   created_at: number;
   updated_at: number;
 }
@@ -51,6 +53,7 @@ function fromRow(row: ProjectRow): Project {
     mem_mb: row.mem_mb,
     cpus: row.cpus,
     pids_limit: row.pids_limit,
+    default_merge_strategy: row.default_merge_strategy,
     created_at: row.created_at,
     updated_at: row.updated_at,
   };
@@ -72,12 +75,12 @@ export class ProjectsRepo {
         (name, repo_url, default_branch, devcontainer_override_json,
          instructions, git_author_name, git_author_email,
          marketplaces_json, plugins_json,
-         mem_mb, cpus, pids_limit,
+         mem_mb, cpus, pids_limit, default_merge_strategy,
          created_at, updated_at)
        VALUES (@name, @repo_url, @default_branch, @devcontainer_override_json,
                @instructions, @git_author_name, @git_author_email,
                @marketplaces_json, @plugins_json,
-               @mem_mb, @cpus, @pids_limit,
+               @mem_mb, @cpus, @pids_limit, @default_merge_strategy,
                @now, @now)`
     );
     const info = stmt.run({
@@ -93,6 +96,7 @@ export class ProjectsRepo {
       mem_mb: input.mem_mb ?? null,
       cpus: input.cpus ?? null,
       pids_limit: input.pids_limit ?? null,
+      default_merge_strategy: input.default_merge_strategy ?? 'squash',
       now,
     });
     return this.get(Number(info.lastInsertRowid))!;
@@ -135,6 +139,7 @@ export class ProjectsRepo {
           marketplaces_json=@marketplaces_json,
           plugins_json=@plugins_json,
           mem_mb=@mem_mb, cpus=@cpus, pids_limit=@pids_limit,
+          default_merge_strategy=@default_merge_strategy,
           updated_at=@updated_at
          WHERE id=@id`
       )
@@ -152,6 +157,7 @@ export class ProjectsRepo {
         mem_mb: merged.mem_mb ?? null,
         cpus: merged.cpus ?? null,
         pids_limit: merged.pids_limit ?? null,
+        default_merge_strategy: merged.default_merge_strategy,
         updated_at: merged.updated_at,
       });
   }

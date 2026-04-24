@@ -9,7 +9,7 @@ function project(id: number, devcontainer: string | null, override: string | nul
     devcontainer_override_json: override, instructions: null,
     git_author_name: null, git_author_email: null,
     marketplaces: [], plugins: [],
-    mem_mb: null, cpus: null, pids_limit: null,
+    mem_mb: null, cpus: null, pids_limit: null, default_merge_strategy: 'squash',
     created_at: 0, updated_at: 0,
   };
 }

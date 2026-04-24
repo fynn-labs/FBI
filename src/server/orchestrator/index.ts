@@ -18,7 +18,7 @@ import type { RunStreamRegistry } from '../logs/registry.js';
 import { LogStore } from '../logs/store.js';
 import { ImageBuilder, ALWAYS, POSTBUILD } from './image.js';
 import { ImageGc } from './imageGc.js';
-import { parseResultJson } from './result.js';
+import { parseResultJson, classifyResultJson } from './result.js';
 import { SshAgentForwarding, type GitAuth } from './gitAuth.js';
 import { classify, type RateLimitStateInput } from './resumeDetector.js';
 import type { RateLimitSnapshot } from '../../shared/types.js';
@@ -32,15 +32,21 @@ import type { UsageRepo } from '../db/usage.js';
 import { UsageTailer } from './usageTailer.js';
 import { LimitMonitor } from './limitMonitor.js';
 import { RuntimeStateWatcher, type DerivedRuntimeState } from './runtimeStateWatcher.js';
-import { GitStateWatcher } from './gitStateWatcher.js';
+import { SafeguardWatcher } from './safeguardWatcher.js';
+import { MirrorStatusPoller } from './mirrorStatusPoller.js';
 import { dockerExec, type DockerExecOptions, type DockerExecResult } from './dockerExec.js';
+import { buildEnv, runHistoryOpInContainer, runHistoryOpInTransientContainer, type ParsedOpResult } from './historyOp.js';
+import type { HistoryOp } from '../../shared/types.js';
 import { nudgeClaudeToExit } from './nudgeClaude.js';
 import { makeOnBytes } from '../logs/onBytes.js';
 import type { FilesPayload } from '../../shared/types.js';
+import { WipRepo } from './wipRepo.js';
+import { buildSafeguardBind } from './safeguardBind.js';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const SUPERVISOR = path.join(HERE, 'supervisor.sh');
 const FINALIZE_BRANCH = path.join(HERE, 'finalizeBranch.sh');
+const HISTORY_OP = path.join(HERE, 'fbi-history-op.sh');
 
 export class ContinueNotEligibleError extends Error {
   constructor(public readonly code: 'wrong_state' | 'no_session' | 'session_files_missing', message: string) {
@@ -68,8 +74,12 @@ export class Orchestrator {
   private gcTimer: NodeJS.Timeout | null = null;
   private gc: ImageGc;
   private scheduler: ResumeScheduler;
+  readonly wipRepo: WipRepo;
 
   constructor(private deps: OrchestratorDeps) {
+    this.wipRepo = new WipRepo(this.deps.config.runsDir);
+    // WipRepo.path(runId) produces `<runsDir>/<id>/wip.git` — same convention
+    // as the existing per-run directories.
     this.imageBuilder = new ImageBuilder(deps.docker);
     this.gc = new ImageGc(this.deps.docker, () => ({ always: ALWAYS, postbuild: POSTBUILD }));
     this.scheduler = new ResumeScheduler({
@@ -140,7 +150,7 @@ export class Orchestrator {
 
   private ensureScriptsDir(runId: number): string {
     const dir = runScriptsDir(this.deps.config.runsDir, runId);
-    snapshotScripts(dir, SUPERVISOR, FINALIZE_BRANCH);
+    snapshotScripts(dir, SUPERVISOR, FINALIZE_BRANCH, HISTORY_OP);
     return dir;
   }
 
@@ -244,8 +254,12 @@ export class Orchestrator {
         `FBI_MARKETPLACES=${marketplaces.join('\n')}`,
         `FBI_PLUGINS=${plugins.join('\n')}`,
         'IS_SANDBOX=1',
+        // FBI_BRANCH = where the agent checks out, commits, and pushes.
+        // The user's typed branch wins; if none, supervisor.sh falls back to
+        // claude/run-N (used only as a fallback branch name when FBI_BRANCH is
+        // not provided).
+        ...(run.branch_name ? [`FBI_BRANCH=${run.branch_name}`] : []),
         ...(opts.resumeSessionId ? [`FBI_RESUME_SESSION_ID=${opts.resumeSessionId}`] : []),
-        ...(opts.branchName ? [`FBI_CHECKOUT_BRANCH=${opts.branchName}`] : []),
         ...Object.entries(auth.env()).map(([k, v]) => `${k}=${v}`),
         ...Object.entries(projectSecrets).map(([k, v]) => `${k}=${v}`),
         ...modelParamEnvEntries(run),
@@ -262,6 +276,12 @@ export class Orchestrator {
         Binds: [
           `${toBindHost(path.join(scriptsDir, 'supervisor.sh'))}:/usr/local/bin/supervisor.sh:ro`,
           `${toBindHost(path.join(scriptsDir, 'finalizeBranch.sh'))}:/usr/local/bin/fbi-finalize-branch.sh:ro`,
+          `${toBindHost(path.join(scriptsDir, 'fbi-history-op.sh'))}:/usr/local/bin/fbi-history-op.sh:ro`,
+          buildSafeguardBind(
+            this.deps.config.runsDir,
+            runId,
+            this.deps.config.hostRunsDir,
+          ),
           `${toBindHost(mountDir)}:/home/agent/.claude/projects/`,
           `${toBindHost(this.ensureStateDir(runId))}:/fbi-state/`,
           `${toBindHost(this.ensureUploadsDir(runId))}:/fbi/uploads:ro`,
@@ -283,6 +303,63 @@ export class Orchestrator {
     return { container, imageTag, projectSecrets, authCleanup: () => { /* no-op */ } };
   }
 
+  /**
+   * Preamble lines about the run branch for inclusion in prompts.
+   * Used by both launch() and resume().
+   */
+  private branchPreambleLines(runId: number, branchName: string | null): string[] {
+    const branch = branchName && branchName.length > 0 ? branchName : `claude/run-${runId}`;
+    return [
+      `You are working on branch \`${branch}\`. Make all commits here.`,
+      `Do NOT push to or modify any other branch.`,
+    ];
+  }
+
+  /**
+   * Start the SafeguardWatcher and MirrorStatusPoller for an active run.
+   * Returns handles for both so callers can stop them in a finally block.
+   */
+  private async startRunObservers(
+    runId: number,
+    branchName: string | null,
+    events: ReturnType<RunStreamRegistry['getOrCreateEvents']>,
+  ): Promise<{ safeguardWatcher: SafeguardWatcher; mirrorPoller: MirrorStatusPoller }> {
+    const safeguardWatcher = new SafeguardWatcher({
+      bareDir: this.wipRepo.path(runId),
+      branch: branchName ?? `claude/run-${runId}`,
+      onSnapshot: (snap) => {
+        this.lastFiles.set(runId, snap);
+        const runNow = this.deps.runs.get(runId);
+        events.publish({
+          type: 'changes',
+          branch_name: runNow?.branch_name || null,
+          branch_base: snap.branchBase,
+          commits: [],
+          uncommitted: snap.dirty,
+          integrations: {},
+          dirty_submodules: [],
+          children: [],
+        });
+      },
+    });
+    await safeguardWatcher.start();
+    const mirrorPoller = new MirrorStatusPoller({
+      path: `${this.stateDirFor(runId)}/mirror-status`,
+      pollMs: 1000,
+      onChange: (s) => { this.deps.runs.setMirrorStatus(runId, s); },
+    });
+    mirrorPoller.start();
+    return { safeguardWatcher, mirrorPoller };
+  }
+
+  private async stopRunObservers(obs: {
+    safeguardWatcher: SafeguardWatcher;
+    mirrorPoller: MirrorStatusPoller;
+  }): Promise<void> {
+    await obs.safeguardWatcher.stop();
+    obs.mirrorPoller.stop();
+  }
+
   /** Kicks off a queued run. Fire-and-forget; state transitions go through DB. */
   async launch(runId: number): Promise<void> {
     const run = this.deps.runs.get(runId);
@@ -296,14 +373,10 @@ export class Orchestrator {
     const screen = this.deps.streams.getOrCreateScreen(runId);
     const onBytes = makeOnBytes(store, broadcaster, screen);
 
-    const branchHint = run.branch_name;
     const preamble = [
       `You are working in /workspace on ${project.repo_url}.`,
       `Its default branch is ${project.default_branch}. Do NOT commit to ${project.default_branch}.`,
-      branchHint
-        ? `Create or check out a branch named \`${branchHint}\`,`
-        : `Create or check out a branch appropriately named for this task,`,
-      'do your work there, and leave all commits on that branch.',
+      ...this.branchPreambleLines(run.id, run.branch_name),
       '',
       'As soon as you understand the task, write a short name (4–8 words,',
       'imperative, no trailing punctuation) describing this session to',
@@ -317,7 +390,7 @@ export class Orchestrator {
     let titleWatcher: TitleWatcher | null = null;
     let limitMonitor: LimitMonitor | null = null;
     let runtimeWatcher: RuntimeStateWatcher | null = null;
-    let gitWatcher: GitStateWatcher | null = null;
+    let observers: { safeguardWatcher: SafeguardWatcher; mirrorPoller: MirrorStatusPoller } | null = null;
 
     try {
       const { container, projectSecrets } = await this.createContainerForRun(
@@ -382,16 +455,7 @@ export class Orchestrator {
         onError: () => { /* swallow — best effort */ },
       });
       titleWatcher.start();
-      gitWatcher = new GitStateWatcher({
-        container,
-        defaultBranch: project.default_branch,
-        pollMs: 2000,
-        onSnapshot: (snap) => {
-          this.lastFiles.set(runId, snap);
-          events.publish({ type: 'files', ...snap });
-        },
-      });
-      gitWatcher.start();
+      observers = await this.startRunObservers(runId, run.branch_name ?? null, events);
       void this.deps.poller.nudge();
 
       await this.awaitAndComplete(runId, container, onBytes, store, broadcaster);
@@ -401,7 +465,6 @@ export class Orchestrator {
       this.deps.runs.markFinished(runId, { state: 'failed', error: msg });
       this.publishState(runId);
       this.active.delete(runId); this.lastFiles.delete(runId);
-      this.lastFiles.delete(runId);
       store.close();
       broadcaster.end();
       this.deps.streams.release(runId);
@@ -410,7 +473,7 @@ export class Orchestrator {
       if (titleWatcher) await titleWatcher.stop();
       if (limitMonitor) limitMonitor.stop();
       if (runtimeWatcher) runtimeWatcher.stop();
-      if (gitWatcher) await gitWatcher.stop();
+      if (observers) await this.stopRunObservers(observers);
     }
   }
 
@@ -427,11 +490,25 @@ export class Orchestrator {
       const oomKilled = Boolean(inspect?.State?.OOMKilled);
       const wasCancelled = this.cancelled.delete(runId);
       const resultText = await readFileFromContainer(container, '/tmp/result.json').catch(() => '');
+      const classification = classifyResultJson(resultText);
       const parsed = parseResultJson(resultText);
 
       // Capture Claude session id from the mount (idempotent on repeat runs).
       const sessionId = scanSessionId(this.mountDirFor(runId));
       if (sessionId) this.deps.runs.setClaudeSessionId(runId, sessionId);
+
+      // Resume-restore failure: set resume_failed state and bail out early.
+      if (classification.kind === 'resume_failed') {
+        const errMsg = `restore failed (${classification.error})`;
+        onBytes(Buffer.from(`\n[fbi] ${errMsg}\n`));
+        this.deps.runs.markResumeFailed(runId, errMsg);
+        this.publishState(runId);
+        await container.remove({ force: true, v: true }).catch(() => {});
+        this.active.delete(runId); this.lastFiles.delete(runId);
+        store.close(); broadcaster.end();
+        this.deps.streams.release(runId);
+        return;
+      }
 
       const failedNormally =
         !(waitRes.StatusCode === 0 && parsed && parsed.push_exit === 0);
@@ -559,10 +636,7 @@ export class Orchestrator {
         const preamble = [
           `You are working in /workspace on ${project.repo_url}.`,
           `Its default branch is ${project.default_branch}. Do NOT commit to ${project.default_branch}.`,
-          run.branch_name
-            ? `Create or check out a branch named \`${run.branch_name}\`,`
-            : `Create or check out a branch appropriately named for this task,`,
-          'do your work there, and leave all commits on that branch.',
+          ...this.branchPreambleLines(run.id, run.branch_name),
           '',
           'As soon as you understand the task, write a short name (4–8 words,',
           'imperative, no trailing punctuation) describing this session to',
@@ -605,6 +679,7 @@ export class Orchestrator {
       this.deps.runs.markStartingForResume(runId, container.id);
       this.publishState(runId);
 
+      const events = this.deps.streams.getOrCreateEvents(runId);
       const titleWatcher = new TitleWatcher({
         path: `${this.stateDirFor(runId)}/session-name`,
         pollMs: 1000,
@@ -612,11 +687,13 @@ export class Orchestrator {
         onError: () => { /* swallow — best effort */ },
       });
       titleWatcher.start();
+      const observers = await this.startRunObservers(runId, run.branch_name ?? null, events);
 
       try {
         await this.awaitAndComplete(runId, container, onBytes, store, broadcaster);
       } finally {
         await titleWatcher.stop();
+        await this.stopRunObservers(observers);
         limitMonitor.stop();
         runtimeWatcher.stop();
       }
@@ -682,6 +759,7 @@ export class Orchestrator {
       this.deps.runs.markStartingContainer(runId, container.id);
       this.publishState(runId);
 
+      const events = this.deps.streams.getOrCreateEvents(runId);
       const titleWatcher = new TitleWatcher({
         path: `${this.stateDirFor(runId)}/session-name`,
         pollMs: 1000,
@@ -689,11 +767,13 @@ export class Orchestrator {
         onError: () => { /* swallow — best effort */ },
       });
       titleWatcher.start();
+      const observers = await this.startRunObservers(runId, run.branch_name ?? null, events);
 
       try {
         await this.awaitAndComplete(runId, container, onBytes, store, broadcaster);
       } finally {
         await titleWatcher.stop();
+        await this.stopRunObservers(observers);
         limitMonitor.stop();
         runtimeWatcher.stop();
       }
@@ -779,9 +859,54 @@ export class Orchestrator {
     a.attachStream.write(Buffer.from(bytes));
   }
 
-  /** Return the most recent GitStateWatcher snapshot for a run, if any. */
-  getLastFiles(runId: number): FilesPayload | null {
-    return this.lastFiles.get(runId) ?? null;
+  async execHistoryOp(runId: number, op: HistoryOp): Promise<ParsedOpResult> {
+    const run = this.deps.runs.get(runId);
+    if (!run) throw new Error('run not found');
+    if (!run.branch_name) throw new Error('run has no branch');
+    const project = this.deps.projects.get(run.project_id);
+    if (!project) throw new Error('project missing');
+    const env = buildEnv(runId, run.branch_name, project.default_branch, op, null);
+
+    const active = this.active.get(runId);
+    if (active) {
+      const scriptContents = fs.readFileSync(HISTORY_OP, 'utf8');
+      return runHistoryOpInContainer(active.container, env, { scriptContents });
+    }
+    // Finished run: transient container.
+    return runHistoryOpInTransientContainer({
+      docker: this.deps.docker,
+      image: 'alpine/git:latest',
+      repoUrl: project.repo_url,
+      historyOpScriptPath: HISTORY_OP,
+      env,
+      sshSocket: this.deps.config.hostSshAuthSock,
+      safeguardPath: this.wipRepo.path(runId),
+      authorName: project.git_author_name ?? this.deps.config.gitAuthorName,
+      authorEmail: project.git_author_email ?? this.deps.config.gitAuthorEmail,
+    });
+  }
+
+  /** Spawn a sub-run for merge-conflict resolution or commit polish.
+   *  Inherits parent's project + branch; launches normally via launch(). */
+  async spawnSubRun(parentRunId: number, kind: 'merge-conflict' | 'polish', argsJson: string): Promise<number> {
+    const parent = this.deps.runs.get(parentRunId);
+    if (!parent) throw new Error(`parent run ${parentRunId} not found`);
+    const args = JSON.parse(argsJson) as Record<string, unknown>;
+    const prompt = renderSubRunPrompt(kind, args);
+    const child = this.deps.runs.create({
+      project_id: parent.project_id,
+      prompt,
+      branch_hint: parent.branch_name || undefined,
+      log_path_tmpl: (id) => path.join(this.deps.config.runsDir, `${id}.log`),
+      parent_run_id: parent.id,
+      kind,
+      kind_args_json: argsJson,
+    });
+    // Fire-and-forget — matches POST /api/projects/:id/runs pattern.
+    void this.launch(child.id).catch(() => {
+      // swallow — the sub-run's log will record the failure
+    });
+    return child.id;
   }
 
   /** Run a command inside the container backing `runId`. Throws if no
@@ -832,6 +957,19 @@ export class Orchestrator {
 
   fireResumeNow(runId: number): void {
     this.scheduler.fireNow(runId);
+  }
+
+  /**
+   * Delete a non-running run: remove the DB row, its log file, and the wip
+   * repo. Safe to call only on terminal-state runs (cancelled/failed/
+   * succeeded); callers must cancel first if the run is active.
+   */
+  deleteRun(runId: number): void {
+    const run = this.deps.runs.get(runId);
+    if (!run) return;
+    try { fs.unlinkSync(run.log_path); } catch { /* noop */ }
+    this.wipRepo.remove(runId);
+    this.deps.runs.delete(runId);
   }
 
   async rehydrateSchedules(): Promise<void> {
@@ -943,16 +1081,7 @@ export class Orchestrator {
       onError: () => { /* swallow — best effort */ },
     });
     titleWatcher.start();
-    const gitWatcher = new GitStateWatcher({
-      container,
-      defaultBranch: project?.default_branch ?? 'main',
-      pollMs: 2000,
-      onSnapshot: (snap) => {
-        this.lastFiles.set(runId, snap);
-        events.publish({ type: 'files', ...snap });
-      },
-    });
-    gitWatcher.start();
+    const observers = await this.startRunObservers(runId, run.branch_name ?? null, events);
 
     try {
       const waitRes = await container.wait();
@@ -963,6 +1092,7 @@ export class Orchestrator {
         container,
         '/tmp/result.json'
       ).catch(() => '');
+      const classification = classifyResultJson(resultText);
       const parsed = parseResultJson(resultText);
 
       // Capture Claude's session id from the mount dir — same post-mortem
@@ -971,6 +1101,15 @@ export class Orchestrator {
       // cannot be continued later.
       const sessionId = scanSessionId(this.mountDirFor(runId));
       if (sessionId) this.deps.runs.setClaudeSessionId(runId, sessionId);
+
+      // Resume-restore failure: set resume_failed state and bail out early.
+      if (classification.kind === 'resume_failed') {
+        const errMsg = `restore failed (${classification.error})`;
+        this.deps.runs.markResumeFailed(runId, errMsg);
+        this.publishState(runId);
+        await container.remove({ force: true, v: true }).catch(() => {});
+        return;
+      }
 
       const state: 'succeeded' | 'failed' | 'cancelled' = wasCancelled
         ? 'cancelled'
@@ -1005,7 +1144,7 @@ export class Orchestrator {
     } finally {
       await tailer.stop();
       await titleWatcher.stop();
-      await gitWatcher.stop();
+      await this.stopRunObservers(observers);
       limitMonitor.stop();
       runtimeWatcher.stop();
       events.end();
@@ -1016,6 +1155,37 @@ export class Orchestrator {
       this.deps.streams.release(runId);
     }
   }
+}
+
+function renderSubRunPrompt(kind: 'merge-conflict' | 'polish', args: Record<string, unknown>): string {
+  const branch = String(args.branch ?? '');
+  const def = String(args.default ?? 'main');
+  const strategy = String(args.strategy ?? 'merge');
+  if (kind === 'merge-conflict') {
+    return (
+      `Resolve a merge conflict and complete the merge.\n` +
+      `Branch: ${branch}\nTarget: ${def}\nStrategy: ${strategy}\n\n` +
+      `Steps:\n` +
+      `1. git fetch origin\n` +
+      `2. git checkout ${def}\n` +
+      `3. git pull --ff-only origin ${def}\n` +
+      `4. git merge --no-ff ${branch}  (or --squash / rebase per strategy)\n` +
+      `5. If conflicts: resolve them, git add, git commit.\n` +
+      `6. git push origin ${def}\n` +
+      `Report the final SHA when done.`
+    );
+  }
+  // polish
+  return (
+    `Polish the commits on branch ${branch}.\n\n` +
+    `Use git interactive rebase (GIT_SEQUENCE_EDITOR=cat git rebase -i origin/${def}) to:\n` +
+    `  1. Rewrite each commit's subject as a concise conventional-commits style summary.\n` +
+    `  2. Ensure each commit body explains the "why" (not just the "what").\n` +
+    `  3. Combine trivially-related "wip:" or "fix:" commits where appropriate.\n` +
+    `DO NOT change code — only commit metadata.\n\n` +
+    `Then: git push --force-with-lease origin ${branch}.\n` +
+    `Write a one-line summary of what you did to /fbi-state/session-name.`
+  );
 }
 
 // Bind-mount OAuth tokens. On Linux they live in ~/.claude/.credentials.json;

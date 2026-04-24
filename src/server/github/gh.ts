@@ -100,29 +100,6 @@ export class GhClient {
     }
   }
 
-  async mergeBranch(
-    repo: string, head: string, base: string, commit_message: string,
-  ): Promise<{ merged: true; sha: string } | { merged: false; reason: 'conflict' | 'gh-error' | 'already-merged' }> {
-    try {
-      const { stdout } = await ex(this.bin, [
-        'api', '-X', 'POST', `/repos/${repo}/merges`,
-        '-f', `base=${base}`,
-        '-f', `head=${head}`,
-        '-f', `commit_message=${commit_message}`,
-      ]);
-      // GitHub returns 204 No Content when base already contains head —
-      // nothing to merge. gh surfaces that as empty stdout.
-      if (!stdout.trim()) return { merged: false, reason: 'already-merged' };
-      const obj = JSON.parse(stdout) as { sha?: string };
-      if (!obj.sha) return { merged: false, reason: 'gh-error' };
-      return { merged: true, sha: obj.sha };
-    } catch (e) {
-      const err = e as Error & { stderr?: string };
-      const msg = String(err.stderr ?? err.message ?? e);
-      if (/409/.test(msg) || /conflict/i.test(msg)) return { merged: false, reason: 'conflict' };
-      return { merged: false, reason: 'gh-error' };
-    }
-  }
 }
 
 export class GhError extends Error {}

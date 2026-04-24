@@ -1,11 +1,14 @@
 import type { DB } from './index.js';
-import type { Run, RunState } from '../../shared/types.js';
+import type { MirrorStatus, Run, RunState } from '../../shared/types.js';
 
 export interface CreateRunInput {
   project_id: number;
   prompt: string;
   branch_hint?: string;
   log_path_tmpl: (id: number) => string;
+  parent_run_id?: number;
+  kind?: 'work' | 'merge-conflict' | 'polish';
+  kind_args_json?: string;
   model?: string | null;
   effort?: string | null;
   subagent_model?: string | null;
@@ -39,8 +42,9 @@ export class RunsRepo {
           `INSERT INTO runs
              (project_id, prompt, branch_name, state, log_path,
               created_at, state_entered_at,
+              parent_run_id, kind, kind_args_json,
               model, effort, subagent_model)
-           VALUES (?, ?, ?, 'queued', '', ?, ?, ?, ?, ?)`
+           VALUES (?, ?, ?, 'queued', '', ?, ?, ?, ?, ?, ?, ?, ?)`
         )
         .run(
           input.project_id,
@@ -48,6 +52,9 @@ export class RunsRepo {
           branchHint,
           now,
           now,
+          input.parent_run_id ?? null,
+          input.kind ?? 'work',
+          input.kind_args_json ?? null,
           input.model ?? null,
           input.effort ?? null,
           input.subagent_model ?? null,
@@ -280,6 +287,16 @@ export class RunsRepo {
     this.db.prepare('UPDATE runs SET last_limit_reset_at = ? WHERE id = ?').run(resetAt, id);
   }
 
+  markResumeFailed(id: number, error: string): void {
+    const now = Date.now();
+    this.db
+      .prepare(
+        `UPDATE runs SET state='resume_failed', container_id=NULL, error=?,
+         finished_at=?, state_entered_at=? WHERE id=?`
+      )
+      .run(error, now, now, id);
+  }
+
   markFinished(id: number, f: FinishInput): void {
     if (f.branch_name !== undefined && f.branch_name !== null && f.branch_name !== '') {
       this.db
@@ -325,6 +342,12 @@ export class RunsRepo {
     return { items, total };
   }
 
+  listByParent(parentRunId: number): Run[] {
+    return this.db
+      .prepare('SELECT * FROM runs WHERE parent_run_id = ? ORDER BY id ASC')
+      .all(parentRunId) as Run[];
+  }
+
   listSiblings(runId: number, limit = 10): Run[] {
     const self = this.get(runId);
     if (!self) return [];
@@ -339,5 +362,30 @@ export class RunsRepo {
 
   delete(id: number): void {
     this.db.prepare('DELETE FROM runs WHERE id = ?').run(id);
+  }
+
+  setBaseBranch(id: number, baseBranch: string | null): void {
+    this.db.prepare('UPDATE runs SET base_branch = ? WHERE id = ?')
+      .run(baseBranch, id);
+  }
+
+  setBranchName(id: number, name: string): void {
+    this.db.prepare('UPDATE runs SET branch_name = ? WHERE id = ?').run(name, id);
+  }
+
+  setMirrorStatus(id: number, status: MirrorStatus): void {
+    this.db.prepare('UPDATE runs SET mirror_status = ? WHERE id = ?')
+      .run(status, id);
+  }
+
+  listActiveByBranch(projectId: number, branchName: string): Run[] {
+    return this.db
+      .prepare(
+        `SELECT * FROM runs
+          WHERE project_id = ? AND branch_name = ?
+            AND state NOT IN ('succeeded','failed','cancelled','resume_failed')
+          ORDER BY id DESC`
+      )
+      .all(projectId, branchName) as Run[];
   }
 }

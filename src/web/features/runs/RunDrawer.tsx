@@ -1,27 +1,42 @@
 import { useState, type ReactNode } from 'react';
 import { Tabs } from '@ui/primitives/Tabs.js';
 import { Drawer } from '@ui/primitives/Drawer.js';
+import type { ShipDot } from './ship/computeShipDot.js';
 
-export type RunTab = 'files' | 'github' | 'tunnel' | 'meta';
+export type RunTab = 'changes' | 'ship' | 'tunnel' | 'meta';
 
 export interface RunDrawerProps {
   open: boolean;
   onToggle: (next: boolean) => void;
-  filesCount: number;
+  changesCount: number;
   portsCount: number | null;
+  shipDot: ShipDot;
   height: number;
   onHeightChange: (h: number) => void;
   children: (tab: RunTab) => ReactNode;
 }
 
 export function RunDrawer({
-  open, onToggle, filesCount, portsCount, height, onHeightChange, children,
+  open, onToggle, changesCount, portsCount, shipDot,
+  height, onHeightChange, children,
 }: RunDrawerProps) {
-  const [tab, setTab] = useState<RunTab>('files');
+  const [tab, setTab] = useState<RunTab>('changes');
   const pickTab = (next: RunTab): void => {
     setTab(next);
     if (!open) onToggle(true);
   };
+  const shipLabel = (
+    <span className="inline-flex items-center gap-1.5">
+      ship
+      {shipDot && (
+        <span
+          role="img"
+          aria-label={shipDot === 'amber' ? 'branch is stale' : 'ready to ship'}
+          className={`inline-block w-1.5 h-1.5 rounded-full ${shipDot === 'amber' ? 'bg-warn' : 'bg-accent'}`}
+        />
+      )}
+    </span>
+  );
   return (
     <Drawer
       open={open}
@@ -33,8 +48,8 @@ export function RunDrawer({
           value={tab}
           onChange={pickTab}
           tabs={[
-            { value: 'files', label: 'files', count: filesCount },
-            { value: 'github', label: 'github' },
+            { value: 'changes', label: 'changes', count: changesCount },
+            { value: 'ship', label: shipLabel },
             { value: 'tunnel', label: 'tunnel', count: portsCount ?? undefined },
             { value: 'meta', label: 'meta' },
           ]}

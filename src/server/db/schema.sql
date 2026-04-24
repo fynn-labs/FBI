@@ -12,6 +12,8 @@ CREATE TABLE IF NOT EXISTS projects (
   mem_mb INTEGER,
   cpus REAL,
   pids_limit INTEGER,
+  default_merge_strategy TEXT NOT NULL DEFAULT 'squash'
+    CHECK (default_merge_strategy IN ('merge', 'rebase', 'squash')),
   created_at INTEGER NOT NULL,
   updated_at INTEGER NOT NULL
 );
@@ -40,6 +42,13 @@ CREATE TABLE IF NOT EXISTS runs (
   finished_at INTEGER,
   created_at INTEGER NOT NULL,
   state_entered_at INTEGER NOT NULL DEFAULT 0,
+  parent_run_id INTEGER REFERENCES runs(id) ON DELETE SET NULL,
+  kind TEXT NOT NULL DEFAULT 'work'
+    CHECK (kind IN ('work', 'merge-conflict', 'polish')),
+  kind_args_json TEXT,
+  base_branch TEXT,
+  mirror_status TEXT
+    CHECK (mirror_status IS NULL OR mirror_status IN ('ok','diverged','local_only')),
   model TEXT,
   effort TEXT,
   subagent_model TEXT

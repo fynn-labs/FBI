@@ -578,6 +578,77 @@ describe('RunsRepo.state_entered_at', () => {
   });
 });
 
+describe('base_branch and mirror_status', () => {
+  let runs: RunsRepo;
+  let projectId: number;
+  beforeEach(() => {
+    const r = makeRepos();
+    runs = r.runs;
+    projectId = r.projectId;
+  });
+
+  it('setBranchName updates branch_name', () => {
+    const r = runs.create({
+      project_id: projectId,
+      prompt: 'x',
+      branch_hint: 'feat/x',
+      log_path_tmpl: (id) => `/tmp/${id}.log`,
+    });
+    runs.setBranchName(r.id, 'claude/run-99');
+    expect(runs.get(r.id)!.branch_name).toBe('claude/run-99');
+  });
+
+  it('persists base_branch and mirror_status', () => {
+    const r = runs.create({
+      project_id: projectId,
+      prompt: 'x',
+      branch_hint: 'claude/run-1',
+      log_path_tmpl: (id) => `/tmp/${id}.log`,
+    });
+    expect(runs.get(r.id)!.base_branch).toBeNull();
+    expect(runs.get(r.id)!.mirror_status).toBeNull();
+
+    runs.setBaseBranch(r.id, 'feat/x');
+    runs.setMirrorStatus(r.id, 'diverged');
+
+    const fresh = runs.get(r.id)!;
+    expect(fresh.base_branch).toBe('feat/x');
+    expect(fresh.mirror_status).toBe('diverged');
+  });
+
+  it('accepts local_only as a valid mirror_status', () => {
+    const r = runs.create({
+      project_id: projectId, prompt: 'x',
+      log_path_tmpl: (id) => `/tmp/${id}.log`,
+    });
+    runs.setMirrorStatus(r.id, 'local_only');
+    expect(runs.get(r.id)!.mirror_status).toBe('local_only');
+  });
+});
+
+describe('listActiveByBranch', () => {
+  let runs: RunsRepo;
+  let projectId: number;
+  beforeEach(() => {
+    const r = makeRepos();
+    runs = r.runs;
+    projectId = r.projectId;
+  });
+
+  it('returns non-terminal runs matching the branch', () => {
+    const a = runs.create({ project_id: projectId, prompt: 'a', log_path_tmpl: (i) => `/tmp/${i}.log` });
+    runs.setBranchName(a.id, 'feat/x');
+    runs.markStartingFromQueued(a.id, 'c1');
+    runs.markRunning(a.id);
+    const b = runs.create({ project_id: projectId, prompt: 'b', log_path_tmpl: (i) => `/tmp/${i}.log` });
+    runs.setBranchName(b.id, 'feat/x');
+    runs.markStartingFromQueued(b.id, 'c2');
+    runs.markFinished(b.id, { state: 'succeeded' });
+    const matches = runs.listActiveByBranch(projectId, 'feat/x');
+    expect(matches.map((r) => r.id)).toEqual([a.id]);
+  });
+});
+
 describe('waiting-state transitions', () => {
   function seedRunning() {
     const { runs: repo, projectId } = makeRepos();

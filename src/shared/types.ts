@@ -6,7 +6,10 @@ export type RunState =
   | 'awaiting_resume'
   | 'succeeded'
   | 'failed'
-  | 'cancelled';
+  | 'cancelled'
+  | 'resume_failed';
+
+export type MirrorStatus = 'ok' | 'diverged' | 'local_only' | null;
 
 export interface Project {
   id: number;
@@ -22,6 +25,7 @@ export interface Project {
   mem_mb: number | null;
   cpus: number | null;
   pids_limit: number | null;
+  default_merge_strategy: 'merge' | 'rebase' | 'squash';
   created_at: number;
   updated_at: number;
   last_run?: { id: number; state: RunState; created_at: number } | null;
@@ -56,6 +60,10 @@ export interface Run {
   title: string | null;
   title_locked: 0 | 1;
   parent_run_id: number | null;
+  kind: 'work' | 'merge-conflict' | 'polish';
+  kind_args_json: string | null;
+  base_branch: string | null;
+  mirror_status: MirrorStatus;
   model: string | null;
   effort: string | null;
   subagent_model: string | null;
@@ -205,9 +213,91 @@ export interface FilesPayload {
   headFiles: FilesHeadEntry[];
   branchBase: { base: string; ahead: number; behind: number } | null;
   live: boolean;
+  dirty_submodules?: SubmoduleDirty[];
+  mirror_status?: MirrorStatus;
 }
 
-export type RunWsFilesMessage = { type: 'files' } & FilesPayload;
+export type MergeStrategy = 'merge' | 'rebase' | 'squash';
+
+export interface WipPayload {
+  snapshot_sha: string;
+  parent_sha: string;
+  files: FilesDirtyEntry[];
+}
+
+export type HistoryOp =
+  | { op: 'merge'; strategy?: MergeStrategy }
+  | { op: 'sync' }
+  | { op: 'squash-local'; subject: string }
+  | { op: 'polish' }
+  | { op: 'push-submodule'; path: string }
+  | { op: 'mirror-rebase' };
+
+export type HistoryResult =
+  | { kind: 'complete'; sha?: string }
+  | { kind: 'agent'; child_run_id: number }
+  | { kind: 'conflict'; child_run_id: number }
+  | { kind: 'agent-busy' }
+  | { kind: 'invalid'; message: string }
+  | { kind: 'git-error'; message: string }
+  | { kind: 'git-unavailable' };
+
+export interface SubmoduleBump {
+  path: string;
+  url: string | null;
+  from: string;
+  to: string;
+  commits: ChangeCommit[];
+  commits_truncated: boolean;
+}
+
+export interface SubmoduleDirty {
+  path: string;
+  url: string | null;
+  dirty: FilesDirtyEntry[];
+  unpushed_commits: ChangeCommit[];
+  unpushed_truncated: boolean;
+}
+
+export interface ChildRunSummary {
+  id: number;
+  kind: 'work' | 'merge-conflict' | 'polish';
+  state: RunState;
+  created_at: number;
+}
+
+export interface ChangeCommit {
+  sha: string;
+  subject: string;
+  committed_at: number;
+  pushed: boolean;
+  files: FilesHeadEntry[];
+  files_loaded: boolean;
+  submodule_bumps: SubmoduleBump[];
+}
+
+export interface ChangesPayload {
+  branch_name: string | null;
+  branch_base: { base: string; ahead: number; behind: number } | null;
+  commits: ChangeCommit[];
+  uncommitted: FilesDirtyEntry[];
+  integrations: {
+    github?: {
+      pr: { number: number; url: string; state: 'OPEN' | 'CLOSED' | 'MERGED'; title: string } | null;
+      checks: {
+        state: 'pending' | 'success' | 'failure';
+        passed: number;
+        failed: number;
+        total: number;
+        items: GithubCheckItem[];
+      } | null;
+    };
+  };
+  dirty_submodules: SubmoduleDirty[];
+  children: ChildRunSummary[];
+}
+
+export type RunWsChangesMessage = { type: 'changes' } & ChangesPayload;
 
 export interface GithubCommit {
   sha: string;
@@ -235,11 +325,6 @@ export interface GithubPayload {
   commits: GithubCommit[];
   github_available: boolean;
 }
-
-export type MergeResponse =
-  | { merged: true; sha: string }
-  | { merged: false; reason: 'conflict'; agent: true }
-  | { merged: false; reason: 'conflict' | 'agent-busy' | 'gh-not-available' | 'not-github' | 'no-branch' | 'no-pr' | 'gh-error' | 'already-merged'; agent?: false };
 
 export interface FileDiffHunk {
   header: string;

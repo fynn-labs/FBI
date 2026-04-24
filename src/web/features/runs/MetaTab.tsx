@@ -15,6 +15,7 @@ const TONE: Record<Run['state'], PillTone> = {
   succeeded: 'ok',
   failed: 'fail',
   cancelled: 'warn',
+  resume_failed: 'fail',
 };
 
 function formatReset(ms: number | null): string | null {

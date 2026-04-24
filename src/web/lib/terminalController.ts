@@ -2,14 +2,14 @@ import type { Terminal as Xterm } from '@xterm/xterm';
 import { Terminal as XtermImpl } from '@xterm/xterm';
 import { FitAddon } from '@xterm/addon-fit';
 import { acquireShell, releaseShell, getLastSnapshot } from './shellRegistry.js';
-import { publishUsage, publishState, publishTitle, publishFiles } from '../features/runs/usageBus.js';
+import { publishUsage, publishState, publishTitle, publishChanges } from '../features/runs/usageBus.js';
 import { record as traceRecord, strPreview } from './terminalTrace.js';
 import type { ShellHandle } from './ws.js';
 import type {
   UsageSnapshot,
   RunWsStateMessage,
   RunWsTitleMessage,
-  FilesPayload,
+  ChangesPayload,
 } from '@shared/types.js';
 
 /**
@@ -71,7 +71,7 @@ export class TerminalController {
       if (msg.type === 'usage') publishUsage(runId, msg.snapshot as UsageSnapshot);
       else if (msg.type === 'state') publishState(runId, msg as unknown as RunWsStateMessage);
       else if (msg.type === 'title') publishTitle(runId, msg as unknown as RunWsTitleMessage);
-      else if (msg.type === 'files') publishFiles(runId, msg as unknown as FilesPayload);
+      else if (msg.type === 'changes') publishChanges(runId, msg as unknown as ChangesPayload);
     });
 
     this.unsubSnapshot = this.shell.onSnapshot((snap) => {

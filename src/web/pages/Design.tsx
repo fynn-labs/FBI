@@ -3,7 +3,7 @@ import {
   Button, IconButton, Link, Kbd, Pill, StatusDot, Tag,
   Input, Textarea, Toggle, Checkbox, Select,
   Card, Section, Tabs, Dialog, Drawer, Menu, Tooltip, Table, THead, TR, TH, TD,
-  ExternalLink, PlayIcon, GearIcon,
+  ExternalLink, PlayIcon, GearIcon, ChevronDownIcon,
 } from '@ui/primitives/index.js';
 import { FormRow, KeyboardHint, EmptyState, LoadingState, ErrorState, SplitPane } from '@ui/patterns/index.js';
 import { StatCard, ProgressBar, Sparkline, TimestampRelative, CodeBlock, FilterChip, DiffRow, DiffBlock } from '@ui/data/index.js';
@@ -46,6 +46,7 @@ export function DesignPage() {
         <div className="flex items-center gap-4 flex-wrap text-text-dim">
           <span className="flex items-center gap-1"><PlayIcon /> play</span>
           <span className="flex items-center gap-1"><GearIcon /> gear</span>
+          <span className="flex items-center gap-1"><ChevronDownIcon /> chevron-down</span>
         </div>
       </Section>
 

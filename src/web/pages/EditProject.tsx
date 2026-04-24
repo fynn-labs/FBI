@@ -2,7 +2,7 @@ import { useEffect, useState, type FormEvent } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { api } from '../lib/api.js';
 import { FormRow } from '@ui/patterns/FormRow.js';
-import { Input, Textarea, Button, Section } from '@ui/primitives/index.js';
+import { Input, Textarea, Button, Section, Select } from '@ui/primitives/index.js';
 import { ErrorState, LoadingState } from '@ui/patterns/index.js';
 import { JsonEditor } from '../components/JsonEditor.js';
 import { SecretsEditor } from '../components/SecretsEditor.js';
@@ -23,6 +23,7 @@ export function EditProjectPage() {
   const [marketplaces, setMarketplaces] = useState<string[]>([]);
   const [plugins, setPlugins] = useState<string[]>([]);
   const [devcontainerJson, setDevcontainerJson] = useState('');
+  const [mergeStrategy, setMergeStrategy] = useState<'merge' | 'rebase' | 'squash'>('squash');
   const [error, setError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
 
@@ -38,6 +39,7 @@ export function EditProjectPage() {
       setMarketplaces(p.marketplaces ?? []);
       setPlugins(p.plugins ?? []);
       setDevcontainerJson(p.devcontainer_override_json ?? '');
+      setMergeStrategy(p.default_merge_strategy);
     });
   }, [pid]);
 
@@ -52,6 +54,7 @@ export function EditProjectPage() {
         git_author_name: gitAuthorName.trim() || null,
         git_author_email: gitAuthorEmail.trim() || null,
         marketplaces, plugins,
+        default_merge_strategy: mergeStrategy,
       });
       nav(`/projects/${pid}`);
     } catch (err) {
@@ -76,6 +79,16 @@ export function EditProjectPage() {
       <Section title="Git (overrides)">
         <FormRow label="Author name"><Input className="w-full" value={gitAuthorName} onChange={(e) => setGitAuthorName(e.target.value)} /></FormRow>
         <FormRow label="Author email"><Input className="w-full" value={gitAuthorEmail} onChange={(e) => setGitAuthorEmail(e.target.value)} /></FormRow>
+      </Section>
+
+      <Section title="Default merge strategy">
+        <FormRow label="When shipping to main">
+          <Select value={mergeStrategy} onChange={(e) => setMergeStrategy(e.target.value as 'merge' | 'rebase' | 'squash')}>
+            <option value="merge">Merge commit — preserves branch history</option>
+            <option value="rebase">Rebase &amp; fast-forward — linear history</option>
+            <option value="squash">Squash &amp; merge — single commit on main</option>
+          </Select>
+        </FormRow>
       </Section>
 
       <Section title="Agent">

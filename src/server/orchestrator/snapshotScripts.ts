@@ -10,12 +10,16 @@ export function snapshotScripts(
   destDir: string,
   srcSupervisor: string,
   srcFinalize: string,
+  srcHistoryOp: string,
 ): void {
   fs.mkdirSync(destDir, { recursive: true });
   const sup = path.join(destDir, 'supervisor.sh');
   const fin = path.join(destDir, 'finalizeBranch.sh');
+  const hist = path.join(destDir, 'fbi-history-op.sh');
   fs.copyFileSync(srcSupervisor, sup);
   fs.copyFileSync(srcFinalize, fin);
+  fs.copyFileSync(srcHistoryOp, hist);
   fs.chmodSync(sup, 0o755);
   fs.chmodSync(fin, 0o755);
+  fs.chmodSync(hist, 0o755);
 }

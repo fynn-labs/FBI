@@ -13,6 +13,8 @@ const baseRun: Run = {
   tokens_input: 100, tokens_output: 200, tokens_cache_read: 5000, tokens_cache_create: 1000,
   tokens_total: 300, usage_parse_errors: 0,
   title: null, title_locked: 0, parent_run_id: null,
+  kind: 'work' as const, kind_args_json: null,
+  base_branch: null, mirror_status: null,
   model: null, effort: null, subagent_model: null,
 };
 

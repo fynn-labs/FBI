@@ -3,6 +3,7 @@ import type Docker from 'dockerode';
 export interface DockerExecOptions {
   timeoutMs?: number;
   workingDir?: string;
+  env?: string[];
 }
 
 export interface DockerExecResult {
@@ -22,6 +23,7 @@ export async function dockerExec(
     AttachStdout: true,
     AttachStderr: true,
     ...(workingDir ? { WorkingDir: workingDir } : {}),
+    ...(opts.env ? { Env: opts.env } : {}),
   });
   const stream = await exec.start({ hijack: true, stdin: false });
 

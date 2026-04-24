@@ -44,6 +44,7 @@ describe('NewProjectPage', () => {
     expect(screen.getByLabelText(/marketplaces/i)).toBeInTheDocument();
     expect(screen.getByLabelText(/plugins/i)).toBeInTheDocument();
     expect(screen.getByLabelText(/devcontainer/i)).toBeInTheDocument();
+    expect(screen.getByLabelText(/when shipping to main/i)).toBeInTheDocument();
   });
 
   it('passes all fields to api.createProject on submit', async () => {
@@ -81,6 +82,7 @@ describe('NewProjectPage', () => {
         mem_mb: null,
         cpus: null,
         pids_limit: null,
+        default_merge_strategy: 'squash',
       });
     });
   });

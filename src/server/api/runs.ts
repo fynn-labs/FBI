@@ -12,9 +12,15 @@ import { promoteDraft } from '../uploads/promote.js';
 import { isDraftToken } from '../uploads/token.js';
 import { validateModelParams } from './modelParams.js';
 import type {
-  FilesPayload, FilesHeadEntry, FileDiffPayload, FileDiffHunk,
-  GithubPayload, MergeResponse,
+  FilesPayload, FilesHeadEntry,
+  GithubPayload, HistoryOp, HistoryResult, MergeStrategy,
+  ChildRunSummary, SubmoduleBump, SubmoduleDirty,
+  FilesDirtyEntry, FileDiffPayload,
 } from '../../shared/types.js';
+import type { ChangesPayload, ChangeCommit } from '../../shared/types.js';
+import type { ParsedOpResult } from '../orchestrator/historyOp.js';
+import { parseUnifiedDiff } from '../diffParse.js';
+import { SafeguardRepo } from '../orchestrator/safeguardRepo.js';
 
 interface GhDeps {
   available(): Promise<boolean>;
@@ -23,15 +29,25 @@ interface GhDeps {
   createPr(repo: string, p: { head: string; base: string; title: string; body: string }): Promise<{ number: number; url: string; state: 'OPEN' | 'CLOSED' | 'MERGED'; title: string }>;
   compareFiles(repo: string, base: string, head: string): Promise<Array<{ filename: string; additions: number; deletions: number; status: string }>>;
   commitsOnBranch(repo: string, branch: string): Promise<Array<{ sha: string; subject: string; committed_at: number; pushed: boolean }>>;
-  mergeBranch(repo: string, head: string, base: string, commit_message: string): Promise<
-    { merged: true; sha: string } | { merged: false; reason: 'conflict' | 'gh-error' | 'already-merged' }
-  >;
 }
 
 interface OrchestratorDep {
   writeStdin(runId: number, bytes: Uint8Array): void;
-  getLastFiles(runId: number): FilesPayload | null;
   execInContainer(runId: number, cmd: string[], opts?: { timeoutMs?: number }): Promise<{ stdout: string; stderr: string; exitCode: number }>;
+  execHistoryOp(runId: number, op: HistoryOp): Promise<ParsedOpResult>;
+  spawnSubRun(parentRunId: number, kind: 'merge-conflict' | 'polish', argsJson: string): Promise<number>;
+  deleteRun(runId: number): void;
+  initSafeguard(runId: number): void;
+}
+
+interface WipRepoDep {
+  exists(runId: number): boolean;
+  snapshotSha(runId: number): string | null;
+  parentSha(runId: number): string | null;
+  readSnapshotFiles(runId: number): FilesDirtyEntry[];
+  readSnapshotDiff(runId: number, filePath: string): FileDiffPayload;
+  readSnapshotPatch(runId: number): string;
+  deleteWipRef(runId: number): void;
 }
 
 interface Deps {
@@ -47,6 +63,7 @@ interface Deps {
   continueRun: (runId: number) => Promise<void>;
   markStartingForContinueRequest: (runId: number) => void;  // NEW
   orchestrator: OrchestratorDep;
+  wipRepo: WipRepoDep;
 }
 
 const GH_STATUS_TTL_MS = 10_000;
@@ -62,24 +79,58 @@ function setCached(runId: number, value: GithubPayload): void {
 }
 function invalidate(runId: number): void { ghStatusCache.delete(runId); }
 
-function parseUnifiedDiff(raw: string, path: string, ref: string): FileDiffPayload {
-  const MAX = 256 * 1024;
-  const truncated = raw.length > MAX;
-  const body = truncated ? raw.slice(0, MAX) : raw;
-  const hunks: FileDiffHunk[] = [];
-  let current: FileDiffHunk | null = null;
-  for (const line of body.split('\n')) {
-    if (line.startsWith('@@')) {
-      current = { header: line, lines: [] };
-      hunks.push(current);
+const CHANGES_TTL_MS = 10_000;
+const changesCache = new Map<number, { value: ChangesPayload; expiresAt: number }>();
+function getChangesCached(runId: number): ChangesPayload | null {
+  const e = changesCache.get(runId);
+  if (!e || Date.now() > e.expiresAt) return null;
+  return e.value;
+}
+function setChangesCached(runId: number, value: ChangesPayload): void {
+  changesCache.set(runId, { value, expiresAt: Date.now() + CHANGES_TTL_MS });
+}
+function invalidateChanges(runId: number): void { changesCache.delete(runId); }
+
+
+function parseNumstat(raw: string): import('../../shared/types.js').FilesHeadEntry[] {
+  const out: import('../../shared/types.js').FilesHeadEntry[] = [];
+  for (const line of raw.split('\n')) {
+    if (!line) continue;
+    const [a, d, p] = line.split('\t');
+    if (!p) continue;
+    const adds = a === '-' ? 0 : Number.parseInt(a, 10) || 0;
+    const dels = d === '-' ? 0 : Number.parseInt(d, 10) || 0;
+    const status: 'A' | 'M' | 'D' =
+      adds === 0 && dels > 0 ? 'D' :
+      dels === 0 && adds > 0 ? 'A' : 'M';
+    out.push({ path: p, status, additions: adds, deletions: dels });
+  }
+  return out;
+}
+
+interface RawBump {
+  path: string;
+  from: string;
+  to: string;
+  subjects: Array<{ sha: string; subject: string }>;
+}
+
+export function parseSubmoduleLog(raw: string): RawBump[] {
+  const out: RawBump[] = [];
+  let current: RawBump | null = null;
+  for (const line of raw.split('\n')) {
+    const header = line.match(/^Submodule (\S+) ([0-9a-f]+)\.\.([0-9a-f]+):?/);
+    if (header) {
+      current = { path: header[1], from: header[2], to: header[3], subjects: [] };
+      out.push(current);
       continue;
     }
-    if (!current) continue;
-    if (line.startsWith('+') && !line.startsWith('+++')) current.lines.push({ kind: 'add', text: line.slice(1) });
-    else if (line.startsWith('-') && !line.startsWith('---')) current.lines.push({ kind: 'del', text: line.slice(1) });
-    else if (line.startsWith(' ')) current.lines.push({ kind: 'ctx', text: line.slice(1) });
+    const commit = line.match(/^  > ([0-9a-f]+) (.+)$/);
+    if (current && commit) {
+      current.subjects.push({ sha: commit[1], subject: commit[2] });
+    }
   }
-  return { path, ref: ref === 'worktree' ? 'worktree' : ref, hunks, truncated };
+  return out;
 }
 
 export function registerRunsRoutes(app: FastifyInstance, deps: Deps): void {
@@ -139,8 +190,20 @@ export function registerRunsRoutes(app: FastifyInstance, deps: Deps): void {
     if (!verdict.ok) {
       return reply.code(400).send({ error: verdict.message });
     }
+    const projectId = Number(id);
+    const force = (body as { force?: unknown }).force === true;
+    if (hint !== '' && !force) {
+      const active = deps.runs.listActiveByBranch(projectId, hint);
+      if (active.length > 0) {
+        return reply.code(409).send({
+          error: 'branch_in_use',
+          active_run_id: active[0].id,
+          message: `Run #${active[0].id} is already using branch "${hint}". Pass { force: true } to start another run on the same branch anyway.`,
+        });
+      }
+    }
     const run = deps.runs.create({
-      project_id: Number(id),
+      project_id: projectId,
       prompt: body.prompt,
       branch_hint: hint === '' ? undefined : hint,
       log_path_tmpl: (rid) => path.join(deps.runsDir, `${rid}.log`),
@@ -157,7 +220,7 @@ export function registerRunsRoutes(app: FastifyInstance, deps: Deps): void {
           runId: run.id,
         });
       } catch (err) {
-        // Rollback: delete the run row and its (possibly partial) uploads dir.
+        // Rollback: delete the run row and any uploads dir. initSafeguard has not run yet, so no wip.git exists.
         deps.runs.delete(run.id);
         try {
           fs.rmSync(path.join(deps.runsDir, String(run.id)), { recursive: true, force: true });
@@ -166,6 +229,20 @@ export function registerRunsRoutes(app: FastifyInstance, deps: Deps): void {
         return reply.code(422).send({ error: 'promotion_failed' });
       }
     }
+    // Normalize branch_name: the user's typed branch is primary. When they
+    // don't type one, we default to claude/run-N so there's still a valid
+    // target for the agent and the UI. supervisor.sh also creates a mirror
+    // claude/run-N copy alongside the primary.
+    const effectiveBranch = hint !== '' ? hint : `claude/run-${run.id}`;
+    if (run.branch_name !== effectiveBranch) {
+      deps.runs.setBranchName(run.id, effectiveBranch);
+      run.branch_name = effectiveBranch;
+    }
+    // Provision the safeguard bare repo now that draft promotion has succeeded.
+    // Cheap, and lets the /safeguard bind mount start synchronously when the
+    // container launches. If launch itself fails later, the delete-run codepath
+    // cleans up via wipRepo.remove (called from deleteRun in orchestrator/index.ts).
+    deps.orchestrator.initSafeguard(run.id);
     void deps.launch(run.id).catch((err) => app.log.error({ err }, 'launch failed'));
     reply.code(201);
     return run;
@@ -178,8 +255,7 @@ export function registerRunsRoutes(app: FastifyInstance, deps: Deps): void {
     if (run.state === 'running' || run.state === 'awaiting_resume') {
       await deps.cancel(run.id);
     } else {
-      deps.runs.delete(run.id);
-      try { fs.unlinkSync(run.log_path); } catch { /* noop */ }
+      deps.orchestrator.deleteRun(run.id);
     }
     return reply.code(204).send();
   });
@@ -264,83 +340,141 @@ export function registerRunsRoutes(app: FastifyInstance, deps: Deps): void {
     return Buffer.from(bytes);
   });
 
-  app.get('/api/runs/:id/github', async (req, reply) => {
+  app.get('/api/runs/:id/changes', async (req, reply) => {
     const { id } = req.params as { id: string };
     const runId = Number(id);
     const run = deps.runs.get(runId);
     if (!run) return reply.code(404).send({ error: 'not found' });
 
-    const cached = getCached(runId);
+    const cached = getChangesCached(runId);
     if (cached) return cached;
 
     const project = deps.projects.get(run.project_id);
+    // Base branch = what we compute ahead/behind against and what Ship-tab
+    // actions target. Always the project default under the new model —
+    // run.base_branch is no longer the mirror target.
+    const baseBranch = project?.default_branch ?? 'main';
     const repo = project ? parseGitHubRepo(project.repo_url) : null;
-    const available = await deps.gh.available();
-    if (!available || !repo || !run.branch_name) {
-      const payload: GithubPayload = {
-        pr: null, checks: null, commits: [], github_available: available && !!repo,
+    const ghAvail = await deps.gh.available();
+
+    const commits: ChangeCommit[] = [];
+    let ghPayload: ChangesPayload['integrations']['github'] | undefined;
+
+    // Read commits from the safeguard bare repo. These are not-yet-pushed
+    // from GitHub's POV until we hear back from gh; we set pushed=false for
+    // everything from the safeguard and flip to true for those gh reports.
+    const safeguard = new SafeguardRepo(path.join(deps.runsDir, String(runId), 'wip.git'));
+    const safeguardCommits = run.branch_name ? safeguard.listCommits(run.branch_name, '') : [];
+
+    if (repo && ghAvail && run.branch_name) {
+      const [pr, checks, ghCommits] = await Promise.all([
+        deps.gh.prForBranch(repo, run.branch_name).catch(() => null),
+        deps.gh.prChecks(repo, run.branch_name).catch(() => [] as Check[]),
+        deps.gh.commitsOnBranch(repo, run.branch_name).catch(() => []),
+      ]);
+      const ghShas = new Set(ghCommits.map((c) => c.sha));
+      for (const c of ghCommits) {
+        commits.push({
+          sha: c.sha, subject: c.subject, committed_at: c.committed_at,
+          pushed: true, files: [], files_loaded: false, submodule_bumps: [],
+        });
+      }
+      for (const c of safeguardCommits) {
+        if (!ghShas.has(c.sha)) commits.push(c);
+      }
+      const passed = checks.filter((c) => c.conclusion === 'success').length;
+      const failed = checks.filter((c) => c.conclusion === 'failure').length;
+      const total = checks.length;
+      const state = total === 0 ? null
+        : failed > 0 ? 'failure'
+        : checks.every((c) => c.status === 'completed') ? 'success'
+        : 'pending';
+      ghPayload = {
+        pr: pr ? { number: pr.number, url: pr.url, state: pr.state, title: pr.title } : null,
+        checks: total === 0 || state === null ? null : {
+          state, passed, failed, total,
+          items: checks.map((c) => ({ name: c.name, status: c.status, conclusion: c.conclusion, duration_ms: null })),
+        },
       };
-      setCached(runId, payload);
-      return payload;
+    } else {
+      for (const c of safeguardCommits) commits.push(c);
     }
 
-    const pr = await deps.gh.prForBranch(repo, run.branch_name).catch(() => null);
-    const checks = await deps.gh.prChecks(repo, run.branch_name).catch(() => [] as Check[]);
-    const commits = await deps.gh.commitsOnBranch(repo, run.branch_name).catch(() => []);
-    const passed = checks.filter((c) => c.conclusion === 'success').length;
-    const failed = checks.filter((c) => c.conclusion === 'failure').length;
-    const total = checks.length;
-    const state = total === 0 ? null :
-      (failed > 0 ? 'failure' :
-       checks.every((c) => c.status === 'completed') ? 'success' : 'pending');
+    // Submodule bumps: under the safeguard model this data is not surfaced
+    // in the real-time path (container may be gone; reading from safeguard
+    // would require submodule objects we don't store there). Ship with
+    // empty arrays.
+    for (const c of commits) c.submodule_bumps = [];
 
-    const payload: GithubPayload = {
-      pr: pr ? { number: pr.number, url: pr.url, state: pr.state, title: pr.title } : null,
-      checks: total === 0 || state === null ? null : {
-        state, passed, failed, total,
-        items: checks.map((c) => ({
-          name: c.name, status: c.status, conclusion: c.conclusion, duration_ms: null,
-        })),
-      },
+    const children: ChildRunSummary[] = deps.runs.listByParent(runId).map((r) => ({
+      id: r.id,
+      kind: r.kind,
+      state: r.state,
+      created_at: r.created_at,
+    }));
+
+    const payload: ChangesPayload = {
+      branch_name: run.branch_name || null,
+      branch_base: null,  // UI no longer depends on this in safeguard mode
       commits,
-      github_available: true,
+      uncommitted: [],  // scope A — no uncommitted
+      integrations: ghPayload ? { github: ghPayload } : {},
+      dirty_submodules: [],
+      children,
     };
-    setCached(runId, payload);
+    setChangesCached(runId, payload);
     return payload;
   });
 
-  app.get('/api/runs/:id/files', async (req, reply) => {
+  app.get('/api/runs/:id/commits/:sha/files', async (req, reply) => {
+    const { id, sha } = req.params as { id: string; sha: string };
+    const runId = Number(id);
+    const run = deps.runs.get(runId);
+    if (!run) return reply.code(404).send({ error: 'not found' });
+    if (!/^[0-9a-f]{7,40}$/.test(sha)) return reply.code(400).send({ error: 'invalid sha' });
+
+    // Prefer docker exec on a live container — works for any commit.
+    try {
+      const r = await deps.orchestrator.execInContainer(runId, [
+        'git', '-C', '/workspace', 'show', '--numstat', '--format=', sha,
+      ], { timeoutMs: 5000 });
+      if (r.exitCode === 0) return { files: parseNumstat(r.stdout) };
+    } catch { /* no container — fall through */ }
+
+    // Fallback: gh api compare parent..sha.
+    const project = deps.projects.get(run.project_id);
+    const repo = project ? parseGitHubRepo(project.repo_url) : null;
+    if (!repo || !(await deps.gh.available())) return { files: [] };
+    const files = await deps.gh.compareFiles(repo, `${sha}^`, sha).catch(() => []);
+    return {
+      files: files.map((f) => ({
+        path: f.filename,
+        status: (f.status === 'added' ? 'A' : f.status === 'removed' ? 'D' : f.status === 'renamed' ? 'R' : 'M') as 'A'|'D'|'M'|'R',
+        additions: f.additions, deletions: f.deletions,
+      })),
+    };
+  });
+
+  app.get('/api/runs/:id/submodule/*', async (req, reply) => {
+    const rawPath = (req.params as { '*': string })['*'];
+    // expected: <submodule-path>/commits/<sha>/files
+    const m = rawPath.match(/^(.+)\/commits\/([0-9a-f]{7,40})\/files$/);
+    if (!m) return reply.code(404).send({ error: 'not found' });
+    const [, submodulePath, sha] = m;
+    if (submodulePath.includes('..')) return reply.code(400).send({ error: 'invalid path' });
+
     const { id } = req.params as { id: string };
     const runId = Number(id);
     const run = deps.runs.get(runId);
     if (!run) return reply.code(404).send({ error: 'not found' });
 
-    const live = deps.orchestrator.getLastFiles(runId);
-    if (live) return live;
-
-    const project = deps.projects.get(run.project_id);
-    const repo = project ? parseGitHubRepo(project.repo_url) : null;
-    const available = await deps.gh.available();
-    if (!project || !repo || !run.branch_name || !available) {
-      return {
-        dirty: [], head: null, headFiles: [], branchBase: null, live: false,
-      } satisfies FilesPayload;
-    }
-    const files = await deps.gh.compareFiles(repo, project.default_branch, run.branch_name).catch(() => []);
-    const headFiles: FilesHeadEntry[] = files.map((f) => {
-      const status = f.status === 'added' ? 'A'
-        : f.status === 'removed' ? 'D'
-        : f.status === 'renamed' ? 'R'
-        : 'M';
-      return { path: f.filename, status, additions: f.additions, deletions: f.deletions };
-    });
-    return {
-      dirty: [],
-      head: null,
-      headFiles,
-      branchBase: { base: project.default_branch, ahead: headFiles.length > 0 ? 1 : 0, behind: 0 },
-      live: false,
-    } satisfies FilesPayload;
+    try {
+      const r = await deps.orchestrator.execInContainer(runId, [
+        'git', '-C', `/workspace/${submodulePath}`, 'show', '--numstat', '--format=', sha,
+      ], { timeoutMs: 5000 });
+      if (r.exitCode === 0) return { files: parseNumstat(r.stdout) };
+    } catch { /* no container */ }
+    return { files: [] };
   });
 
   app.get('/api/runs/:id/file-diff', async (req, reply) => {
@@ -398,56 +532,97 @@ export function registerRunsRoutes(app: FastifyInstance, deps: Deps): void {
     return pr;
   });
 
-  app.post('/api/runs/:id/github/merge', async (req, reply) => {
+  app.post('/api/runs/:id/history', async (req, reply) => {
     const { id } = req.params as { id: string };
     const runId = Number(id);
     const run = deps.runs.get(runId);
     if (!run) return reply.code(404).send({ error: 'not found' });
-    const project = deps.projects.get(run.project_id);
-    const repo = project ? parseGitHubRepo(project.repo_url) : null;
-    if (!project || !repo) {
-      return reply.code(400).send({ merged: false, reason: 'not-github' } satisfies MergeResponse);
-    }
     if (!run.branch_name) {
-      return reply.code(400).send({ merged: false, reason: 'no-branch' } satisfies MergeResponse);
+      return reply.code(400).send({ kind: 'invalid', message: 'run has no branch' } satisfies HistoryResult);
     }
-    if (!(await deps.gh.available())) {
-      return reply.code(503).send({ merged: false, reason: 'gh-not-available' } satisfies MergeResponse);
+    const body = req.body as Partial<HistoryOp> | null;
+    if (!body || typeof body !== 'object' || typeof (body as { op?: unknown }).op !== 'string') {
+      return reply.code(400).send({ kind: 'invalid', message: 'op required' } satisfies HistoryResult);
+    }
+    const op = body as HistoryOp;
+
+    // 'polish' is always agent-driven — no direct git path.
+    if (op.op === 'polish') {
+      const project = deps.projects.get(run.project_id);
+      const argsJson = JSON.stringify({
+        branch: run.branch_name,
+        default: project?.default_branch ?? 'main',
+      });
+      const childId = await deps.orchestrator.spawnSubRun(runId, 'polish', argsJson);
+      return { kind: 'agent', child_run_id: childId } satisfies HistoryResult;
     }
 
-    const commitMsg = `Merge branch '${run.branch_name}' (FBI run #${runId})`;
-    const r = await deps.gh.mergeBranch(repo, run.branch_name, project.default_branch, commitMsg);
-    if (r.merged) {
-      invalidate(runId);
-      return { merged: true, sha: r.sha } satisfies MergeResponse;
-    }
-    if (r.reason === 'already-merged') {
-      invalidate(runId);
-      return { merged: false, reason: 'already-merged' } satisfies MergeResponse;
-    }
-    if (r.reason !== 'conflict') {
-      return reply.code(500).send({ merged: false, reason: 'gh-error' } satisfies MergeResponse);
+    // For merge/sync/squash-local: resolve strategy default, then dispatch.
+    let resolved: HistoryOp = op;
+    if (op.op === 'merge' && !op.strategy) {
+      const project = deps.projects.get(run.project_id);
+      resolved = { op: 'merge', strategy: project?.default_merge_strategy ?? 'squash' };
     }
 
-    // Conflict. If the run's container is alive, inject a merge prompt via
-    // stdin so Claude resolves it. Otherwise the user needs a live container.
-    if (run.state !== 'running' && run.state !== 'waiting') {
-      return reply.code(409).send({ merged: false, reason: 'agent-busy' } satisfies MergeResponse);
-    }
-    const prompt =
-      `Merge branch ${run.branch_name} into ${project.default_branch}, ` +
-      `resolve conflicts, and push ${project.default_branch}. Steps:\n` +
-      `1. git fetch origin\n` +
-      `2. git checkout ${project.default_branch}\n` +
-      `3. git pull --ff-only origin ${project.default_branch}\n` +
-      `4. git merge --no-ff ${run.branch_name}\n` +
-      `5. If conflicts: resolve, git add, git commit.\n` +
-      `6. git push origin ${project.default_branch}\n`;
+    let result: ParsedOpResult;
     try {
-      deps.orchestrator.writeStdin(runId, Buffer.from(prompt + '\n'));
-      return { merged: false, reason: 'conflict', agent: true } satisfies MergeResponse;
+      result = await deps.orchestrator.execHistoryOp(runId, resolved);
     } catch {
-      return reply.code(409).send({ merged: false, reason: 'agent-busy' } satisfies MergeResponse);
+      return reply.code(503).send({ kind: 'git-unavailable' } satisfies HistoryResult);
     }
+
+    if (result.kind === 'complete') {
+      return { kind: 'complete', sha: result.sha } satisfies HistoryResult;
+    }
+    if (result.kind === 'conflict-detected') {
+      const project = deps.projects.get(run.project_id);
+      const strategy: MergeStrategy =
+        resolved.op === 'merge' ? (resolved.strategy ?? 'merge') : 'merge';
+      const argsJson = JSON.stringify({
+        branch: run.branch_name,
+        default: project?.default_branch ?? 'main',
+        strategy,
+      });
+      const childId = await deps.orchestrator.spawnSubRun(runId, 'merge-conflict', argsJson);
+      return { kind: 'conflict', child_run_id: childId } satisfies HistoryResult;
+    }
+    // gh-error: return 200 with the structured message so the client can
+    // surface it instead of throwing on HTTP 500.
+    return { kind: 'git-error', message: result.message } satisfies HistoryResult;
   });
+
+  app.get('/api/runs/:id/wip', async (req) => {
+    const id = Number((req.params as { id: string }).id);
+    if (!deps.wipRepo.exists(id)) return { ok: false, reason: 'no-wip' };
+    const snapshotSha = deps.wipRepo.snapshotSha(id);
+    if (!snapshotSha) return { ok: false, reason: 'no-wip' };
+    const files = deps.wipRepo.readSnapshotFiles(id);
+    if (files.length === 0) return { ok: false, reason: 'no-wip' };
+    const parentSha = deps.wipRepo.parentSha(id) ?? '';
+    return { ok: true, snapshot_sha: snapshotSha, parent_sha: parentSha, files };
+  });
+
+  app.get('/api/runs/:id/wip/file', async (req) => {
+    const id = Number((req.params as { id: string }).id);
+    const filePath = (req.query as { path?: string }).path ?? '';
+    if (!filePath) return { hunks: [], truncated: false, path: filePath, ref: 'wip' };
+    return deps.wipRepo.readSnapshotDiff(id, filePath);
+  });
+
+  app.post('/api/runs/:id/wip/discard', async (req, reply) => {
+    const id = Number((req.params as { id: string }).id);
+    if (!deps.wipRepo.exists(id)) return reply.code(404).send({ ok: false });
+    deps.wipRepo.deleteWipRef(id);
+    return { ok: true };
+  });
+
+  app.get('/api/runs/:id/wip/patch', async (req, reply) => {
+    const id = Number((req.params as { id: string }).id);
+    if (!deps.wipRepo.exists(id)) return reply.code(404).send('');
+    const patch = deps.wipRepo.readSnapshotPatch(id);
+    reply.header('content-type', 'text/plain; charset=utf-8');
+    reply.header('content-disposition', `attachment; filename="run-${id}-wip.patch"`);
+    return patch;
+  });
+
 }

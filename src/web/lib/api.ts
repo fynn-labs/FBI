@@ -1,6 +1,6 @@
 import type {
   DailyUsage, ListeningPort, McpServer, Project, Run, RunUsageBreakdownRow, SecretName, Settings,
-  UsageState, FilesPayload, FileDiffPayload, GithubPayload, MergeResponse,
+  UsageState, FileDiffPayload, ChangesPayload, HistoryOp, HistoryResult, FilesHeadEntry, FilesDirtyEntry,
 } from '@shared/types.js';
 
 let _baseUrl = '';
@@ -51,6 +51,17 @@ function xhrUploadJson<T>(url: string, file: File, onProgress?: (pct: number) =>
   });
 }
 
+export class ApiError extends Error {
+  constructor(
+    public readonly status: number,
+    message: string,
+    public readonly body?: Record<string, unknown>,
+  ) {
+    super(message);
+    this.name = 'ApiError';
+  }
+}
+
 async function request<T>(url: string, init?: RequestInit): Promise<T> {
   let res: Response;
   try {
@@ -64,7 +75,12 @@ async function request<T>(url: string, init?: RequestInit): Promise<T> {
   } catch (err) {
     throw new Error(`Network error: ${err instanceof Error ? err.message : String(err)}`);
   }
-  if (!res.ok) throw new Error(`HTTP ${res.status}: ${await res.text()}`);
+  if (!res.ok) {
+    const text = await res.text();
+    let body: Record<string, unknown> | undefined;
+    try { body = JSON.parse(text) as Record<string, unknown>; } catch { /* not JSON */ }
+    throw new ApiError(res.status, `HTTP ${res.status}: ${text}`, body);
+  }
   if (res.status === 204 || res.headers.get('content-length') === '0') return undefined as T;
   const contentType = res.headers.get('content-type') ?? '';
   if (!contentType.includes('application/json')) {
@@ -137,6 +153,7 @@ export const api = {
       effort: string | null;
       subagent_model: string | null;
     },
+    force?: boolean,
   ) =>
     request<Run>(`/api/projects/${projectId}/runs`, {
       method: 'POST',
@@ -146,6 +163,7 @@ export const api = {
         draft_token: draftToken ?? undefined,
         // Spread so null values serialize as null (server treats null === unset).
         ...(modelParams ?? {}),
+        ...(force ? { force: true } : {}),
       }),
     }),
   deleteRun: (id: number) => request<void>(`/api/runs/${id}`, { method: 'DELETE' }),
@@ -186,15 +204,24 @@ export const api = {
     '/api/config/defaults'
   ),
 
-  getRunGithub: (id: number) => request<GithubPayload>(`/api/runs/${id}/github`),
-
   createRunPr: (id: number) => request<{ number: number; url: string; state: string; title: string }>(
     `/api/runs/${id}/github/pr`, { method: 'POST', body: JSON.stringify({}) }),
 
-  mergeRunBranch: (id: number) =>
-    request<MergeResponse>(`/api/runs/${id}/github/merge`, { method: 'POST', body: JSON.stringify({}) }),
+  getRunChanges: (id: number) => request<ChangesPayload>(`/api/runs/${id}/changes`),
 
-  getRunFiles: (id: number) => request<FilesPayload>(`/api/runs/${id}/files`),
+  getRunCommitFiles: (id: number, sha: string) =>
+    request<{ files: FilesHeadEntry[] }>(`/api/runs/${id}/commits/${encodeURIComponent(sha)}/files`),
+
+  getRunSubmoduleCommitFiles: (id: number, submodulePath: string, sha: string) =>
+    request<{ files: FilesHeadEntry[] }>(
+      `/api/runs/${id}/submodule/${submodulePath.split('/').map(encodeURIComponent).join('/')}/commits/${encodeURIComponent(sha)}/files`
+    ),
+
+  postRunHistory: (id: number, op: HistoryOp) =>
+    request<HistoryResult>(`/api/runs/${id}/history`, {
+      method: 'POST',
+      body: JSON.stringify(op),
+    }),
 
   getRunFileDiff: (id: number, path: string, ref: string = 'worktree') =>
     request<FileDiffPayload>(
@@ -268,4 +295,21 @@ export const api = {
       `/api/runs/${runId}/uploads/${encodeURIComponent(filename)}`,
       { method: 'DELETE' },
     ),
+
+  getRunWip: (id: number) =>
+    request<{ ok: true; snapshot_sha: string; parent_sha: string; files: FilesDirtyEntry[] } | { ok: false; reason: 'no-wip' }>(
+      `/api/runs/${id}/wip`
+    ),
+
+  getRunWipFile: (id: number, path: string) =>
+    request<FileDiffPayload>(
+      `/api/runs/${id}/wip/file?path=${encodeURIComponent(path)}`
+    ),
+
+  discardRunWip: (id: number) =>
+    request<void>(`/api/runs/${id}/wip/discard`, { method: 'POST' }),
+
+  downloadRunWipPatch: (id: number): string =>
+    `/api/runs/${id}/wip/patch`,
+
 };

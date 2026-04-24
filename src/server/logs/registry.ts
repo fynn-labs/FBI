@@ -4,10 +4,10 @@ import { StateBroadcaster } from './stateBroadcaster.js';
 import { TypedBroadcaster } from './typedBroadcaster.js';
 import { ScreenState } from './screen.js';
 import type {
-  RunWsUsageMessage, RunWsTitleMessage, RunWsFilesMessage, GlobalStateMessage,
+  RunWsUsageMessage, RunWsTitleMessage, RunWsChangesMessage, GlobalStateMessage,
 } from '../../shared/types.js';
 
-export type RunEvent = RunWsUsageMessage | RunWsTitleMessage | RunWsFilesMessage;
+export type RunEvent = RunWsUsageMessage | RunWsTitleMessage | RunWsChangesMessage;
 
 // Cap the replay volume when rebuilding a ScreenState from a run's log after
 // a server restart. Alt-screen TUIs clear on every full repaint, so only the

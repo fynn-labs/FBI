@@ -1,3 +1,32 @@
+export type ResultClassification =
+  | { kind: 'completed'; exit_code: number; push_exit: number; head_sha: string; branch: string }
+  | { kind: 'resume_failed'; error: string }
+  | { kind: 'unparseable'; raw: string };
+
+export function classifyResultJson(raw: string): ResultClassification {
+  try {
+    const j = JSON.parse(raw) as Record<string, unknown>;
+    if (j.stage === 'restore' && typeof j.error === 'string') {
+      return {
+        kind: 'resume_failed',
+        error: j.error,
+      };
+    }
+    if (typeof j.exit_code === 'number') {
+      return {
+        kind: 'completed',
+        exit_code: j.exit_code as number,
+        push_exit: (j.push_exit as number) ?? 0,
+        head_sha: (j.head_sha as string) ?? '',
+        branch: (j.branch as string) ?? '',
+      };
+    }
+    return { kind: 'unparseable', raw };
+  } catch {
+    return { kind: 'unparseable', raw };
+  }
+}
+
 export interface ContainerResult {
   exit_code: number;
   push_exit: number;

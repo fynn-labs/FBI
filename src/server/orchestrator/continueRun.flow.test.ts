@@ -132,7 +132,7 @@ describe('Orchestrator.continueRun', () => {
     // The env passed to createContainer must carry both the session id and branch name.
     const env = capture.createdEnv[0];
     expect(env).toContain('FBI_RESUME_SESSION_ID=sess-xyz');
-    expect(env).toContain('FBI_CHECKOUT_BRANCH=feat/keep-going');
+    expect(env).toContain('FBI_BRANCH=feat/keep-going');
 
     const createArgs = vi.mocked(mockDocker.createContainer).mock.calls[0][0];
     const binds = createArgs.HostConfig!.Binds as string[];

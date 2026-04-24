@@ -15,6 +15,8 @@ function mkRun(over: Partial<Run>): Run {
     tokens_input: 0, tokens_output: 0, tokens_cache_read: 0, tokens_cache_create: 0,
     tokens_total: 0, usage_parse_errors: 0,
     title: null, title_locked: 0, parent_run_id: null,
+    kind: 'work' as const, kind_args_json: null,
+    base_branch: null, mirror_status: null,
     model: null, effort: null, subagent_model: null,
     ...over,
   };
