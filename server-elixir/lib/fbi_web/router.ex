@@ -57,6 +57,10 @@ defmodule FBIWeb.Router do
     get "/runs/:id/github", GithubController, :show
     post "/runs/:id/github/pr", GithubController, :create_pr
     post "/runs/:id/github/merge", GithubController, :merge
+
+    get "/runs/:id/uploads", UploadsController, :index
+    post "/runs/:id/uploads", UploadsController, :create
+    delete "/runs/:id/uploads/:filename", UploadsController, :delete
   end
 
   # WebSocket upgrade routes must not go through the :api pipeline — the
