@@ -27,10 +27,11 @@
 set -euo pipefail
 
 # ── styled output helpers ─────────────────────────────────────────────────────
+# Assumes UTF-8 locale + ANSI SGR terminal (xterm.js). _fbi_fatal callers must exit explicitly.
 _fbi_status() { printf '\033[97m○\033[0m  %s\n'           "$*"; }
 _fbi_cmd()    { printf '\033[32m$\033[0m  \033[36m%s\033[0m\n' "$*"; }
-_fbi_warn()   { printf '\033[33m⚠\033[0m  \033[33m%s\033[0m\n' "$*"; }
-_fbi_fatal()  { printf '\033[31m✕\033[0m  \033[31m%s\033[0m\n' "$*"; }
+_fbi_warn()   { printf '\033[33m⚠\033[0m  \033[33m%s\033[0m\n' "$*" >&2; }
+_fbi_fatal()  { printf '\033[31m✕\033[0m  \033[31m%s\033[0m\n' "$*" >&2; }
 # ─────────────────────────────────────────────────────────────────────────────
 
 export SSH_AUTH_SOCK=/ssh-agent
