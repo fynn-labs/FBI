@@ -182,6 +182,12 @@ export class TerminalController {
       // overlay never appears on repeat visits.
       this.snapshotArrived = true;
       this.ready = true;
+      // Kick off seed from the cached snapshot so scrollback is populated
+      // even if the fresh WS snapshot is delayed. The normal snapshot
+      // handler's `!this.seeded` check will then skip re-seeding on the
+      // fresh snapshot arrival.
+      this.seeded = true;
+      queueMicrotask(() => { void this.seedInitialHistory(cached); });
     }
 
     this.unsubOpen = this.shell.onOpen(() => {
@@ -427,10 +433,15 @@ export class TerminalController {
 
         const buffers: Array<Uint8Array | string> = [this.loadedBytes, this.liveTailBytes];
         if (freshSnap) buffers.push(freshSnap.ansi);
-        await this.rebuildXterm(buffers);
+        this.rebuilding = true;
+        try {
+          await this.rebuildXterm(buffers);
+          if (this.disposed) return;
+          this.term.scrollToBottom();
+        } finally {
+          this.rebuilding = false;
+        }
 
-        if (this.disposed) return;
-        this.term.scrollToBottom();
         this.scheduleCursorRedraw();
         this.paused = false;
         this.applyInteractive();
@@ -618,6 +629,8 @@ export class TerminalController {
   dispose(): void {
     if (this.disposed) return;
     this.disposed = true;
+    if (this.readySilenceTimer) { clearTimeout(this.readySilenceTimer); this.readySilenceTimer = null; }
+    if (this.readyCapTimer) { clearTimeout(this.readyCapTimer); this.readyCapTimer = null; }
     traceRecord('controller.dispose', { runId: this.runId });
     this.setInteractive(false);
     if (this.pendingChunk) { this.pendingChunk.abort.abort(); this.pendingChunk = null; }
