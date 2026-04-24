@@ -1,0 +1,18 @@
+{
+  "id": 1,
+  "name": "",
+  "repo_url": "",
+  "default_branch": "",
+  "devcontainer_override_json": null,
+  "instructions": null,
+  "git_author_name": null,
+  "git_author_email": null,
+  "marketplaces": [],
+  "plugins": [],
+  "mem_mb": null,
+  "cpus": null,
+  "pids_limit": null,
+  "created_at": 0,
+  "updated_at": 0,
+  "last_run": null
+}
