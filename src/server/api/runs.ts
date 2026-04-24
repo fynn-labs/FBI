@@ -44,6 +44,7 @@ interface Deps {
   cancel: (runId: number) => Promise<void>;
   fireResumeNow: (runId: number) => void;
   continueRun: (runId: number) => Promise<void>;
+  markStartingForContinueRequest: (runId: number) => void;  // NEW
   orchestrator: OrchestratorDep;
 }
 
@@ -204,6 +205,11 @@ export function registerRunsRoutes(app: FastifyInstance, deps: Deps): void {
     if (!verdict.ok) {
       return reply.code(409).send({ code: verdict.code, message: verdict.message });
     }
+    // Flip to 'starting' synchronously so the UI's WS state message lands
+    // within milliseconds of the click — before Docker is even called.
+    // continueEligibility's source-state check rejects 'starting', so a
+    // double-click is a clean 409.
+    deps.markStartingForContinueRequest(run.id);
     // Fire-and-forget: continueRun runs the entire container lifecycle, so
     // awaiting it would block the HTTP response for the duration of the run.
     void deps.continueRun(run.id).catch((err) => {
