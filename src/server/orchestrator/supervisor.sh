@@ -76,8 +76,9 @@ CHECKED_OUT=0
 if [ -n "${FBI_RESUME_SESSION_ID:-}" ]; then
     if git fetch --quiet safeguard "$PRIMARY_BRANCH" 2>/dev/null; then
         if git rev-parse --verify --quiet "safeguard/$PRIMARY_BRANCH" >/dev/null 2>&1; then
+            _fbi_cmd "git checkout -B $PRIMARY_BRANCH safeguard/$PRIMARY_BRANCH"
             git checkout -B "$PRIMARY_BRANCH" "safeguard/$PRIMARY_BRANCH" \
-                || { echo "[fbi] fatal: could not restore from safeguard/$PRIMARY_BRANCH"; exit 13; }
+                || { _fbi_fatal "could not restore from safeguard/$PRIMARY_BRANCH"; exit 13; }
             CHECKED_OUT=1
         fi
     fi
@@ -85,14 +86,17 @@ fi
 
 if [ "$CHECKED_OUT" = "0" ]; then
     if [ "$HAS_ORIGIN" = "1" ] && git rev-parse --verify --quiet "origin/$PRIMARY_BRANCH" >/dev/null 2>&1; then
+        _fbi_cmd "git checkout -B $PRIMARY_BRANCH origin/$PRIMARY_BRANCH"
         git checkout -B "$PRIMARY_BRANCH" "origin/$PRIMARY_BRANCH" \
-            || { echo "[fbi] fatal: could not switch to $PRIMARY_BRANCH"; exit 13; }
+            || { _fbi_fatal "could not switch to $PRIMARY_BRANCH"; exit 13; }
     else
+        _fbi_cmd "git checkout -b $PRIMARY_BRANCH"
         git checkout -b "$PRIMARY_BRANCH" \
-            || { echo "[fbi] fatal: could not create branch $PRIMARY_BRANCH"; exit 13; }
+            || { _fbi_fatal "could not create branch $PRIMARY_BRANCH"; exit 13; }
         if [ "$HAS_ORIGIN" = "1" ]; then
+            _fbi_cmd "git push -u origin $PRIMARY_BRANCH"
             git push -u origin "$PRIMARY_BRANCH" \
-                || echo "[fbi] warn: initial push of $PRIMARY_BRANCH to origin failed"
+                || _fbi_warn "initial push of $PRIMARY_BRANCH to origin failed"
         fi
     fi
 fi
