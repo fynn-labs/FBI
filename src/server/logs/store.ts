@@ -36,9 +36,15 @@ export class LogStore {
   }
 
   /**
-   * Read a byte range `[start, end]` (both inclusive), matching HTTP Range header semantics.
-   * Clamps end to file size - 1; returns empty Uint8Array for missing file
-   * or start ≥ size.
+   * Read a byte range `[start, end]` (both inclusive, mirroring HTTP
+   * Range semantics). Clamps end to file size; returns empty Uint8Array
+   * for missing file or start ≥ size.
+   *
+   * Callers must pass non-negative integers with `start <= end`. Floats,
+   * negative values, or `start > end` produce a low-level RangeError from
+   * the underlying fs call — validation is the caller's responsibility.
+   * If the file is truncated during the read, returns only the bytes
+   * successfully read (slice shorter than `end - start + 1`).
    */
   static readRange(filePath: string, start: number, end: number): Uint8Array {
     let fd: number;
