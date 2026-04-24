@@ -645,4 +645,126 @@ describe('TerminalController', () => {
     });
     expect(olderCalls.length).toBe(0);
   });
+
+  it('resume() for a live run sends hello and rebuilds xterm with [loaded, liveTail, snap]', async () => {
+    const shell = makeStubShell({ openState: 'open' });
+    acquiredShells.set(60, shell);
+    const term = makeFakeXterm();
+    const host = document.createElement('div');
+    const c = new TerminalController(60, term as unknown as import('@xterm/xterm').Terminal, host);
+
+    const TOTAL = 100_000;
+    fetchResponder = (call): { status: number; headers: Record<string, string>; body: Uint8Array } => {
+      if (call.headers.range === 'bytes=0-0') {
+        return { status: 206, headers: { 'x-transcript-total': String(TOTAL) }, body: new Uint8Array([0]) };
+      }
+      return { status: 206, headers: { 'x-transcript-total': String(TOTAL) }, body: new Uint8Array(TOTAL).fill(0) };
+    };
+    for (const cb of shell._snap) cb({ type: 'snapshot', ansi: 'S1', cols: 120, rows: 40 });
+    for (let i = 0; i < 10; i++) {
+      await new Promise((r) => setTimeout(r, 0));
+      if (c._debugBuffers().loadedStartOffset === 0) break;
+    }
+    for (const cb of shell._events) cb({ type: 'state', state: 'running' } as unknown as { type: string });
+    for (const cb of shell._bytes) cb(new TextEncoder().encode('live'));
+    c.pause();
+
+    term.reset.mockClear();
+    term.write.mockClear();
+    shell.sentHello.length = 0;
+
+    const resumeP = c.resume();
+    expect(shell.sentHello).toEqual([{ cols: 120, rows: 40 }]);
+    for (const cb of shell._snap) cb({ type: 'snapshot', ansi: 'FRESH', cols: 120, rows: 40 });
+    await resumeP;
+
+    expect(term.reset).toHaveBeenCalledTimes(1);
+    expect(c._debugBuffers().paused).toBe(false);
+  });
+
+  it('resume() for a finished run fetches tail and rebuilds without sendHello', async () => {
+    const shell = makeStubShell({ openState: 'open' });
+    acquiredShells.set(61, shell);
+    const term = makeFakeXterm();
+    const host = document.createElement('div');
+    const c = new TerminalController(61, term as unknown as import('@xterm/xterm').Terminal, host);
+
+    const TOTAL = 100_000;
+    fetchResponder = (call): { status: number; headers: Record<string, string>; body: Uint8Array } => {
+      if (call.headers.range === 'bytes=0-0') {
+        return { status: 206, headers: { 'x-transcript-total': String(TOTAL) }, body: new Uint8Array([0]) };
+      }
+      if (call.headers.range === `bytes=0-${TOTAL - 1}`) {
+        return { status: 206, headers: { 'x-transcript-total': String(TOTAL) }, body: new Uint8Array(TOTAL).fill(0) };
+      }
+      if (call.headers.range === `bytes=${TOTAL}-`) {
+        return { status: 206, headers: { 'x-transcript-total': String(TOTAL) }, body: new Uint8Array() };
+      }
+      return { status: 404, headers: {}, body: new Uint8Array() };
+    };
+    for (const cb of shell._snap) cb({ type: 'snapshot', ansi: 'X', cols: 120, rows: 40 });
+    for (let i = 0; i < 10; i++) {
+      await new Promise((r) => setTimeout(r, 0));
+      if (c._debugBuffers().loadedStartOffset === 0) break;
+    }
+    for (const cb of shell._events) cb({ type: 'state', state: 'succeeded' } as unknown as { type: string });
+    c.pause();
+    shell.sentHello.length = 0;
+
+    await c.resume();
+
+    expect(shell.sentHello).toEqual([]);
+    expect(c._debugBuffers().paused).toBe(false);
+  });
+
+  it('snapshot handler drops snapshots while paused (does not reset xterm)', () => {
+    const shell = makeStubShell({ openState: 'open' });
+    acquiredShells.set(63, shell);
+    const term = makeFakeXterm();
+    const host = document.createElement('div');
+    const c = new TerminalController(63, term as unknown as import('@xterm/xterm').Terminal, host);
+
+    for (const cb of shell._snap) cb({ type: 'snapshot', ansi: 'INITIAL', cols: 120, rows: 40 });
+    c.pause();
+    term.reset.mockClear();
+    term.write.mockClear();
+
+    for (const cb of shell._snap) cb({ type: 'snapshot', ansi: 'RECONNECT', cols: 120, rows: 40 });
+
+    expect(term.reset).not.toHaveBeenCalled();
+    expect(term.write).not.toHaveBeenCalledWith('RECONNECT');
+  });
+
+  it('resume() aborts a pending chunk fetch and still completes', async () => {
+    const shell = makeStubShell({ openState: 'open' });
+    acquiredShells.set(62, shell);
+    const term = makeFakeXterm();
+    const host = document.createElement('div');
+    const c = new TerminalController(62, term as unknown as import('@xterm/xterm').Terminal, host);
+
+    const TOTAL = 2_000_000;
+    fetchResponder = (call): { status: number; headers: Record<string, string>; body: Uint8Array } => {
+      if (call.headers.range === 'bytes=0-0') {
+        return { status: 206, headers: { 'x-transcript-total': String(TOTAL) }, body: new Uint8Array([0]) };
+      }
+      if (call.headers.range === `bytes=${TOTAL - 524288}-${TOTAL - 1}`) {
+        return { status: 206, headers: { 'x-transcript-total': String(TOTAL) }, body: new Uint8Array(524288) };
+      }
+      return { status: 206, headers: {}, body: new Uint8Array(524288) };
+    };
+
+    for (const cb of shell._snap) cb({ type: 'snapshot', ansi: 'X', cols: 120, rows: 40 });
+    for (let i = 0; i < 10; i++) {
+      await new Promise((r) => setTimeout(r, 0));
+      if (c._debugBuffers().loadedStartOffset === TOTAL - 524288) break;
+    }
+    for (const cb of shell._events) cb({ type: 'state', state: 'succeeded' } as unknown as { type: string });
+    c.pause();
+
+    void c.loadOlderChunk();
+    const resumeP = c.resume();
+    await resumeP;
+
+    expect(c._debugBuffers().paused).toBe(false);
+  });
 });
