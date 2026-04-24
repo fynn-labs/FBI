@@ -5,7 +5,7 @@
   "type": "module",
   "scripts": {
     "build": "npm run build:server && npm run build:web && npm run cli:dist",
-    "build:server": "tsc -p tsconfig.server.json && cp src/server/db/schema.sql dist/server/db/schema.sql && cp src/server/orchestrator/supervisor.sh dist/server/orchestrator/supervisor.sh && cp src/server/orchestrator/finalizeBranch.sh dist/server/orchestrator/finalizeBranch.sh && cp src/server/orchestrator/fbi-history-op.sh dist/server/orchestrator/fbi-history-op.sh && cp src/server/orchestrator/fbi-wip-snapshot.sh dist/server/orchestrator/fbi-wip-snapshot.sh && cp src/server/orchestrator/fbi-resume-restore.sh dist/server/orchestrator/fbi-resume-restore.sh && cp src/server/orchestrator/Dockerfile.tmpl dist/server/orchestrator/Dockerfile.tmpl && cp src/server/orchestrator/postbuild.sh dist/server/orchestrator/postbuild.sh",
+    "build:server": "tsc -p tsconfig.server.json && cp src/server/db/schema.sql dist/server/db/schema.sql && cp src/server/orchestrator/supervisor.sh dist/server/orchestrator/supervisor.sh && cp src/server/orchestrator/finalizeBranch.sh dist/server/orchestrator/finalizeBranch.sh && cp src/server/orchestrator/fbi-history-op.sh dist/server/orchestrator/fbi-history-op.sh && cp src/server/orchestrator/Dockerfile.tmpl dist/server/orchestrator/Dockerfile.tmpl && cp src/server/orchestrator/postbuild.sh dist/server/orchestrator/postbuild.sh",
     "build:web": "VITE_VERSION=${VITE_VERSION:-$(git rev-parse --short HEAD 2>/dev/null || echo dev)} vite build",
     "dev": "concurrently -k \"npm:dev:server\" \"npm:dev:web\"",
     "dev:server": "tsx watch --tsconfig tsconfig.server.json src/server/index.ts",

@@ -69,9 +69,7 @@ function remoteBranches(fx: Fixture): string[] {
   return out.split('\n').map((s) => s.trim()).filter(Boolean).sort();
 }
 
-// Snapshot log path used by the script (hardcoded).
-const SNAPSHOT_LOG = '/tmp/last-snapshot.log';
-const PUSH_LOG = '/tmp/last-push.log';
+const PUSH_LOG = '/tmp/last-origin-push.log';
 
 describe('finalizeBranch.sh', () => {
   let fx: Fixture;
@@ -87,10 +85,8 @@ describe('finalizeBranch.sh', () => {
     for (const f of tmpFilesToClean.splice(0)) {
       try { fs.unlinkSync(f); } catch { /* ignore */ }
     }
-    // Also clean up any snapshot/push log left by tests.
-    for (const f of [SNAPSHOT_LOG, PUSH_LOG]) {
-      try { fs.unlinkSync(f); } catch { /* ignore */ }
-    }
+    // Also clean up any push log left by tests.
+    try { fs.unlinkSync(PUSH_LOG); } catch { /* ignore */ }
   });
 
   // -------------------------------------------------------------------------
@@ -116,7 +112,6 @@ describe('finalizeBranch.sh', () => {
     expect(r.result).toHaveProperty('push_exit');
     expect(r.result).toHaveProperty('head_sha');
     expect(r.result).toHaveProperty('branch');
-    expect(r.result).toHaveProperty('wip_sha');
   });
 
   // -------------------------------------------------------------------------
@@ -156,29 +151,11 @@ describe('finalizeBranch.sh', () => {
     expect(afterSha).toBe(beforeSha);
   });
 
-  it('includes wip_sha in result JSON when a snapshot log is present', () => {
-    // Seed the snapshot log that the script reads.
-    fs.writeFileSync(SNAPSHOT_LOG, '{"ok":true,"sha":"abc123"}\n');
-
-    const r = runFinalize(fx);
-    expect(r.status).toBe(0);
-    expect(r.result).toMatchObject({ wip_sha: 'abc123' });
-  });
-
-  it('wip_sha is empty string when no snapshot log exists', () => {
-    // Ensure the log is absent.
-    try { fs.unlinkSync(SNAPSHOT_LOG); } catch { /* ok */ }
-
-    const r = runFinalize(fx);
-    expect(r.status).toBe(0);
-    expect(r.result).toMatchObject({ wip_sha: '' });
-  });
-
   // -------------------------------------------------------------------------
-  // push_exit sourced from /tmp/last-push.log
+  // push_exit sourced from /tmp/last-origin-push.log
   // -------------------------------------------------------------------------
 
-  it('sets push_exit=0 when last-push.log has no error indicators', () => {
+  it('sets push_exit=0 when last-origin-push.log has no error indicators', () => {
     fs.writeFileSync(PUSH_LOG, 'Everything up-to-date\n');
 
     const r = runFinalize(fx);
@@ -186,7 +163,7 @@ describe('finalizeBranch.sh', () => {
     expect(r.result).toMatchObject({ push_exit: 0 });
   });
 
-  it('sets push_exit=1 when last-push.log contains "rejected"', () => {
+  it('sets push_exit=1 when last-origin-push.log contains "rejected"', () => {
     fs.writeFileSync(PUSH_LOG, ' ! [rejected]   main -> main (non-fast-forward)\n');
 
     const r = runFinalize(fx);
@@ -194,7 +171,7 @@ describe('finalizeBranch.sh', () => {
     expect(r.result).toMatchObject({ push_exit: 1 });
   });
 
-  it('sets push_exit=1 when last-push.log contains "error:"', () => {
+  it('sets push_exit=1 when last-origin-push.log contains "error:"', () => {
     fs.writeFileSync(PUSH_LOG, 'error: failed to push some refs\n');
 
     const r = runFinalize(fx);
@@ -202,7 +179,7 @@ describe('finalizeBranch.sh', () => {
     expect(r.result).toMatchObject({ push_exit: 1 });
   });
 
-  it('sets push_exit=0 when last-push.log does not exist', () => {
+  it('sets push_exit=0 when last-origin-push.log does not exist', () => {
     try { fs.unlinkSync(PUSH_LOG); } catch { /* ok */ }
 
     const r = runFinalize(fx);
