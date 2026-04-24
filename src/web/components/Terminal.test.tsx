@@ -20,6 +20,7 @@ vi.mock('../lib/terminalController.js', () => {
         onReady: vi.fn(),
         onPauseChange: (cb: (p: boolean) => void) => { pauseListeners.add(cb); return () => pauseListeners.delete(cb); },
         onChunkStateChange: (cb: (s: string) => void) => { chunkStateListeners.add(cb); return () => chunkStateListeners.delete(cb); },
+        onRebuildingChange: (_cb: (r: boolean) => void) => () => { /* noop */ },
         onScroll: vi.fn(),
         dispose: vi.fn(),
       };

@@ -110,6 +110,15 @@ export function Terminal({ runId, interactive }: Props) {
 
     const unsubPause = controller.onPauseChange((p) => setPaused(p));
     const unsubChunkState = controller.onChunkStateChange((s) => setChunkState(s));
+    // Imperatively toggle the xterm host's visibility on rebuild so the
+    // transient "auto-scrolled to bottom" paint from term.reset()+write is
+    // hidden until the scroll-restore lands. A React state update would be
+    // batched away — the true→false flip happens within one render cycle
+    // (~50ms), so React coalesces to only the final `false` and never
+    // paints the hidden frame.
+    const unsubRebuilding = controller.onRebuildingChange((r) => {
+      if (host) host.style.visibility = r ? 'hidden' : '';
+    });
 
     // xterm's Terminal.onScroll fires for content-driven scrolls (new lines
     // appended to scrollback) but is suppressed for user-driven DOM scrolls
@@ -169,6 +178,7 @@ export function Terminal({ runId, interactive }: Props) {
       document.removeEventListener('visibilitychange', onVisibility);
       unsubPause();
       unsubChunkState();
+      unsubRebuilding();
       if (scrollRaf !== null) cancelAnimationFrame(scrollRaf);
       viewportEl?.removeEventListener('scroll', onViewportScroll);
       controller.dispose();

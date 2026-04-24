@@ -73,6 +73,7 @@ export class TerminalController {
   private loadedStartOffset = 0;
   private paused = false;
   private rebuilding = false;
+  private rebuildingListeners = new Set<(r: boolean) => void>();
   private seeded = false;
   private pendingChunk: { abort: AbortController; promise: Promise<void> } | null = null;
   private pendingResumeSnapshot: ((snap: RunWsSnapshotMessage) => void) | null = null;
@@ -339,6 +340,29 @@ export class TerminalController {
     }
   }
 
+  /**
+   * Subscribe to the internal `rebuilding` flag. True while xterm is being
+   * reset+rewritten (seed, chunk-load, or resume paths). The component
+   * uses this to hide the xterm host via visibility:hidden so users don't
+   * see the intermediate "scrolled to bottom by autoscroll" paint before
+   * the scroll-restore lands.
+   */
+  onRebuildingChange(cb: (rebuilding: boolean) => void): () => void {
+    this.rebuildingListeners.add(cb);
+    return () => { this.rebuildingListeners.delete(cb); };
+  }
+
+  private setRebuilding(r: boolean): void {
+    if (this.rebuilding === r) return;
+    this.rebuilding = r;
+    const snap = [...this.rebuildingListeners];
+    for (const cb of snap) {
+      try { cb(r); } catch (err) {
+        traceRecord('controller.rebuilding.listener.error', { err: String(err) });
+      }
+    }
+  }
+
   private emitPauseChange(): void {
     // Snapshot the set so a listener that unsubscribes itself during emit
     // doesn't disturb iteration. Errors in one listener don't skip later ones.
@@ -439,13 +463,13 @@ export class TerminalController {
 
         const buffers: Array<Uint8Array | string> = [this.loadedBytes, this.liveTailBytes];
         if (freshSnap) buffers.push(freshSnap.ansi);
-        this.rebuilding = true;
+        this.setRebuilding(true);
         try {
           await this.rebuildXterm(buffers);
           if (this.disposed) return;
           this.term.scrollToBottom();
         } finally {
-          this.rebuilding = false;
+          this.setRebuilding(false);
         }
 
         this.scheduleCursorRedraw();
@@ -514,12 +538,12 @@ export class TerminalController {
       // pause/resume/loadOlderChunk dispatches. Distinct from `paused`:
       // the user never paused — this is a purely internal reentrancy
       // guard that must not fire `emitPauseChange` or affect the banner.
-      this.rebuilding = true;
+      this.setRebuilding(true);
       try {
         await this.rebuildXterm([this.loadedBytes, this.liveTailBytes]);
         this.term.scrollToBottom();
       } finally {
-        this.rebuilding = false;
+        this.setRebuilding(false);
       }
       traceRecord('controller.seed.complete', { bytes: seedBytes.byteLength });
     } catch (err) {
@@ -588,7 +612,7 @@ export class TerminalController {
         // .xterm-viewport listener forwards to onScroll; with paused=true
         // but rebuilding=false those events trigger resume() or another
         // loadOlderChunk(), thrashing the user's scroll position.
-        this.rebuilding = true;
+        this.setRebuilding(true);
         try {
           await this.rebuildXterm([newLoaded, this.liveTailBytes]);
           if (this.disposed) return;
@@ -646,7 +670,7 @@ export class TerminalController {
               setTimeout(r, 0);
             }
           });
-          this.rebuilding = false;
+          this.setRebuilding(false);
         }
       } catch (err) {
         if (abort.signal.aborted) {
@@ -693,6 +717,7 @@ export class TerminalController {
     this.unsubEvents?.(); this.unsubEvents = null;
     this.pauseListeners.clear();
     this.chunkStateListeners.clear();
+    this.rebuildingListeners.clear();
     releaseShell(this.runId);
   }
 }
