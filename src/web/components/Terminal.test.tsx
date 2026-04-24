@@ -4,6 +4,7 @@ import userEvent from '@testing-library/user-event';
 
 // Mock the controller so we can drive onPauseChange from the test.
 const pauseListeners = new Set<(p: boolean) => void>();
+const chunkStateListeners = new Set<(s: string) => void>();
 let lastController: { pause: () => void; resume: () => void; loadOlderChunk: () => Promise<void>; onScroll: (s: { atBottom: boolean; nearTop: boolean }) => void } | null = null;
 vi.mock('../lib/terminalController.js', () => {
   return {
@@ -18,6 +19,7 @@ vi.mock('../lib/terminalController.js', () => {
         isReady: () => true,
         onReady: vi.fn(),
         onPauseChange: (cb: (p: boolean) => void) => { pauseListeners.add(cb); return () => pauseListeners.delete(cb); },
+        onChunkStateChange: (cb: (s: string) => void) => { chunkStateListeners.add(cb); return () => chunkStateListeners.delete(cb); },
         onScroll: vi.fn(),
         dispose: vi.fn(),
       };
@@ -67,5 +69,22 @@ describe('Terminal', () => {
     act(() => { for (const cb of pauseListeners) cb(true); });
     await userEvent.click(screen.getByRole('button', { name: /Resume stream/i }));
     expect(lastController?.resume).toHaveBeenCalled();
+  });
+
+  it('shows Loading older history strip when chunk state is loading and user is paused', () => {
+    render(<Terminal runId={1} interactive={false} />);
+    act(() => { for (const cb of pauseListeners) cb(true); });
+    act(() => { for (const cb of chunkStateListeners) cb('loading'); });
+    expect(screen.getByText(/Loading older history/i)).toBeInTheDocument();
+  });
+
+  it('shows Failed to load older history with Retry on error', async () => {
+    render(<Terminal runId={1} interactive={false} />);
+    act(() => { for (const cb of pauseListeners) cb(true); });
+    act(() => { for (const cb of chunkStateListeners) cb('error'); });
+    expect(screen.getByText(/Failed to load older history/i)).toBeInTheDocument();
+    const retry = screen.getByRole('button', { name: /Retry/i });
+    await userEvent.click(retry);
+    expect(lastController?.loadOlderChunk).toHaveBeenCalled();
   });
 });

@@ -33,6 +33,7 @@ export function Terminal({ runId, interactive }: Props) {
   const hostRef = useRef<HTMLDivElement>(null);
   const controllerRef = useRef<TerminalController | null>(null);
   const [paused, setPaused] = useState(false);
+  const [chunkState, setChunkState] = useState<'idle' | 'loading' | 'error'>('idle');
   const [ready, setReady] = useState(false);
 
   const [, forceTraceRerender] = useState(0);
@@ -80,6 +81,7 @@ export function Terminal({ runId, interactive }: Props) {
     }
 
     const unsubPause = controller.onPauseChange((p) => setPaused(p));
+    const unsubChunkState = controller.onChunkStateChange((s) => setChunkState(s));
 
     const scrollDisposable = term.onScroll(() => {
       const s = detectScroll(term);
@@ -126,6 +128,7 @@ export function Terminal({ runId, interactive }: Props) {
       window.removeEventListener('resize', onWinResize);
       document.removeEventListener('visibilitychange', onVisibility);
       unsubPause();
+      unsubChunkState();
       scrollDisposable.dispose();
       controller.dispose();
       controllerRef.current = null;
@@ -158,6 +161,23 @@ export function Terminal({ runId, interactive }: Props) {
           >
             Resume stream
           </button>
+        </div>
+      )}
+      {paused && chunkState !== 'idle' && (
+        <div className="absolute top-[28px] left-0 right-0 z-10 flex items-center gap-2 px-3 py-1 bg-surface border-b border-border text-[11px] text-text-dim">
+          {chunkState === 'loading' && <span>Loading older history…</span>}
+          {chunkState === 'error' && (
+            <>
+              <span>Failed to load older history.</span>
+              <button
+                type="button"
+                onClick={() => void controllerRef.current?.loadOlderChunk()}
+                className="text-accent hover:text-accent-strong transition-colors duration-fast ease-out"
+              >
+                Retry
+              </button>
+            </>
+          )}
         </div>
       )}
       {isTracing() && (

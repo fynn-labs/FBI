@@ -51,6 +51,7 @@ type EventKind =
   | 'controller.chunk.fetch'
   | 'controller.chunk.rebuild'
   | 'controller.chunk.error'
+  | 'controller.chunk.listener.error'
   | 'controller.resume'
   | 'controller.resume.tail.error'
   | 'controller.snapshot.dropped';
