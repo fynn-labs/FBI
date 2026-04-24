@@ -66,22 +66,32 @@ function makeFakeXterm() {
   type DataCb = (d: string) => void;
   const dataCbs: DataCb[] = [];
   const writes: Array<string | Uint8Array> = [];
+  const buffer = { active: { baseY: 0, viewportY: 0 } };
+  const scrollCbs: Array<() => void> = [];
   return {
     cols: 120,
     rows: 40,
     writes,
     dataCbs,
+    scrollCbs,
+    buffer,
     options: {} as Record<string, unknown>,
     write: vi.fn((data: string | Uint8Array, cb?: () => void) => {
       writes.push(data);
       if (cb) cb();
     }),
-    reset: vi.fn(() => { writes.push('__RESET__'); }),
+    reset: vi.fn(() => { writes.push('__RESET__'); buffer.active.baseY = 0; buffer.active.viewportY = 0; }),
     focus: vi.fn(),
     onData: vi.fn((cb: DataCb) => {
       dataCbs.push(cb);
       return { dispose: () => { const i = dataCbs.indexOf(cb); if (i !== -1) dataCbs.splice(i, 1); } };
     }),
+    onScroll: vi.fn((cb: () => void) => {
+      scrollCbs.push(cb);
+      return { dispose: () => { const i = scrollCbs.indexOf(cb); if (i !== -1) scrollCbs.splice(i, 1); } };
+    }),
+    scrollToLine: vi.fn((_line: number) => { /* no-op in fake */ }),
+    scrollToBottom: vi.fn(() => { buffer.active.viewportY = buffer.active.baseY; }),
     dispose: vi.fn(),
   };
 }
