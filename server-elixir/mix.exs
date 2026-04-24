@@ -49,7 +49,10 @@ defmodule FBI.MixProject do
       {:gettext, "~> 1.0"},
       {:jason, "~> 1.2"},
       {:dns_cluster, "~> 0.2.0"},
-      {:bandit, "~> 1.5"}
+      {:bandit, "~> 1.5"},
+      {:req, "~> 0.5"},
+      {:mint_web_socket, "~> 1.0"},
+      {:file_system, "~> 1.0"},
     ]
   end
 
