@@ -10,10 +10,18 @@ pub fn setup_tray(app: &mut tauri::App) -> tauri::Result<()> {
     let quit = MenuItem::with_id(app, "quit", "Quit", true, None::<&str>)?;
     let menu = Menu::with_items(app, &[&show, &sep, &quit])?;
 
+    #[cfg(target_os = "macos")]
+    let tray_icon = tauri::image::Image::from_bytes(include_bytes!("../icons/tray-template.png"))
+        .unwrap();
+    #[cfg(not(target_os = "macos"))]
+    let tray_icon = tauri::image::Image::from_bytes(include_bytes!("../icons/tray.ico"))
+        .unwrap();
+
     TrayIconBuilder::with_id("main")
         .tooltip("FBI")
         .menu(&menu)
-        .icon(app.default_window_icon().cloned().unwrap())
+        .icon(tray_icon)
+        .icon_as_template(true)
         .on_menu_event(|app, event| match event.id.as_ref() {
             "quit" => app.exit(0),
             "show" => show_main_window(app),
