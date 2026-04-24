@@ -1,0 +1,15 @@
+{
+  "global_prompt": "",
+  "notifications_enabled": true,
+  "concurrency_warn_at": 3,
+  "image_gc_enabled": false,
+  "last_gc_at": null,
+  "last_gc_count": null,
+  "last_gc_bytes": null,
+  "global_marketplaces": [],
+  "global_plugins": [],
+  "auto_resume_enabled": true,
+  "auto_resume_max_attempts": 5,
+  "usage_notifications_enabled": false,
+  "updated_at": 0
+}

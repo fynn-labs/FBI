@@ -11,6 +11,14 @@ defmodule FBIWeb.Router do
     get "/usage", UsageController, :show
     get "/usage/daily", UsageController, :daily
     get "/usage/runs/:id", UsageController, :run_breakdown
+
+    # Phase 2: settings + config + CLI download.
+    # `POST /api/settings/run-gc` is *not* registered here — it stays proxied
+    # to TS via the catch-all because it depends on the orchestrator (Phase 7).
+    get "/settings", SettingsController, :show
+    patch "/settings", SettingsController, :update
+    get "/config/defaults", ConfigController, :defaults
+    get "/cli/fbi-tunnel/:os/:arch", CliController, :fbi_tunnel
   end
 
   # WebSocket upgrade routes must not go through the :api pipeline — the
