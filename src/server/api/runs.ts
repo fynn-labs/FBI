@@ -12,9 +12,8 @@ import { promoteDraft } from '../uploads/promote.js';
 import { isDraftToken } from '../uploads/token.js';
 import { validateModelParams } from './modelParams.js';
 import type {
-  FilesPayload, FilesHeadEntry,
-  GithubPayload, HistoryOp, HistoryResult, MergeStrategy,
-  ChildRunSummary, SubmoduleBump, SubmoduleDirty,
+  HistoryOp, HistoryResult, MergeStrategy,
+  ChildRunSummary,
   FilesDirtyEntry, FileDiffPayload,
 } from '../../shared/types.js';
 import type { ChangesPayload, ChangeCommit } from '../../shared/types.js';
@@ -66,19 +65,6 @@ interface Deps {
   wipRepo: WipRepoDep;
 }
 
-const GH_STATUS_TTL_MS = 10_000;
-interface GhStatusCache { value: GithubPayload; expiresAt: number }
-const ghStatusCache = new Map<number, GhStatusCache>();
-function getCached(runId: number): GithubPayload | null {
-  const e = ghStatusCache.get(runId);
-  if (!e || Date.now() > e.expiresAt) return null;
-  return e.value;
-}
-function setCached(runId: number, value: GithubPayload): void {
-  ghStatusCache.set(runId, { value, expiresAt: Date.now() + GH_STATUS_TTL_MS });
-}
-function invalidate(runId: number): void { ghStatusCache.delete(runId); }
-
 const CHANGES_TTL_MS = 10_000;
 const changesCache = new Map<number, { value: ChangesPayload; expiresAt: number }>();
 function getChangesCached(runId: number): ChangesPayload | null {
@@ -89,7 +75,6 @@ function getChangesCached(runId: number): ChangesPayload | null {
 function setChangesCached(runId: number, value: ChangesPayload): void {
   changesCache.set(runId, { value, expiresAt: Date.now() + CHANGES_TTL_MS });
 }
-function invalidateChanges(runId: number): void { changesCache.delete(runId); }
 
 
 function parseNumstat(raw: string): import('../../shared/types.js').FilesHeadEntry[] {
@@ -125,7 +110,7 @@ export function parseSubmoduleLog(raw: string): RawBump[] {
       out.push(current);
       continue;
     }
-    const commit = line.match(/^  > ([0-9a-f]+) (.+)$/);
+    const commit = line.match(/^ {2}> ([0-9a-f]+) (.+)$/);
     if (current && commit) {
       current.subjects.push({ sha: commit[1], subject: commit[2] });
     }
@@ -350,10 +335,6 @@ export function registerRunsRoutes(app: FastifyInstance, deps: Deps): void {
     if (cached) return cached;
 
     const project = deps.projects.get(run.project_id);
-    // Base branch = what we compute ahead/behind against and what Ship-tab
-    // actions target. Always the project default under the new model —
-    // run.base_branch is no longer the mirror target.
-    const baseBranch = project?.default_branch ?? 'main';
     const repo = project ? parseGitHubRepo(project.repo_url) : null;
     const ghAvail = await deps.gh.available();
 
@@ -528,7 +509,6 @@ export function registerRunsRoutes(app: FastifyInstance, deps: Deps): void {
     const pr = await deps.gh.createPr(repo, {
       head: run.branch_name, base: project.default_branch, title, body,
     });
-    invalidate(runId);
     return pr;
   });
 

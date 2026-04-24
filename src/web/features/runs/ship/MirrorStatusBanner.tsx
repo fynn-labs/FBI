@@ -50,7 +50,7 @@ export function MirrorStatusBanner({ status, branch, runId, headSha, onRebase }:
         ⚠ Branch <code className="font-mono">{branch}</code> diverged on origin.
       </div>
       <p className="mt-1 text-text-dim">
-        Someone pushed commits we don't have locally. Sync to integrate, or dismiss to keep trying.
+        Someone pushed commits we don&apos;t have locally. Sync to integrate, or dismiss to keep trying.
       </p>
       <div className="mt-2 flex items-center gap-3">
         <button type="button" onClick={onRebase}

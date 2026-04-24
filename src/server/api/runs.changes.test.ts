@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import Fastify from 'fastify';
+import type { Run, ChangesPayload } from '@shared/types.js';
 import { execFileSync } from 'node:child_process';
 import fs from 'node:fs';
 import os from 'node:os';
@@ -24,7 +25,7 @@ describe('/api/runs/:id/changes', () => {
     const runs = {
       get: (id: number) => id === 1
         ? { id: 1, project_id: 1, state: 'succeeded', branch_name: 'feat/x',
-            mirror_status: null, base_branch: null } as any
+            mirror_status: null, base_branch: null } as unknown as Run
         : undefined,
       listByParent: () => [],
       setBranchName: () => {},
@@ -32,9 +33,9 @@ describe('/api/runs/:id/changes', () => {
     const projects = { get: () => ({ id: 1, default_branch: 'main', repo_url: 'git@example:x/y.git' }) };
     const gh = { available: async () => false, prForBranch: async () => null, prChecks: async () => [], commitsOnBranch: async () => [], compareFiles: async () => [] };
     const mod = await import('./runs.js');
-    mod.registerRunsRoutes(app as any, {
-      runs: runs as any, projects: projects as any, gh: gh as any,
-      streams: { getOrCreateEvents: () => ({ publish: () => {} }) } as any,
+    mod.registerRunsRoutes(app as never, {
+      runs: runs as never, projects: projects as never, gh: gh as never,
+      streams: { getOrCreateEvents: () => ({ publish: () => {} }) } as never,
       runsDir: root, draftUploadsDir: root,
       launch: async () => {}, cancel: async () => {}, fireResumeNow: () => {},
       continueRun: async () => {}, markStartingForContinueRequest: () => {},
@@ -43,16 +44,16 @@ describe('/api/runs/:id/changes', () => {
         execInContainer: async () => ({ stdout: '', stderr: '', exitCode: 127 }),
         execHistoryOp: async () => ({ kind: 'gh-error', message: '' }),
         spawnSubRun: async () => 0, deleteRun: () => {}, initSafeguard: () => {},
-      } as any,
+      } as never,
       wipRepo: { exists: () => true, snapshotSha: () => null, parentSha: () => null,
         readSnapshotFiles: () => [], readSnapshotDiff: () => ({ path: '', ref: 'wip', hunks: [], truncated: false }),
         readSnapshotPatch: () => '', deleteWipRef: () => {},
-      } as any,
+      } as never,
     });
 
     const res = await app.inject({ method: 'GET', url: '/api/runs/1/changes' });
     expect(res.statusCode).toBe(200);
-    const body = res.json() as any;
+    const body = res.json() as ChangesPayload;
     expect(body.commits.length).toBe(1);
     expect(body.commits[0].subject).toBe('feat: hello');
     expect(body.commits[0].pushed).toBe(false);

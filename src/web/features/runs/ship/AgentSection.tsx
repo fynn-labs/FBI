@@ -18,7 +18,7 @@ export function AgentSection({ busy, commitsCount, onPolish }: AgentSectionProps
             </button>
         </div>
         <div className="text-[12px] text-text-dim flex-1 pt-1">
-          Spawn an agent sub-run that rewrites each commit's subject and body without touching code.
+          Spawn an agent sub-run that rewrites each commit&apos;s subject and body without touching code.
         </div>
       </div>
     </section>

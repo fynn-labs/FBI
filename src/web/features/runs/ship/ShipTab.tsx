@@ -22,7 +22,7 @@ export function ShipTab({ run, project, changes, onCreatePr, creatingPr, onReloa
   const { busy, msg, run: runOp } = useHistoryOp(run.id, onReload);
 
   if (!changes) return <p className="p-4 text-[13px] text-text-faint">Loading ship data…</p>;
-  if (!changes.branch_name) return <p className="p-4 text-[13px] text-text-faint">This run didn't produce a branch.</p>;
+  if (!changes.branch_name) return <p className="p-4 text-[13px] text-text-faint">This run didn&apos;t produce a branch.</p>;
 
   const defaultStrategy: MergeStrategy = project?.default_merge_strategy ?? 'squash';
 
@@ -65,7 +65,7 @@ export function ShipTab({ run, project, changes, onCreatePr, creatingPr, onReloa
         creatingPr={creatingPr}
         onCreatePr={onCreatePr}
       />
-      <SubRunsSection children={changes.children} />
+      <SubRunsSection items={changes.children} />
     </div>
   );
 }

@@ -18,7 +18,7 @@ export interface ChangesTabProps {
 export function ChangesTab({ run, changes, wip }: ChangesTabProps) {
   const nav = useNavigate();
   if (!changes) return <p className="p-3 text-[13px] text-text-faint">Loading changes…</p>;
-  if (!changes.branch_name) return <p className="p-3 text-[13px] text-text-faint">This run didn't produce a branch.</p>;
+  if (!changes.branch_name) return <p className="p-3 text-[13px] text-text-faint">This run didn&apos;t produce a branch.</p>;
 
   const ahead = changes.branch_base?.ahead ?? 0;
   const behind = changes.branch_base?.behind ?? 0;
@@ -49,7 +49,7 @@ export function ChangesTab({ run, changes, wip }: ChangesTabProps) {
       {wip && <WipSection runId={run.id} payload={wip} />}
 
       {empty ? (
-        <p className="p-3 text-[13px] text-text-faint">No changes yet. The agent hasn't committed anything.</p>
+        <p className="p-3 text-[13px] text-text-faint">No changes yet. The agent hasn&apos;t committed anything.</p>
       ) : (
         <div>
           {(changes.uncommitted.length > 0 || changes.dirty_submodules.length > 0) && (
