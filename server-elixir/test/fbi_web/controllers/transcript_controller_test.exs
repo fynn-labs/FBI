@@ -42,6 +42,7 @@ defmodule FBIWeb.TranscriptControllerTest do
     conn = get(conn, "/api/runs/#{r.id}/transcript")
     assert conn.status == 200
     assert conn.resp_body == ""
+
     assert Enum.member?(
              Plug.Conn.get_resp_header(conn, "content-type"),
              "text/plain; charset=utf-8"
@@ -57,6 +58,7 @@ defmodule FBIWeb.TranscriptControllerTest do
     conn = get(conn, "/api/runs/#{r.id}/transcript")
     assert conn.status == 200
     assert conn.resp_body == "hello\n"
+
     assert Enum.member?(
              Plug.Conn.get_resp_header(conn, "content-type"),
              "text/plain; charset=utf-8"

@@ -11,11 +11,12 @@ defmodule FBI.Fidelity.McpFidelityTest do
 
     # Seed with `command: nil` so the returned row matches the canonical
     # fixture shape, which pins `command` as the contract's nullable state.
-    {:ok, _s} = Queries.create(%{
-      project_id: nil,
-      name: "smoke-#{System.unique_integer([:positive])}",
-      type: "stdio"
-    })
+    {:ok, _s} =
+      Queries.create(%{
+        project_id: nil,
+        name: "smoke-#{System.unique_integer([:positive])}",
+        type: "stdio"
+      })
 
     [actual | _] = conn |> get("/api/mcp-servers") |> json_response(200)
 

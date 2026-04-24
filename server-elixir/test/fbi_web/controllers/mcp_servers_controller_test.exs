@@ -61,8 +61,12 @@ defmodule FBIWeb.McpServersControllerTest do
   describe "GET /api/mcp-servers" do
     test "lists only global servers, excludes project-scoped rows", %{conn: conn} do
       p = make_project()
-      {:ok, _} = McpQueries.create(%{project_id: nil, name: "fetch", type: "stdio", command: "npx"})
-      {:ok, _} = McpQueries.create(%{project_id: p.id, name: "scoped", type: "stdio", command: "npx"})
+
+      {:ok, _} =
+        McpQueries.create(%{project_id: nil, name: "fetch", type: "stdio", command: "npx"})
+
+      {:ok, _} =
+        McpQueries.create(%{project_id: p.id, name: "scoped", type: "stdio", command: "npx"})
 
       body = conn |> get("/api/mcp-servers") |> json_response(200)
       assert is_list(body)
@@ -74,7 +78,13 @@ defmodule FBIWeb.McpServersControllerTest do
   describe "PATCH /api/mcp-servers/:id" do
     test "updates a global server and returns 200 with updated row", %{conn: conn} do
       {:ok, s} =
-        McpQueries.create(%{project_id: nil, name: "mem", type: "stdio", command: "npx", args: []})
+        McpQueries.create(%{
+          project_id: nil,
+          name: "mem",
+          type: "stdio",
+          command: "npx",
+          args: []
+        })
 
       conn = json_patch(conn, "/api/mcp-servers/#{s.id}", %{args: ["-y", "updated"]})
 
@@ -152,9 +162,15 @@ defmodule FBIWeb.McpServersControllerTest do
       p1 = make_project()
       p2 = make_project()
       {:ok, _} = McpQueries.create(%{project_id: nil, name: "g", type: "stdio", command: "npx"})
-      {:ok, _} = McpQueries.create(%{project_id: p1.id, name: "p1-a", type: "stdio", command: "npx"})
-      {:ok, _} = McpQueries.create(%{project_id: p1.id, name: "p1-b", type: "stdio", command: "npx"})
-      {:ok, _} = McpQueries.create(%{project_id: p2.id, name: "p2-a", type: "stdio", command: "npx"})
+
+      {:ok, _} =
+        McpQueries.create(%{project_id: p1.id, name: "p1-a", type: "stdio", command: "npx"})
+
+      {:ok, _} =
+        McpQueries.create(%{project_id: p1.id, name: "p1-b", type: "stdio", command: "npx"})
+
+      {:ok, _} =
+        McpQueries.create(%{project_id: p2.id, name: "p2-a", type: "stdio", command: "npx"})
 
       body = conn |> get("/api/projects/#{p1.id}/mcp-servers") |> json_response(200)
       assert is_list(body)

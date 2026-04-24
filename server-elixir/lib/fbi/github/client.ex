@@ -83,7 +83,12 @@ defmodule FBI.Github.Client do
     end
   end
 
-  @spec create_pr(repo(), %{head: String.t(), base: String.t(), title: String.t(), body: String.t()}) ::
+  @spec create_pr(repo(), %{
+          head: String.t(),
+          base: String.t(),
+          title: String.t(),
+          body: String.t()
+        }) ::
           {:ok, pr()} | {:error, term()}
   def create_pr(repo, %{head: head, base: base, title: title, body: body}) do
     case run([

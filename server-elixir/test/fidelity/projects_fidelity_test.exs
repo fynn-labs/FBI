@@ -9,10 +9,11 @@ defmodule FBI.Fidelity.ProjectsFidelityTest do
   test "GET /api/projects shape matches canonical fixture", %{conn: conn} do
     golden = @fixture_path |> File.read!() |> Jason.decode!()
 
-    {:ok, _p} = Queries.create(%{
-      name: "fidelity-#{System.unique_integer([:positive])}",
-      repo_url: "git@github.com:owner/repo.git"
-    })
+    {:ok, _p} =
+      Queries.create(%{
+        name: "fidelity-#{System.unique_integer([:positive])}",
+        repo_url: "git@github.com:owner/repo.git"
+      })
 
     [actual | _] = conn |> get("/api/projects") |> json_response(200)
 

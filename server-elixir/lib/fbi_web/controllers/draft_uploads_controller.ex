@@ -20,7 +20,7 @@ defmodule FBIWeb.DraftUploadsController do
         t -> if FS.valid_draft_token?(t), do: t, else: :invalid
       end
 
-    with :not_invalid <- (if token == :invalid, do: :invalid, else: :not_invalid),
+    with :not_invalid <- if(token == :invalid, do: :invalid, else: :not_invalid),
          %Plug.Upload{path: src, filename: raw_name} <- Map.get(params, "file"),
          {:ok, sanitized} <- FS.sanitize_filename(raw_name),
          dir <- ensure_dir(Paths.draft_dir(token)),
@@ -31,11 +31,20 @@ defmodule FBIWeb.DraftUploadsController do
       now = System.system_time(:millisecond)
       json(conn, %{draft_token: token, filename: resolved, size: size, uploaded_at: now})
     else
-      :invalid -> conn |> put_status(400) |> json(%{error: "invalid_token"})
-      {:error, :invalid} -> conn |> put_status(400) |> json(%{error: "invalid_filename"})
-      {:error, :quota_exceeded} -> conn |> put_status(413) |> json(%{error: "run_quota_exceeded"})
-      {:error, :collision_overflow} -> conn |> put_status(500) |> json(%{error: "collision_overflow"})
-      _ -> conn |> put_status(500) |> json(%{error: "io_error"})
+      :invalid ->
+        conn |> put_status(400) |> json(%{error: "invalid_token"})
+
+      {:error, :invalid} ->
+        conn |> put_status(400) |> json(%{error: "invalid_filename"})
+
+      {:error, :quota_exceeded} ->
+        conn |> put_status(413) |> json(%{error: "run_quota_exceeded"})
+
+      {:error, :collision_overflow} ->
+        conn |> put_status(500) |> json(%{error: "collision_overflow"})
+
+      _ ->
+        conn |> put_status(500) |> json(%{error: "io_error"})
     end
   end
 

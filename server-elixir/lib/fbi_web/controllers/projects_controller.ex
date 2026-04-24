@@ -19,9 +19,12 @@ defmodule FBIWeb.ProjectsController do
 
   def index(conn, _params) do
     list = Queries.list()
-    augmented = Enum.map(list, fn p ->
-      Map.put(p, :last_run, RunsQueries.latest_for_project(p.id))
-    end)
+
+    augmented =
+      Enum.map(list, fn p ->
+        Map.put(p, :last_run, RunsQueries.latest_for_project(p.id))
+      end)
+
     json(conn, augmented)
   end
 

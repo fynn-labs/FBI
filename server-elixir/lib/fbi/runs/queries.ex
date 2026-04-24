@@ -115,7 +115,9 @@ defmodule FBI.Runs.Queries do
   defp maybe_filter_state(q, s) when is_binary(s), do: from(r in q, where: r.state == ^s)
 
   defp maybe_filter_project(q, nil), do: q
-  defp maybe_filter_project(q, pid) when is_integer(pid), do: from(r in q, where: r.project_id == ^pid)
+
+  defp maybe_filter_project(q, pid) when is_integer(pid),
+    do: from(r in q, where: r.project_id == ^pid)
 
   defp maybe_filter_q(q, nil), do: q
   defp maybe_filter_q(q, ""), do: q
@@ -131,12 +133,36 @@ defmodule FBI.Runs.Queries do
   @spec decode(Run.t()) :: map()
   def decode(%Run{} = r) do
     Map.take(r, [
-      :id, :project_id, :prompt, :branch_name, :state, :container_id, :log_path,
-      :exit_code, :error, :head_commit, :started_at, :finished_at, :created_at,
-      :state_entered_at, :model, :effort, :subagent_model,
-      :resume_attempts, :next_resume_at, :claude_session_id, :last_limit_reset_at,
-      :tokens_input, :tokens_output, :tokens_cache_read, :tokens_cache_create, :tokens_total,
-      :usage_parse_errors, :title, :title_locked, :parent_run_id
+      :id,
+      :project_id,
+      :prompt,
+      :branch_name,
+      :state,
+      :container_id,
+      :log_path,
+      :exit_code,
+      :error,
+      :head_commit,
+      :started_at,
+      :finished_at,
+      :created_at,
+      :state_entered_at,
+      :model,
+      :effort,
+      :subagent_model,
+      :resume_attempts,
+      :next_resume_at,
+      :claude_session_id,
+      :last_limit_reset_at,
+      :tokens_input,
+      :tokens_output,
+      :tokens_cache_read,
+      :tokens_cache_create,
+      :tokens_total,
+      :usage_parse_errors,
+      :title,
+      :title_locked,
+      :parent_run_id
     ])
   end
 end

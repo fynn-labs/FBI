@@ -46,7 +46,9 @@ defmodule FBI.Runs.QueriesTest do
     end
 
     test "filters by project_id", %{project_id: pid} do
-      {:ok, other} = Projects.create(%{name: "other#{System.unique_integer([:positive])}", repo_url: "x"})
+      {:ok, other} =
+        Projects.create(%{name: "other#{System.unique_integer([:positive])}", repo_url: "x"})
+
       _ = make_run(pid)
       _ = make_run(other.id)
       list = Queries.list(%{project_id: pid})
@@ -97,7 +99,9 @@ defmodule FBI.Runs.QueriesTest do
     end
 
     test "empty list for project without runs" do
-      {:ok, p} = Projects.create(%{name: "empty#{System.unique_integer([:positive])}", repo_url: "x"})
+      {:ok, p} =
+        Projects.create(%{name: "empty#{System.unique_integer([:positive])}", repo_url: "x"})
+
       assert [] = Queries.list_for_project(p.id)
     end
 

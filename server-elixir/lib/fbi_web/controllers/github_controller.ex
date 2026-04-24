@@ -35,7 +35,8 @@ defmodule FBIWeb.GithubController do
   def create_pr(conn, %{"id" => id_str}) do
     with {:ok, id} <- parse_id(id_str),
          {:ok, run} <- Runs.get(id),
-         true <- is_binary(run.branch_name) and byte_size(run.branch_name) > 0 or {:error, :no_branch},
+         true <-
+           (is_binary(run.branch_name) and byte_size(run.branch_name) > 0) or {:error, :no_branch},
          {:ok, project} <- Projects.get(run.project_id),
          {:ok, repo} <- Repo.parse(project.repo_url),
          true <- Client.available?() or {:error, :gh_unavailable} do
@@ -44,7 +45,9 @@ defmodule FBIWeb.GithubController do
           conn |> put_status(409) |> json(%{error: "PR already exists", pr: pr})
 
         _ ->
-          title = run.prompt |> String.split("\n", parts: 2) |> List.first() |> String.slice(0, 72)
+          title =
+            run.prompt |> String.split("\n", parts: 2) |> List.first() |> String.slice(0, 72)
+
           body = run.prompt <> "\n\n---\nGenerated with FBI run ##{id}"
 
           case Client.create_pr(repo, %{
@@ -78,7 +81,8 @@ defmodule FBIWeb.GithubController do
          {:ok, run} <- Runs.get(id),
          {:ok, project} <- Projects.get(run.project_id),
          {:ok, repo} <- Repo.parse(project.repo_url),
-         true <- is_binary(run.branch_name) and byte_size(run.branch_name) > 0 or {:error, :no_branch},
+         true <-
+           (is_binary(run.branch_name) and byte_size(run.branch_name) > 0) or {:error, :no_branch},
          true <- Client.available?() or {:error, :gh_unavailable} do
       commit_msg = "Merge branch '#{run.branch_name}' (FBI run ##{id})"
 

@@ -28,7 +28,8 @@ defmodule FBI.Uploads.FS do
 
   def sanitize_filename(_), do: {:error, :invalid}
 
-  @spec resolve_filename(Path.t(), String.t()) :: {:ok, String.t()} | {:error, :collision_overflow}
+  @spec resolve_filename(Path.t(), String.t()) ::
+          {:ok, String.t()} | {:error, :collision_overflow}
   def resolve_filename(dir, filename) do
     path = Path.join(dir, filename)
 

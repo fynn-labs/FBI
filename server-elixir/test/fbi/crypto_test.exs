@@ -6,7 +6,11 @@ defmodule FBI.CryptoTest do
   @fixture_dir Path.expand("../fixtures", __DIR__)
 
   defp load_hex!(name) do
-    @fixture_dir |> Path.join(name) |> File.read!() |> String.trim() |> Base.decode16!(case: :lower)
+    @fixture_dir
+    |> Path.join(name)
+    |> File.read!()
+    |> String.trim()
+    |> Base.decode16!(case: :lower)
   end
 
   describe "cross-language fixture" do

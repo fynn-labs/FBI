@@ -11,19 +11,23 @@ defmodule FBI.Fidelity.RunsFidelityTest do
   test "GET /api/runs/:id shape matches canonical fixture", %{conn: conn} do
     golden = @fixture_path |> File.read!() |> Jason.decode!()
 
-    {:ok, p} = Projects.create(%{
-      name: "rfid-#{System.unique_integer([:positive])}",
-      repo_url: "git@github.com:owner/r.git"
-    })
+    {:ok, p} =
+      Projects.create(%{
+        name: "rfid-#{System.unique_integer([:positive])}",
+        repo_url: "git@github.com:owner/r.git"
+      })
 
-    run = Repo.insert!(struct(Run, %{
-      project_id: p.id,
-      prompt: "x",
-      branch_name: "b",
-      state: "succeeded",
-      log_path: "/tmp/x.log",
-      created_at: System.system_time(:millisecond)
-    }))
+    run =
+      Repo.insert!(
+        struct(Run, %{
+          project_id: p.id,
+          prompt: "x",
+          branch_name: "b",
+          state: "succeeded",
+          log_path: "/tmp/x.log",
+          created_at: System.system_time(:millisecond)
+        })
+      )
 
     actual = conn |> get("/api/runs/#{run.id}") |> json_response(200)
 

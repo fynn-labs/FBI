@@ -93,7 +93,9 @@ defmodule FBI.Uploads.FSTest do
 
   describe "directory_bytes/1" do
     test "returns 0 for nonexistent directory" do
-      missing = Path.join(System.tmp_dir!(), "fbi-fs-missing-#{System.unique_integer([:positive])}")
+      missing =
+        Path.join(System.tmp_dir!(), "fbi-fs-missing-#{System.unique_integer([:positive])}")
+
       assert FS.directory_bytes(missing) == 0
     end
 

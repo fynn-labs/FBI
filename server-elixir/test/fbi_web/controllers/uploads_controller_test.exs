@@ -147,7 +147,10 @@ defmodule FBIWeb.UploadsControllerTest do
     test "also accepts state=waiting", %{conn: conn} do
       run = make_run(%{state: "waiting"})
       upload = make_upload("a.txt")
-      body = conn |> post("/api/runs/#{run.id}/uploads", %{"file" => upload}) |> json_response(200)
+
+      body =
+        conn |> post("/api/runs/#{run.id}/uploads", %{"file" => upload}) |> json_response(200)
+
       assert body["filename"] == "a.txt"
     end
 
@@ -158,7 +161,10 @@ defmodule FBIWeb.UploadsControllerTest do
       File.write!(Path.join(dir, "a.txt"), "prior")
 
       upload = make_upload("a.txt", "new")
-      body = conn |> post("/api/runs/#{run.id}/uploads", %{"file" => upload}) |> json_response(200)
+
+      body =
+        conn |> post("/api/runs/#{run.id}/uploads", %{"file" => upload}) |> json_response(200)
+
       assert body["filename"] == "a (1).txt"
     end
   end

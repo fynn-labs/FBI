@@ -26,7 +26,9 @@ defmodule FBI.Github.ClientTest do
     test "atomizes the PR shape" do
       Application.put_env(:fbi, :gh_cmd_adapter, fn _args ->
         {:ok,
-         Jason.encode!([%{"number" => 42, "url" => "https://x", "state" => "OPEN", "title" => "hi"}])}
+         Jason.encode!([
+           %{"number" => 42, "url" => "https://x", "state" => "OPEN", "title" => "hi"}
+         ])}
       end)
 
       assert {:ok, %{number: 42, url: "https://x", state: "OPEN", title: "hi"}} =
@@ -42,7 +44,8 @@ defmodule FBI.Github.ClientTest do
   describe "pr_checks/2" do
     test "returns parsed list on success" do
       Application.put_env(:fbi, :gh_cmd_adapter, fn _args ->
-        {:ok, Jason.encode!([%{"name" => "ci", "status" => "completed", "conclusion" => "success"}])}
+        {:ok,
+         Jason.encode!([%{"name" => "ci", "status" => "completed", "conclusion" => "success"}])}
       end)
 
       assert {:ok, [%{"name" => "ci"}]} = Client.pr_checks("a/b", "main")
