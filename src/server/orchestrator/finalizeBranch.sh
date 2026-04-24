@@ -21,49 +21,33 @@ set -euo pipefail
 : "${CLAUDE_EXIT:?CLAUDE_EXIT required}"
 : "${RESULT_PATH:?RESULT_PATH required}"
 
-# Capture uncommitted work on whatever branch we're on. If there's nothing
-# staged, the commit is skipped (|| true swallows the "nothing to commit" exit).
-git add -A
-git commit -m "wip: claude run $RUN_ID" 2>/dev/null || true
+# Take one final WIP snapshot so unsaved work is preserved even if the
+# periodic daemon missed the last edit.
+if [ -x /usr/local/bin/fbi-wip-snapshot.sh ]; then
+    /usr/local/bin/fbi-wip-snapshot.sh > /tmp/last-snapshot.log 2>&1 || :
+fi
 
-# Refresh our view of the default branch so the "already merged" check below
-# reflects anything merged during the run. Best-effort: offline ⇒ cached ref.
+# Refresh the remote default branch so already-merged detection works.
 git fetch --quiet origin "$DEFAULT_BRANCH" 2>/dev/null || true
 
 CURRENT_BRANCH="$(git rev-parse --abbrev-ref HEAD)"
 HEAD_SHA="$(git rev-parse HEAD 2>/dev/null || echo '')"
 
-# Does HEAD contain new commits vs origin/$DEFAULT_BRANCH? If HEAD is an
-# ancestor of (or equal to) the default branch tip, Claude's work is either
-# already merged or they produced no commits — either way, nothing to push.
-HAS_NEW_WORK=1
-if git merge-base --is-ancestor HEAD "origin/$DEFAULT_BRANCH" 2>/dev/null; then
-    HAS_NEW_WORK=0
+# Read WIP sha (if any) from the log.
+WIP_SHA=""
+if [ -f /tmp/last-snapshot.log ]; then
+    # last-snapshot.log is a single JSON line: {"ok":true,"sha":"..."}
+    WIP_SHA=$(sed -n 's/.*"sha":"\([^"]*\)".*/\1/p' /tmp/last-snapshot.log | tail -n 1)
 fi
 
+# Push exit is sourced from the last post-commit hook's log so we don't
+# re-push from here — the hook has been keeping origin up to date.
 PUSH_EXIT=0
-RESULT_BRANCH=""
-
-if [ "$HAS_NEW_WORK" = "1" ]; then
-    # Keep work off the default branch: if Claude never branched, create the
-    # fallback so the push lands on claude/run-$RUN_ID instead of main.
-    if [ "$CURRENT_BRANCH" = "$DEFAULT_BRANCH" ]; then
-        CURRENT_BRANCH="claude/run-$RUN_ID"
-        git checkout -b "$CURRENT_BRANCH"
-        echo "[fbi] claude didn't branch; pushing to fallback $CURRENT_BRANCH"
+if [ -f /tmp/last-push.log ]; then
+    if grep -qE '^!|rejected|error:' /tmp/last-push.log 2>/dev/null; then
+        PUSH_EXIT=1
     fi
-    git push -u origin "$CURRENT_BRANCH" || PUSH_EXIT=$?
-    RESULT_BRANCH="$CURRENT_BRANCH"
-elif [ "$CURRENT_BRANCH" != "$DEFAULT_BRANCH" ] \
-     && git rev-parse --verify --quiet "refs/remotes/origin/$CURRENT_BRANCH" >/dev/null; then
-    # No new work, but Claude is on a feature branch that exists on the remote
-    # (likely already merged via PR). Preserve the name so the UI can still
-    # surface the existing PR / compare view.
-    RESULT_BRANCH="$CURRENT_BRANCH"
-    echo "[fbi] no new commits beyond $DEFAULT_BRANCH; preserving remote branch $CURRENT_BRANCH"
-else
-    echo "[fbi] no new commits beyond $DEFAULT_BRANCH; nothing to push"
 fi
 
-printf '{"exit_code":%d,"push_exit":%d,"head_sha":"%s","branch":"%s"}\n' \
-    "$CLAUDE_EXIT" "$PUSH_EXIT" "$HEAD_SHA" "$RESULT_BRANCH" > "$RESULT_PATH"
+printf '{"exit_code":%d,"push_exit":%d,"head_sha":"%s","branch":"%s","wip_sha":"%s"}\n' \
+    "$CLAUDE_EXIT" "$PUSH_EXIT" "$HEAD_SHA" "$CURRENT_BRANCH" "$WIP_SHA" > "$RESULT_PATH"

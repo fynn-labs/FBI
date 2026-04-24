@@ -69,8 +69,14 @@ function remoteBranches(fx: Fixture): string[] {
   return out.split('\n').map((s) => s.trim()).filter(Boolean).sort();
 }
 
+// Snapshot log path used by the script (hardcoded).
+const SNAPSHOT_LOG = '/tmp/last-snapshot.log';
+const PUSH_LOG = '/tmp/last-push.log';
+
 describe('finalizeBranch.sh', () => {
   let fx: Fixture;
+  // Track files we create so we can clean them up even on failure.
+  const tmpFilesToClean: string[] = [];
 
   beforeEach(() => {
     fx = setupFixture();
@@ -78,111 +84,157 @@ describe('finalizeBranch.sh', () => {
 
   afterEach(() => {
     fs.rmSync(fx.root, { recursive: true, force: true });
+    for (const f of tmpFilesToClean.splice(0)) {
+      try { fs.unlinkSync(f); } catch { /* ignore */ }
+    }
+    // Also clean up any snapshot/push log left by tests.
+    for (const f of [SNAPSHOT_LOG, PUSH_LOG]) {
+      try { fs.unlinkSync(f); } catch { /* ignore */ }
+    }
   });
 
-  it('no-op when claude made no changes on default branch', () => {
+  // -------------------------------------------------------------------------
+  // Basic smoke test
+  // -------------------------------------------------------------------------
+
+  it('exits 0 and writes result.json', () => {
     const r = runFinalize(fx);
     expect(r.status).toBe(0);
-    expect(r.result).toMatchObject({ exit_code: 0, push_exit: 0, branch: '' });
-    // Fallback claude/run-N must NOT be created on the remote.
-    expect(remoteBranches(fx)).toEqual(['main']);
+    expect(r.result).not.toBeNull();
   });
 
-  it('creates fallback branch and pushes when claude committed on default branch', () => {
-    fs.writeFileSync(path.join(fx.work, 'new.txt'), 'work\n');
-    git(fx.work, 'add', '.');
-    git(fx.work, 'commit', '-m', 'work');
-
-    const r = runFinalize(fx, { runId: '7' });
-    expect(r.status).toBe(0);
-    expect(r.result).toMatchObject({ exit_code: 0, push_exit: 0, branch: 'claude/run-7' });
-    expect(remoteBranches(fx)).toContain('claude/run-7');
-  });
-
-  it('pushes feature branch as-is when claude branched and committed', () => {
-    git(fx.work, 'checkout', '-b', 'fix/thing');
-    fs.writeFileSync(path.join(fx.work, 'f.txt'), 'f\n');
-    git(fx.work, 'add', '.');
-    git(fx.work, 'commit', '-m', 'fix');
-
-    const r = runFinalize(fx);
-    expect(r.status).toBe(0);
-    expect(r.result).toMatchObject({ push_exit: 0, branch: 'fix/thing' });
-    expect(remoteBranches(fx)).toContain('fix/thing');
-    // Still no nuisance claude/run-N.
-    expect(remoteBranches(fx)).not.toContain('claude/run-42');
-  });
-
-  it('stages and commits leftover uncommitted work before pushing', () => {
-    git(fx.work, 'checkout', '-b', 'fix/uncommitted');
-    fs.writeFileSync(path.join(fx.work, 'dirty.txt'), 'dirty\n');
-    // Intentionally leave unstaged.
-
-    const r = runFinalize(fx);
-    expect(r.status).toBe(0);
-    expect(r.result).toMatchObject({ push_exit: 0, branch: 'fix/uncommitted' });
-    expect(remoteBranches(fx)).toContain('fix/uncommitted');
-
-    // The work commit should exist on remote.
-    const log = execFileSync('git', ['--git-dir', fx.remote, 'log', '--format=%s', 'fix/uncommitted'], {
-      encoding: 'utf8',
-    });
-    expect(log).toMatch(/wip: claude run 42/);
-  });
-
-  it('does NOT push and does NOT create claude/run-N when a feature branch is already merged into default', () => {
-    // Claude branches from main, commits, pushes (simulating an earlier run).
-    git(fx.work, 'checkout', '-b', 'feature/merged');
-    fs.writeFileSync(path.join(fx.work, 'fm.txt'), 'fm\n');
-    git(fx.work, 'add', '.');
-    git(fx.work, 'commit', '-m', 'feature commit');
-    git(fx.work, 'push', '-u', 'origin', 'feature/merged');
-
-    // Outside party fast-forwards main to include feature/merged.
-    execFileSync('git', ['--git-dir', fx.remote, 'update-ref', 'refs/heads/main', 'refs/heads/feature/merged']);
-
-    // New run: fresh clone, checks out the feature branch, makes no new commits.
-    const cloneDir = path.join(fx.root, 'clone');
-    execFileSync('git', ['clone', fx.remote, cloneDir]);
-    git(cloneDir, 'config', 'user.name', 'Test');
-    git(cloneDir, 'config', 'user.email', 'test@example.com');
-    git(cloneDir, 'checkout', 'feature/merged');
-
-    const res = spawnSync('bash', [SCRIPT], {
-      cwd: cloneDir,
-      encoding: 'utf8',
-      env: {
-        ...process.env,
-        DEFAULT_BRANCH: 'main',
-        RUN_ID: '99',
-        CLAUDE_EXIT: '0',
-        RESULT_PATH: fx.resultPath,
-      },
-    });
-    expect(res.status).toBe(0);
-    const result = JSON.parse(fs.readFileSync(fx.resultPath, 'utf8'));
-    // HEAD is already in main → no push, but keep the branch name so UI can
-    // still link to the existing PR for feature/merged.
-    expect(result.push_exit).toBe(0);
-    expect(result.branch).toBe('feature/merged');
-    // No nuisance fallback branch gets created.
-    expect(remoteBranches(fx)).not.toContain('claude/run-99');
-  });
-
-  it('reports no branch when claude created a local-only feature branch but made no commits', () => {
-    git(fx.work, 'checkout', '-b', 'feature/empty');
-    // No commits made.
-
-    const r = runFinalize(fx);
-    expect(r.status).toBe(0);
-    expect(r.result).toMatchObject({ push_exit: 0, branch: '' });
-    // Branch was never on remote, so we don't falsely claim it.
-    expect(remoteBranches(fx)).toEqual(['main']);
-  });
-
-  it('propagates claude exit code into the result JSON', () => {
+  it('propagates claude exit code into result JSON', () => {
     const r = runFinalize(fx, { claudeExit: '2' });
     expect(r.status).toBe(0);
-    expect(r.result).toMatchObject({ exit_code: 2, push_exit: 0, branch: '' });
+    expect(r.result).toMatchObject({ exit_code: 2 });
+  });
+
+  it('result JSON contains expected keys', () => {
+    const r = runFinalize(fx);
+    expect(r.status).toBe(0);
+    expect(r.result).toHaveProperty('exit_code');
+    expect(r.result).toHaveProperty('push_exit');
+    expect(r.result).toHaveProperty('head_sha');
+    expect(r.result).toHaveProperty('branch');
+    expect(r.result).toHaveProperty('wip_sha');
+  });
+
+  // -------------------------------------------------------------------------
+  // New behaviour: no wip commit, no push from finalize
+  // -------------------------------------------------------------------------
+
+  it('does not create a wip: commit', () => {
+    // Leave an uncommitted dirty file on the work tree.
+    git(fx.work, 'checkout', '-b', 'fix/dirty');
+    fs.writeFileSync(path.join(fx.work, 'dirty.txt'), 'dirty\n');
+
+    const r = runFinalize(fx);
+    expect(r.status).toBe(0);
+
+    // git log should contain no commit whose subject starts with "wip:".
+    const log = git(fx.work, 'log', '--format=%s');
+    expect(log).not.toMatch(/^wip:/m);
+  });
+
+  it('does not push to origin from finalize', () => {
+    // Record origin/main tip before the run.
+    const beforeSha = git(fx.work, 'rev-parse', 'origin/main');
+
+    // Make a new local commit that is NOT yet on origin.
+    fs.writeFileSync(path.join(fx.work, 'new.txt'), 'new\n');
+    git(fx.work, 'add', '.');
+    git(fx.work, 'commit', '-m', 'new local commit');
+
+    runFinalize(fx);
+
+    // origin/main should still be at the same SHA — finalize must not push.
+    const afterSha = execFileSync(
+      'git',
+      ['--git-dir', fx.remote, 'rev-parse', 'main'],
+      { encoding: 'utf8' },
+    ).trim();
+    expect(afterSha).toBe(beforeSha);
+  });
+
+  it('includes wip_sha in result JSON when a snapshot log is present', () => {
+    // Seed the snapshot log that the script reads.
+    fs.writeFileSync(SNAPSHOT_LOG, '{"ok":true,"sha":"abc123"}\n');
+
+    const r = runFinalize(fx);
+    expect(r.status).toBe(0);
+    expect(r.result).toMatchObject({ wip_sha: 'abc123' });
+  });
+
+  it('wip_sha is empty string when no snapshot log exists', () => {
+    // Ensure the log is absent.
+    try { fs.unlinkSync(SNAPSHOT_LOG); } catch { /* ok */ }
+
+    const r = runFinalize(fx);
+    expect(r.status).toBe(0);
+    expect(r.result).toMatchObject({ wip_sha: '' });
+  });
+
+  // -------------------------------------------------------------------------
+  // push_exit sourced from /tmp/last-push.log
+  // -------------------------------------------------------------------------
+
+  it('sets push_exit=0 when last-push.log has no error indicators', () => {
+    fs.writeFileSync(PUSH_LOG, 'Everything up-to-date\n');
+
+    const r = runFinalize(fx);
+    expect(r.status).toBe(0);
+    expect(r.result).toMatchObject({ push_exit: 0 });
+  });
+
+  it('sets push_exit=1 when last-push.log contains "rejected"', () => {
+    fs.writeFileSync(PUSH_LOG, ' ! [rejected]   main -> main (non-fast-forward)\n');
+
+    const r = runFinalize(fx);
+    expect(r.status).toBe(0);
+    expect(r.result).toMatchObject({ push_exit: 1 });
+  });
+
+  it('sets push_exit=1 when last-push.log contains "error:"', () => {
+    fs.writeFileSync(PUSH_LOG, 'error: failed to push some refs\n');
+
+    const r = runFinalize(fx);
+    expect(r.status).toBe(0);
+    expect(r.result).toMatchObject({ push_exit: 1 });
+  });
+
+  it('sets push_exit=0 when last-push.log does not exist', () => {
+    try { fs.unlinkSync(PUSH_LOG); } catch { /* ok */ }
+
+    const r = runFinalize(fx);
+    expect(r.status).toBe(0);
+    expect(r.result).toMatchObject({ push_exit: 0 });
+  });
+
+  // -------------------------------------------------------------------------
+  // branch field reflects current HEAD branch
+  // -------------------------------------------------------------------------
+
+  it('branch field reflects current HEAD branch (default branch)', () => {
+    const r = runFinalize(fx);
+    expect(r.status).toBe(0);
+    expect(r.result).toMatchObject({ branch: 'main' });
+  });
+
+  it('branch field reflects current HEAD branch (feature branch)', () => {
+    git(fx.work, 'checkout', '-b', 'feat/my-thing');
+
+    const r = runFinalize(fx);
+    expect(r.status).toBe(0);
+    expect(r.result).toMatchObject({ branch: 'feat/my-thing' });
+  });
+
+  // -------------------------------------------------------------------------
+  // No nuisance branches created
+  // -------------------------------------------------------------------------
+
+  it('does not create claude/run-N fallback branch on remote', () => {
+    const r = runFinalize(fx, { runId: '7' });
+    expect(r.status).toBe(0);
+    expect(remoteBranches(fx)).not.toContain('claude/run-7');
   });
 });
