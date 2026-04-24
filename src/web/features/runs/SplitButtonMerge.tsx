@@ -47,13 +47,13 @@ export function SplitButtonMerge({ busy, disabled, disabledReason, onMerge, proj
 
   const label = busy ? 'Merging…' : LABEL[strategy];
   return (
-    <div ref={ref} className="relative inline-flex rounded-md overflow-hidden border border-accent bg-accent">
+    <div ref={ref} className="relative inline-flex">
       <button
         type="button"
         onClick={() => onMerge(strategy)}
         disabled={disabled || busy}
         title={disabled ? disabledReason : undefined}
-        className="px-3 py-1.5 text-[13px] font-medium text-bg bg-accent hover:bg-accent-strong disabled:opacity-50"
+        className="px-3 py-1.5 text-[13px] font-medium text-bg bg-accent hover:bg-accent-strong disabled:opacity-50 rounded-l-md border border-accent"
       >
         {label}
       </button>
@@ -62,7 +62,7 @@ export function SplitButtonMerge({ busy, disabled, disabledReason, onMerge, proj
         aria-label="Choose strategy"
         onClick={() => setOpen((v) => !v)}
         disabled={busy}
-        className="px-2 py-1.5 text-[13px] text-bg bg-accent hover:bg-accent-strong border-l border-bg/30 disabled:opacity-50"
+        className="px-2 py-1.5 text-[13px] text-bg bg-accent hover:bg-accent-strong border border-l-0 border-accent border-l-bg/30 disabled:opacity-50 rounded-r-md"
       >
         ▾
       </button>
