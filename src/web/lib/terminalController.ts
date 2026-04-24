@@ -1,6 +1,4 @@
 import type { Terminal as Xterm } from '@xterm/xterm';
-import { Terminal as XtermImpl } from '@xterm/xterm';
-import { FitAddon } from '@xterm/addon-fit';
 import { acquireShell, releaseShell, getLastSnapshot } from './shellRegistry.js';
 import { publishUsage, publishState, publishTitle, publishFiles } from '../features/runs/usageBus.js';
 import { record as traceRecord, strPreview } from './terminalTrace.js';
@@ -32,13 +30,13 @@ function concat(bufs: Uint8Array[]): Uint8Array {
 
 /**
  * Owns the terminal's WebSocket lifecycle, the snapshot/bytes plumbing, and
- * the live/history switch. The React component owns the *live* xterm
- * instance and the JSX host elements; the controller owns the transient
- * history xterm it creates in `enterHistory()`. Every side-effect of "user
- * looks at a run" — shell acquire/release, typed-event routing, snapshot
- * application, input wiring — lives in the controller.
+ * the pause/resume state machine for lazy scrollback. The React component
+ * owns the xterm instance and the JSX host element; the controller owns
+ * every side-effect of "user looks at a run" — shell acquire/release,
+ * typed-event routing, snapshot application, input wiring, scroll-driven
+ * pause/resume, and older-chunk prefetch.
  *
- * Constructor takes a `host` element (the live xterm's host div). Focus and
+ * Constructor takes a `host` element (the xterm's host div). Focus and
  * click-to-focus are wired here so `setInteractive(false)` can cleanly tear
  * them down without React having to know.
  */
@@ -55,13 +53,6 @@ export class TerminalController {
 
   private inputDisposable: { dispose(): void } | null = null;
   private hostClickHandler: (() => void) | null = null;
-
-  // History xterm created lazily in enterHistory(); lifetime = enterHistory → resumeLive/dispose.
-  private historyTerm: Xterm | null = null;
-  // Soft cancel for an in-flight history fetch/stream. Independent of
-  // `disposed` (which is the hard lifecycle flag for the whole controller).
-  // Flipped true on resumeLive/dispose; reset to false in enterHistory.
-  private historyAborted = false;
 
   // Hard lifecycle flag. Once true, all callbacks become no-ops and the
   // class is unusable; monotonic.
@@ -305,55 +296,6 @@ export class TerminalController {
     }, 40);
   }
 
-  async enterHistory(historyHost: HTMLElement): Promise<void> {
-    if (this.disposed) return;
-    traceRecord('controller.history.start', { runId: this.runId });
-    this.historyAborted = false;
-    if (this.historyTerm) { this.historyTerm.dispose(); this.historyTerm = null; }
-
-    this.historyTerm = new XtermImpl({
-      convertEol: true,
-      fontFamily: this.term.options.fontFamily ?? 'ui-monospace, monospace',
-      fontSize: this.term.options.fontSize ?? 13,
-      theme: this.term.options.theme,
-      cursorBlink: false,
-      disableStdin: true,
-    });
-    const fit = new FitAddon();
-    this.historyTerm.loadAddon(fit);
-    this.historyTerm.open(historyHost);
-    try { fit.fit(); } catch { /* ignore */ }
-
-    try {
-      const res = await fetch(`/api/runs/${this.runId}/transcript`);
-      if (this.disposed || this.historyAborted) return;
-      if (!res.ok) throw new Error(`status ${res.status}`);
-      const buf = new Uint8Array(await res.arrayBuffer());
-      if (this.disposed || this.historyAborted) return;
-      const CHUNK = 1024 * 1024;
-      for (let off = 0; off < buf.byteLength; off += CHUNK) {
-        if (this.disposed || this.historyAborted || !this.historyTerm) return;
-        const end = Math.min(off + CHUNK, buf.byteLength);
-        await new Promise<void>((resolve) =>
-          this.historyTerm!.write(buf.subarray(off, end), resolve),
-        );
-      }
-      traceRecord('controller.history.end', { runId: this.runId, bytes: buf.byteLength });
-    } catch {
-      if (this.disposed || this.historyAborted || !this.historyTerm) return;
-      this.historyTerm.write(new TextEncoder().encode('\r\n[failed to load history]\r\n'));
-      traceRecord('controller.history.end', { runId: this.runId, error: true });
-    }
-  }
-
-  resumeLive(): void {
-    if (this.disposed) return;
-    this.historyAborted = true;
-    if (this.historyTerm) { this.historyTerm.dispose(); this.historyTerm = null; }
-    this.term.focus();
-    traceRecord('controller.resumeLive', { runId: this.runId });
-  }
-
   onPauseChange(cb: (paused: boolean) => void): () => void {
     this.pauseListeners.add(cb);
     return () => { this.pauseListeners.delete(cb); };
@@ -376,6 +318,27 @@ export class TerminalController {
     this.paused = true;
     this.applyInteractive();
     this.emitPauseChange();
+  }
+
+  /**
+   * Called by the React component on every xterm scroll event.
+   * - atBottom + paused → auto-resume.
+   * - not atBottom + not paused → pause.
+   * - nearTop + paused + startOffset > 0 → prefetch next chunk.
+   */
+  onScroll(s: { atBottom: boolean; nearTop: boolean }): void {
+    if (this.disposed) return;
+    if (!this.paused && !s.atBottom) {
+      this.pause();
+      return;
+    }
+    if (this.paused && s.atBottom) {
+      void this.resume();
+      return;
+    }
+    if (this.paused && s.nearTop && this.loadedStartOffset > 0 && !this.pendingChunk) {
+      void this.loadOlderChunk();
+    }
   }
 
   async resume(): Promise<void> {
@@ -617,14 +580,13 @@ export class TerminalController {
     this.disposed = true;
     traceRecord('controller.dispose', { runId: this.runId });
     this.setInteractive(false);
+    if (this.pendingChunk) { this.pendingChunk.abort.abort(); this.pendingChunk = null; }
+    this.pendingResumeSnapshot = null;
     this.unsubBytes?.(); this.unsubBytes = null;
     this.unsubSnapshot?.(); this.unsubSnapshot = null;
     this.unsubOpen?.(); this.unsubOpen = null;
     this.unsubEvents?.(); this.unsubEvents = null;
     this.pauseListeners.clear();
-    this.pendingResumeSnapshot = null;
-    if (this.pendingChunk) { this.pendingChunk.abort.abort(); this.pendingChunk = null; }
-    if (this.historyTerm) { this.historyTerm.dispose(); this.historyTerm = null; }
     releaseShell(this.runId);
   }
 }
