@@ -1,0 +1,23 @@
+[Unit]
+Description=FBI Agent Runtime (Elixir/Phoenix)
+After=network-online.target docker.service
+Requires=docker.service
+
+[Service]
+Type=simple
+User=fbi
+Group=fbi
+EnvironmentFile=/etc/default/fbi-elixir
+WorkingDirectory=/opt/fbi-elixir
+ExecStart=/opt/fbi-elixir/bin/fbi start
+Restart=on-failure
+RestartSec=3s
+StandardOutput=journal
+StandardError=journal
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ReadWritePaths=/var/lib/agent-manager /opt/fbi-elixir /tmp /home/fbi/.claude
+
+[Install]
+WantedBy=multi-user.target

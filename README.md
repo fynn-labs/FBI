@@ -12,6 +12,7 @@ A personal web tool that runs `claude --dangerously-skip-permissions` inside eph
 4. A unix user `fbi` in the `docker` group.
 5. SSH keys loaded into the `fbi` user's ssh-agent, persisted across reboots.
 6. `claude /login` performed once as `fbi`.
+7. Erlang/OTP 27 and Elixir 1.18 installed (via asdf or your distro's packages). The Phoenix server is built via `mix release` during install.
 
 ### Persistent ssh-agent recipe
 
@@ -50,8 +51,13 @@ git clone <repo> /tmp/fbi-src
 cd /tmp/fbi-src
 sudo bash scripts/install.sh
 sudo vim /etc/default/fbi    # set GIT_AUTHOR_NAME / EMAIL
-sudo systemctl restart fbi
+sudo systemctl restart fbi fbi-elixir
 ```
+
+The install script builds and starts both servers side-by-side:
+
+- **Elixir/Phoenix server** (`fbi-elixir.service`) — listens publicly on `:3000`, proxies unrecognised routes to the Node server.
+- **Node server** (`fbi.service`) — moves to `127.0.0.1:3001` (loopback only).
 
 Open the service URL over Tailscale (port 3000 by default).
 
