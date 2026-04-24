@@ -89,18 +89,13 @@ defmodule FBI.Runs.Queries do
     |> Repo.one()
   end
 
-  @spec update_title(integer(), String.t()) :: {:ok, decoded()} | :not_found
-  def update_title(id, title) do
+  @spec update_title(integer(), String.t(), boolean()) :: {:ok, decoded()} | :not_found
+  def update_title(id, title, lock \\ false) do
     case Repo.get(Run, id) do
-      nil ->
-        :not_found
-
+      nil -> :not_found
       r ->
-        updated =
-          r
-          |> Run.changeset(%{title: title, title_locked: 0})
-          |> Repo.update!()
-
+        attrs = if lock, do: %{title: title, title_locked: 1}, else: %{title: title, title_locked: 0}
+        updated = r |> Run.changeset(attrs) |> Repo.update!()
         {:ok, decode(updated)}
     end
   end
