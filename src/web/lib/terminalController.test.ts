@@ -897,4 +897,66 @@ describe('TerminalController', () => {
     expect(pauseSpy).not.toHaveBeenCalled();
     expect(resumeSpy).not.toHaveBeenCalled();
   });
+
+  it('loadOlderChunk emits chunkState loading → idle on success', async () => {
+    const shell = makeStubShell({ openState: 'open' });
+    acquiredShells.set(80, shell);
+    const term = makeFakeXterm();
+    const host = document.createElement('div');
+    const c = new TerminalController(80, term as unknown as import('@xterm/xterm').Terminal, host);
+
+    const TOTAL = 2_000_000;
+    const seedBytes = new Uint8Array(524288).fill(1);
+    fetchResponder = (call): { status: number; headers: Record<string, string>; body: Uint8Array } => {
+      if (call.headers.range === 'bytes=0-0') {
+        return { status: 206, headers: { 'x-transcript-total': String(TOTAL) }, body: new Uint8Array([0]) };
+      }
+      if (call.headers.range === `bytes=${TOTAL - 524288}-${TOTAL - 1}`) {
+        return { status: 206, headers: {}, body: seedBytes };
+      }
+      return { status: 206, headers: {}, body: new Uint8Array(524288).fill(2) };
+    };
+    for (const cb of shell._snap) cb({ type: 'snapshot', ansi: 'S', cols: 120, rows: 40 });
+    for (let i = 0; i < 10; i++) {
+      await new Promise((r) => setTimeout(r, 0));
+      if (c._debugBuffers().loadedStartOffset === TOTAL - 524288) break;
+    }
+
+    c.pause();
+    const states: string[] = [];
+    c.onChunkStateChange((s) => states.push(s));
+    await c.loadOlderChunk();
+    expect(states).toEqual(['loading', 'idle']);
+  });
+
+  it('loadOlderChunk emits chunkState loading → error on failure', async () => {
+    const shell = makeStubShell({ openState: 'open' });
+    acquiredShells.set(81, shell);
+    const term = makeFakeXterm();
+    const host = document.createElement('div');
+    const c = new TerminalController(81, term as unknown as import('@xterm/xterm').Terminal, host);
+
+    const TOTAL = 2_000_000;
+    const seedBytes = new Uint8Array(524288).fill(1);
+    fetchResponder = (call): { status: number; headers: Record<string, string>; body: Uint8Array } => {
+      if (call.headers.range === 'bytes=0-0') {
+        return { status: 206, headers: { 'x-transcript-total': String(TOTAL) }, body: new Uint8Array([0]) };
+      }
+      if (call.headers.range === `bytes=${TOTAL - 524288}-${TOTAL - 1}`) {
+        return { status: 206, headers: {}, body: seedBytes };
+      }
+      return { status: 500, headers: {}, body: new Uint8Array() };
+    };
+    for (const cb of shell._snap) cb({ type: 'snapshot', ansi: 'S', cols: 120, rows: 40 });
+    for (let i = 0; i < 10; i++) {
+      await new Promise((r) => setTimeout(r, 0));
+      if (c._debugBuffers().loadedStartOffset === TOTAL - 524288) break;
+    }
+
+    c.pause();
+    const states: string[] = [];
+    c.onChunkStateChange((s) => states.push(s));
+    await c.loadOlderChunk();
+    expect(states).toEqual(['loading', 'error']);
+  });
 });

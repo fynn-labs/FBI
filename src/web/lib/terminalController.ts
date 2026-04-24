@@ -15,6 +15,8 @@ import type {
 const CHUNK_SIZE = 512 * 1024;
 const RESUME_SNAPSHOT_TIMEOUT_MS = 2000;
 
+export type ChunkLoadState = 'idle' | 'loading' | 'error';
+
 function isLiveState(s: RunState): boolean {
   return s === 'queued' || s === 'starting' || s === 'running' || s === 'waiting' || s === 'awaiting_resume';
 }
@@ -71,6 +73,8 @@ export class TerminalController {
   private pendingResumePromise: Promise<void> | null = null;
   private startMarkerWritten = false;
   private pauseListeners = new Set<(paused: boolean) => void>();
+  private chunkState: ChunkLoadState = 'idle';
+  private chunkStateListeners = new Set<(s: ChunkLoadState) => void>();
   private interactiveProp = false; // track the prop so applyInteractive can recompute
 
   // Fires once after the first snapshot is written to xterm AND the
@@ -306,6 +310,23 @@ export class TerminalController {
     return () => { this.pauseListeners.delete(cb); };
   }
 
+  onChunkStateChange(cb: (s: ChunkLoadState) => void): () => void {
+    this.chunkStateListeners.add(cb);
+    return () => { this.chunkStateListeners.delete(cb); };
+  }
+
+  private setChunkState(s: ChunkLoadState): void {
+    if (this.chunkState === s) return;
+    this.chunkState = s;
+    // Snapshot + per-listener try/catch matches the pauseListeners pattern.
+    const snap = [...this.chunkStateListeners];
+    for (const cb of snap) {
+      try { cb(s); } catch (err) {
+        traceRecord('controller.chunk.listener.error', { err: String(err) });
+      }
+    }
+  }
+
   private emitPauseChange(): void {
     // Snapshot the set so a listener that unsubscribes itself during emit
     // doesn't disturb iteration. Errors in one listener don't skip later ones.
@@ -521,6 +542,7 @@ export class TerminalController {
     traceRecord('controller.chunk.fetch', { runId: this.runId, start, end });
 
     const promise = (async () => {
+      this.setChunkState('loading');
       try {
         const res = await fetch(`/api/runs/${this.runId}/transcript`, {
           headers: { Range: `bytes=${start}-${end}` },
@@ -528,6 +550,7 @@ export class TerminalController {
         });
         if (this.disposed || abort.signal.aborted) return;
         if (!res.ok && res.status !== 206) {
+          this.setChunkState('error');
           traceRecord('controller.chunk.error', { status: res.status });
           return;
         }
@@ -551,12 +574,17 @@ export class TerminalController {
           this.startMarkerWritten = true;
           this.term.write(new TextEncoder().encode('\r\n\x1b[2;37m── start of run ──\x1b[0m\r\n'));
         }
+        this.setChunkState('idle');
         traceRecord('controller.chunk.rebuild', {
           addedBytes: chunk.byteLength,
           addedLines,
         });
       } catch (err) {
-        if (abort.signal.aborted) return;
+        if (abort.signal.aborted) {
+          this.setChunkState('idle'); // aborted by resume — not a user-facing error
+          return;
+        }
+        this.setChunkState('error');
         traceRecord('controller.chunk.error', { err: String(err) });
       } finally {
         this.pendingChunk = null;
@@ -568,7 +596,7 @@ export class TerminalController {
   }
 
   /** @internal — for tests only. */
-  _debugBuffers(): { liveTailBytes: Uint8Array; liveOffset: number; latestState: RunState; loadedBytes: Uint8Array; loadedStartOffset: number; paused: boolean; rebuilding: boolean } {
+  _debugBuffers(): { liveTailBytes: Uint8Array; liveOffset: number; latestState: RunState; loadedBytes: Uint8Array; loadedStartOffset: number; paused: boolean; rebuilding: boolean; chunkState: ChunkLoadState } {
     return {
       liveTailBytes: this.liveTailBytes,
       liveOffset: this.liveOffset,
@@ -577,6 +605,7 @@ export class TerminalController {
       loadedStartOffset: this.loadedStartOffset,
       paused: this.paused,
       rebuilding: this.rebuilding,
+      chunkState: this.chunkState,
     };
   }
 
@@ -592,6 +621,7 @@ export class TerminalController {
     this.unsubOpen?.(); this.unsubOpen = null;
     this.unsubEvents?.(); this.unsubEvents = null;
     this.pauseListeners.clear();
+    this.chunkStateListeners.clear();
     releaseShell(this.runId);
   }
 }
