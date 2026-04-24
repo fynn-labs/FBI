@@ -6,7 +6,7 @@ import type {
 let _baseUrl = '';
 
 export function setApiBaseUrl(url: string): void {
-  _baseUrl = url;
+  _baseUrl = url.replace(/\/$/, '');
 }
 
 export function wsBase(): string {
