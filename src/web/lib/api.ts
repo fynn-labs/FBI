@@ -113,13 +113,25 @@ export const api = {
     request<{ prompt: string; last_used_at: number; run_id: number }[]>(
       `/api/projects/${projectId}/prompts/recent?limit=${limit}`
     ),
-  createRun: (projectId: number, prompt: string, branch?: string, draftToken?: string) =>
+  createRun: (
+    projectId: number,
+    prompt: string,
+    branch?: string,
+    draftToken?: string,
+    modelParams?: {
+      model: string | null;
+      effort: string | null;
+      subagent_model: string | null;
+    },
+  ) =>
     request<Run>(`/api/projects/${projectId}/runs`, {
       method: 'POST',
       body: JSON.stringify({
         prompt,
         branch: branch && branch.trim() !== '' ? branch.trim() : undefined,
         draft_token: draftToken ?? undefined,
+        // Spread so null values serialize as null (server treats null === unset).
+        ...(modelParams ?? {}),
       }),
     }),
   deleteRun: (id: number) => request<void>(`/api/runs/${id}`, { method: 'DELETE' }),
@@ -128,8 +140,18 @@ export const api = {
       method: 'PATCH',
       body: JSON.stringify({ title }),
     }),
-  continueRun: (id: number) =>
-    request<void>(`/api/runs/${id}/continue`, { method: 'POST' }),
+  continueRun: (
+    id: number,
+    modelParams?: {
+      model: string | null;
+      effort: string | null;
+      subagent_model: string | null;
+    },
+  ) =>
+    request<void>(`/api/runs/${id}/continue`, {
+      method: 'POST',
+      body: JSON.stringify(modelParams ?? {}),
+    }),
 
   getSettings: () => request<Settings>('/api/settings'),
   updateSettings: (patch: {
