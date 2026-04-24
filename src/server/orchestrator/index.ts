@@ -810,6 +810,7 @@ export class Orchestrator {
    */
   async recover(): Promise<void> {
     const live = [
+      ...this.deps.runs.listByState('starting'),
       ...this.deps.runs.listByState('running'),
       ...this.deps.runs.listByState('waiting'),
     ];
@@ -870,7 +871,7 @@ export class Orchestrator {
     // same LimitMonitor used by fresh launches so a pre-existing container
     // stuck on the in-TUI rate-limit message also gets nudged out.
     const limitMonitor = this.makeLimitMonitor(runId, container, attachStream, onBytes);
-    const waitingWatcher = this.makeWaitingWatcher(runId);
+    const runtimeWatcher = this.makeRuntimeStateWatcher(runId);
     const sinceSec = Math.floor((run.started_at ?? Date.now()) / 1000);
     const logsStream = (await container.logs({
       follow: true,
@@ -880,7 +881,7 @@ export class Orchestrator {
     })) as unknown as NodeJS.ReadableStream;
     logsStream.on('data', (c: Buffer) => { limitMonitor.feedLog(c); onBytes(c); });
     limitMonitor.start();
-    waitingWatcher.start();
+    runtimeWatcher.start();
     const events = this.deps.streams.getOrCreateEvents(runId);
     const tailer = new UsageTailer({
       dir: claudeProjectsDir,
@@ -972,7 +973,7 @@ export class Orchestrator {
       await titleWatcher.stop();
       await gitWatcher.stop();
       limitMonitor.stop();
-      waitingWatcher.stop();
+      runtimeWatcher.stop();
       events.end();
       this.active.delete(runId); this.lastFiles.delete(runId);
       this.lastRateLimit.delete(runId);
