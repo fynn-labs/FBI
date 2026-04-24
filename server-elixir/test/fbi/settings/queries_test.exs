@@ -88,5 +88,11 @@ defmodule FBI.Settings.QueriesTest do
       assert {:error, changeset} = Queries.update(%{auto_resume_max_attempts: 21})
       assert "must be less than or equal to 20" in errors_on(changeset).auto_resume_max_attempts
     end
+
+    test "bad boolean input produces {:error, changeset}, not a crash" do
+      assert {:error, changeset} = Queries.update(%{notifications_enabled: "yes"})
+
+      assert Keyword.has_key?(changeset.errors, :notifications_enabled)
+    end
   end
 end

@@ -146,12 +146,21 @@ defmodule FBI.Settings.Queries do
   defp bool_to_int(true, _existing), do: 1
   defp bool_to_int(false, _existing), do: 0
   defp bool_to_int(v, _existing) when v in [0, 1], do: v
+  # Pass through anything else unchanged; the changeset's validate_inclusion
+  # rejects out-of-range integers, giving the caller a clean {:error, cs}
+  # instead of a FunctionClauseError.
+  defp bool_to_int(other, _existing), do: other
 
   defp list_to_json(nil, existing_json), do: existing_json
 
   defp list_to_json(list, _existing_json) when is_list(list) do
     Jason.encode!(list)
   end
+
+  # Non-list, non-nil inputs bypass the JSON encode and land in the
+  # changeset as a raw value; Ecto's :string type cast rejects non-strings,
+  # so the caller sees {:error, changeset} rather than a crash.
+  defp list_to_json(other, _existing_json), do: other
 
   defp decode(%Setting{} = s) do
     %{
