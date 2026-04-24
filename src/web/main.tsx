@@ -6,7 +6,7 @@ import { App } from './App.js';
 import { ServerPicker } from './pages/ServerPicker.js';
 import { getServerUrl } from './lib/serverConfig.js';
 import { setApiBaseUrl } from './lib/api.js';
-import { applyTheme, getStoredTheme, subscribeSystemTheme } from './ui/theme.js';
+import { applyTheme, getThemePref, subscribeSystemTheme } from './ui/theme.js';
 import './index.css';
 
 function Root() {
@@ -21,7 +21,7 @@ function Root() {
 
   useEffect(() => {
     return subscribeSystemTheme((theme) => {
-      if (!getStoredTheme()) applyTheme(theme);
+      if (getThemePref() === 'system') applyTheme(theme);
     });
   }, []);
 

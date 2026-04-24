@@ -7,6 +7,8 @@ import { McpServerList } from '../components/McpServerList.js';
 import { isTauri } from '@tauri-apps/api/core';
 import { setServerUrl } from '../lib/serverConfig.js';
 import { setApiBaseUrl } from '../lib/api.js';
+import { cn } from '@ui/cn.js';
+import { type ThemePref, getThemePref, setThemePref } from '@ui/theme.js';
 
 export function SettingsPage() {
   const [prompt, setPrompt] = useState<string | null>(null);
@@ -25,6 +27,7 @@ export function SettingsPage() {
   const [error, setError] = useState<string | null>(null);
   const [changingServer, setChangingServer] = useState(false);
   const [loadError, setLoadError] = useState(false);
+  const [themePref, setThemePrefState] = useState<ThemePref>(() => getThemePref());
 
   useEffect(() => {
     void api.getSettings().then((s) => {
@@ -95,6 +98,30 @@ export function SettingsPage() {
   return (
     <form onSubmit={submit} className="max-w-2xl mx-auto p-6 space-y-6">
       <h1 className="text-[26px] font-semibold tracking-[-0.02em]">Settings</h1>
+
+      <Section title="Appearance">
+        <FormRow label="Theme" hint="Light and Dark override the system setting.">
+          <div role="group" aria-label="Color theme" className="inline-flex rounded-md border border-border overflow-hidden">
+            {(['light', 'dark', 'system'] as ThemePref[]).map((p) => (
+              <button
+                key={p}
+                type="button"
+                aria-pressed={themePref === p}
+                onClick={() => { setThemePref(p); setThemePrefState(p); }}
+                className={cn(
+                  'px-4 py-1.5 text-[13px] font-medium capitalize transition-colors duration-fast ease-out',
+                  'border-r border-border last:border-r-0',
+                  themePref === p
+                    ? 'bg-accent-subtle text-accent-strong'
+                    : 'text-text-dim hover:bg-surface-raised hover:text-text',
+                )}
+              >
+                {p}
+              </button>
+            ))}
+          </div>
+        </FormRow>
+      </Section>
 
       <Section title="Global prompt">
         <FormRow label="Text" hint="Prepended to every run, across every project, before project instructions.">
