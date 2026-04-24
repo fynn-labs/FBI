@@ -89,10 +89,22 @@ export function Terminal({ runId, interactive }: Props) {
     const unsubPause = controller.onPauseChange((p) => setPaused(p));
     const unsubChunkState = controller.onChunkStateChange((s) => setChunkState(s));
 
-    const scrollDisposable = term.onScroll(() => {
-      const s = detectScroll(term);
-      controller.onScroll(s);
-    });
+    // xterm's Terminal.onScroll fires for content-driven scrolls (new lines
+    // appended to scrollback) but is suppressed for user-driven DOM scrolls
+    // — xterm's Viewport class calls scrollLines(delta, suppressScrollEvent=true)
+    // when syncing the native scrollTop change back to the buffer. So we
+    // listen on the actual scrollable DOM element to catch user scrolls,
+    // then read the up-to-date buffer state via detectScroll.
+    const viewportEl = host.querySelector('.xterm-viewport') as HTMLElement | null;
+    let scrollRaf: number | null = null;
+    const onViewportScroll = () => {
+      if (scrollRaf !== null) return;
+      scrollRaf = requestAnimationFrame(() => {
+        scrollRaf = null;
+        controller.onScroll(detectScroll(term));
+      });
+    };
+    viewportEl?.addEventListener('scroll', onViewportScroll, { passive: true });
 
     const onVisibility = () => {
       if (!document.hidden) controller.requestRedraw();
@@ -135,7 +147,8 @@ export function Terminal({ runId, interactive }: Props) {
       document.removeEventListener('visibilitychange', onVisibility);
       unsubPause();
       unsubChunkState();
-      scrollDisposable.dispose();
+      if (scrollRaf !== null) cancelAnimationFrame(scrollRaf);
+      viewportEl?.removeEventListener('scroll', onViewportScroll);
       controller.dispose();
       controllerRef.current = null;
       term.dispose();
