@@ -585,13 +585,13 @@ export class Orchestrator {
         stream: true, stdin: true, stdout: true, stderr: true, hijack: true,
       });
       const limitMonitor = this.makeLimitMonitor(runId, container, attach, onBytes);
-      const waitingWatcher = this.makeWaitingWatcher(runId);
+      const runtimeWatcher = this.makeRuntimeStateWatcher(runId);
       attach.on('data', (c: Buffer) => { limitMonitor.feedLog(c); onBytes(c); });
       await container.start();
       limitMonitor.start();
-      waitingWatcher.start();
+      runtimeWatcher.start();
       this.active.set(runId, { container, attachStream: attach });
-      this.deps.runs.markResuming(runId, container.id);
+      this.deps.runs.markStartingForResume(runId, container.id);
       this.publishState(runId);
 
       const titleWatcher = new TitleWatcher({
@@ -607,7 +607,7 @@ export class Orchestrator {
       } finally {
         await titleWatcher.stop();
         limitMonitor.stop();
-        waitingWatcher.stop();
+        runtimeWatcher.stop();
       }
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
