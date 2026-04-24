@@ -3,6 +3,7 @@ import { Terminal as Xterm } from '@xterm/xterm';
 import { FitAddon } from '@xterm/addon-fit';
 import '@xterm/xterm/css/xterm.css';
 import { TerminalController } from '../lib/terminalController.js';
+import { detectScroll } from '../lib/scrollDetection.js';
 import {
   record as traceRecord,
   isTracing,
@@ -30,12 +31,9 @@ function readTheme() {
 
 export function Terminal({ runId, interactive }: Props) {
   const hostRef = useRef<HTMLDivElement>(null);
-  const historyHostRef = useRef<HTMLDivElement>(null);
   const controllerRef = useRef<TerminalController | null>(null);
-  const [historyMode, setHistoryMode] = useState(false);
-  // `ready` flips true after the opening snapshot has been parsed into xterm.
-  // Used to hide the first-load fast-forward (buffered bytes the server
-  // flushes right after the snapshot are noisy to the eye).
+  const [paused, setPaused] = useState(false);
+  const [chunkState, setChunkState] = useState<'idle' | 'loading' | 'error'>('idle');
   const [ready, setReady] = useState(false);
 
   const [, forceTraceRerender] = useState(0);
@@ -70,12 +68,6 @@ export function Terminal({ runId, interactive }: Props) {
     const observer = new MutationObserver(() => { term.options.theme = readTheme(); });
     observer.observe(document.documentElement, { attributes: true, attributeFilter: ['class'] });
 
-    // Fit BEFORE constructing the controller. Otherwise xterm sits at its
-    // default 80×24 when the controller applies a cached snapshot (which
-    // was serialized at the real viewport dims, typically 133×30), and
-    // the snapshot reflows messily when the ResizeObserver fires the
-    // first real fit a moment later. Doing it up-front keeps the xterm
-    // at the real dims from the start.
     const rect = host.getBoundingClientRect();
     if (rect.width >= 4 && rect.height >= 4) {
       try { fit.fit(); } catch { /* layout may still be transitioning */ }
@@ -83,20 +75,19 @@ export function Terminal({ runId, interactive }: Props) {
 
     const controller = new TerminalController(runId, term, host);
     controllerRef.current = controller;
-    // Sync React state to controller's ready state. Cache-hit mounts are
-    // ready instantly (the controller wrote the cached snapshot in its
-    // constructor); fresh mounts need to wait for the silence+cap timers.
     setReady(controller.isReady());
     if (!controller.isReady()) {
       controller.onReady(() => setReady(true));
     }
 
-    // On tab-return, nudge Claude to repaint. A bare re-hello with the
-    // same dims doesn't always trigger a Claude redraw (the server's
-    // orchestrator.resize → Docker resize is a no-op for same dims).
-    // controller.requestRedraw() briefly perturbs the PTY rows by one
-    // and restores, forcing two SIGWINCHes and two Claude redraws. The
-    // second redraw's bytes include the cursor cell.
+    const unsubPause = controller.onPauseChange((p) => setPaused(p));
+    const unsubChunkState = controller.onChunkStateChange((s) => setChunkState(s));
+
+    const scrollDisposable = term.onScroll(() => {
+      const s = detectScroll(term);
+      controller.onScroll(s);
+    });
+
     const onVisibility = () => {
       if (!document.hidden) controller.requestRedraw();
     };
@@ -136,67 +127,63 @@ export function Terminal({ runId, interactive }: Props) {
       observer.disconnect();
       window.removeEventListener('resize', onWinResize);
       document.removeEventListener('visibilitychange', onVisibility);
-      // Dispose order: controller first (its `disposed` flag neutralises
-      // the WS byte/snapshot callbacks), then term.dispose(). Reversing
-      // would risk term.write() being called on a disposed xterm from an
-      // in-flight byte callback before the controller unsubscribes.
+      unsubPause();
+      unsubChunkState();
+      scrollDisposable.dispose();
       controller.dispose();
       controllerRef.current = null;
       term.dispose();
     };
   }, [runId]);
 
-  // `runId` is in the dep list so this re-runs when the mount effect creates
-  // a new controller instance on run-switch. Without it, switching from
-  // run A to run B with the same `interactive` value would leave the new
-  // controller un-wired: no term.onData, no term.focus(), no host-click
-  // handler — the terminal renders but can't accept input and never
-  // receives focus.
   useEffect(() => {
     controllerRef.current?.setInteractive(interactive);
   }, [interactive, runId]);
 
-  const onLoadHistory = async () => {
-    setHistoryMode(true);
-    await new Promise((r) => requestAnimationFrame(r));
-    if (historyHostRef.current && controllerRef.current) {
-      await controllerRef.current.enterHistory(historyHostRef.current);
-    }
-  };
-
-  const onResumeLive = () => {
-    controllerRef.current?.resumeLive();
-    setHistoryMode(false);
+  const onResumeClick = () => {
+    void controllerRef.current?.resume();
   };
 
   return (
     <div className="relative h-full w-full bg-surface-sunken">
-      {!ready && !historyMode && (
+      {!ready && (
         <div className="pointer-events-none absolute inset-0 z-20 flex items-center justify-center bg-surface-sunken text-text-dim text-[12px]">
           <span>Loading terminal…</span>
         </div>
       )}
-      {!historyMode && (
-        <div className="absolute top-1 right-2 z-10">
-          <button
-            type="button"
-            onClick={onLoadHistory}
-            className="text-[11px] text-text-dim hover:text-text transition-colors duration-fast ease-out"
-          >
-            Load full history
-          </button>
-        </div>
-      )}
-      {historyMode && (
-        <div className="absolute top-0 left-0 right-0 z-10 flex items-center gap-2 px-3 py-1 bg-surface border-b border-border text-[12px] text-text-dim">
-          <span>Viewing full history — live view continues in the background.</span>
-          <button
-            type="button"
-            onClick={onResumeLive}
-            className="text-accent hover:text-accent-strong transition-colors duration-fast ease-out"
-          >
-            Resume live
-          </button>
+      {paused && (
+        <div className="absolute top-0 left-0 right-0 z-10 flex flex-col">
+          <div className="flex items-center gap-2 px-3 py-1 bg-surface border-b border-border text-[12px] text-text-dim">
+            <span>⏸ Stream paused — you're viewing history.</span>
+            <button
+              type="button"
+              onClick={onResumeClick}
+              className="text-accent hover:text-accent-strong transition-colors duration-fast ease-out"
+            >
+              Resume stream
+            </button>
+          </div>
+          {chunkState !== 'idle' && (
+            <div
+              role="status"
+              aria-live="polite"
+              className="flex items-center gap-2 px-3 py-1 bg-surface border-b border-border text-[11px] text-text-dim"
+            >
+              {chunkState === 'loading' && <span>Loading older history…</span>}
+              {chunkState === 'error' && (
+                <>
+                  <span>Failed to load older history.</span>
+                  <button
+                    type="button"
+                    onClick={() => void controllerRef.current?.loadOlderChunk()}
+                    className="text-accent hover:text-accent-strong transition-colors duration-fast ease-out"
+                  >
+                    Retry
+                  </button>
+                </>
+              )}
+            </div>
+          )}
         </div>
       )}
       {isTracing() && (
@@ -213,14 +200,7 @@ export function Terminal({ runId, interactive }: Props) {
           </button>
         </div>
       )}
-      <div
-        ref={hostRef}
-        className="h-full w-full"
-        style={{ display: historyMode ? 'none' : 'block' }}
-      />
-      {historyMode && (
-        <div ref={historyHostRef} className="absolute inset-0 h-full w-full bg-surface-sunken" />
-      )}
+      <div ref={hostRef} className="h-full w-full" />
     </div>
   );
 }

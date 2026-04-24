@@ -320,9 +320,35 @@ export function registerRunsRoutes(app: FastifyInstance, deps: Deps): void {
     const { id } = req.params as { id: string };
     const run = deps.runs.get(Number(id));
     if (!run) return reply.code(404).send({ error: 'not found' });
-    const bytes = LogStore.readAll(run.log_path);
+    const total = LogStore.byteSize(run.log_path);
+    reply.header('X-Transcript-Total', String(total));
     reply.header('content-type', 'text/plain; charset=utf-8');
-    return Buffer.from(bytes);
+
+    if (total === 0) {
+      return reply.send(Buffer.alloc(0));
+    }
+
+    const rangeHeader = req.headers.range;
+    const m = typeof rangeHeader === 'string'
+      ? /^bytes=(\d+)-(\d*)$/i.exec(rangeHeader.trim())
+      : null;
+    if (!m) {
+      const bytes = LogStore.readAll(run.log_path);
+      return reply.send(Buffer.from(bytes));
+    }
+
+    const start = Number(m[1]);
+    const end = m[2] === '' ? total - 1 : Number(m[2]);
+    if (!Number.isFinite(start) || !Number.isFinite(end) || start > end || start >= total) {
+      return reply.code(416)
+        .header('content-range', `bytes */${total}`)
+        .send();
+    }
+    const clampedEnd = Math.min(end, total - 1);
+    const bytes = LogStore.readRange(run.log_path, start, clampedEnd);
+    return reply.code(206)
+      .header('content-range', `bytes ${start}-${clampedEnd}/${total}`)
+      .send(Buffer.from(bytes));
   });
 
   app.get('/api/runs/:id/changes', async (req, reply) => {

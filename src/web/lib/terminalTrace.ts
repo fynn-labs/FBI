@@ -40,10 +40,18 @@ type EventKind =
   | 'controller.snapshot'
   | 'controller.snapshot.cached'
   | 'controller.input'
-  | 'controller.history.start'
-  | 'controller.history.end'
-  | 'controller.resumeLive'
-  | 'controller.redraw';
+  | 'controller.redraw'
+  | 'controller.pause'
+  | 'controller.pause.listener.error'
+  | 'controller.seed.complete'
+  | 'controller.seed.error'
+  | 'controller.chunk.fetch'
+  | 'controller.chunk.rebuild'
+  | 'controller.chunk.error'
+  | 'controller.chunk.listener.error'
+  | 'controller.resume'
+  | 'controller.resume.tail.error'
+  | 'controller.snapshot.dropped';
 
 interface TraceEvent {
   t: number; // ms since trace start

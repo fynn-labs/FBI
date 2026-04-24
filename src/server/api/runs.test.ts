@@ -137,6 +137,17 @@ function makeApp() {
   return { app, projects, runs, streams };
 }
 
+async function seedTranscript(app: ReturnType<typeof Fastify>, runs: RunsRepo, projectId: number, text: string): Promise<number> {
+  const r = (await app.inject({
+    method: 'POST', url: `/api/projects/${projectId}/runs`,
+    payload: { prompt: 'x' },
+  })).json() as { id: number };
+  const run = runs.get(r.id)!;
+  fs.mkdirSync(path.dirname(run.log_path), { recursive: true });
+  fs.writeFileSync(run.log_path, text);
+  return r.id;
+}
+
 describe('runs routes', () => {
   it('POST /api/projects/:id/runs creates + invokes launch', async () => {
     const { app, projectId, launched } = setup();
@@ -616,6 +627,86 @@ describe('runs routes', () => {
       expect(res.statusCode).toBe(200);
       expect(received).toEqual({ op: 'push-submodule', path: 'foo' });
     });
+  });
+
+  it('GET /api/runs/:id/transcript returns full body and X-Transcript-Total with no Range', async () => {
+    const { app, projectId, runs } = setup();
+    const id = await seedTranscript(app, runs, projectId, 'abcdefghij');
+    const res = await app.inject({ method: 'GET', url: `/api/runs/${id}/transcript` });
+    expect(res.statusCode).toBe(200);
+    expect(res.headers['x-transcript-total']).toBe('10');
+    expect(res.body).toBe('abcdefghij');
+  });
+
+  it('GET /api/runs/:id/transcript honors Range: bytes=X-Y with 206 + Content-Range', async () => {
+    const { app, projectId, runs } = setup();
+    const id = await seedTranscript(app, runs, projectId, 'abcdefghij');
+    const res = await app.inject({
+      method: 'GET', url: `/api/runs/${id}/transcript`,
+      headers: { range: 'bytes=2-5' },
+    });
+    expect(res.statusCode).toBe(206);
+    expect(res.headers['content-range']).toBe('bytes 2-5/10');
+    expect(res.headers['x-transcript-total']).toBe('10');
+    expect(res.body).toBe('cdef');
+  });
+
+  it('GET /api/runs/:id/transcript with Range open-ended bytes=X- returns to EOF', async () => {
+    const { app, projectId, runs } = setup();
+    const id = await seedTranscript(app, runs, projectId, 'abcdefghij');
+    const res = await app.inject({
+      method: 'GET', url: `/api/runs/${id}/transcript`,
+      headers: { range: 'bytes=7-' },
+    });
+    expect(res.statusCode).toBe(206);
+    expect(res.headers['content-range']).toBe('bytes 7-9/10');
+    expect(res.body).toBe('hij');
+  });
+
+  it('GET /api/runs/:id/transcript with malformed Range returns 200 full body', async () => {
+    const { app, projectId, runs } = setup();
+    const id = await seedTranscript(app, runs, projectId, 'abc');
+    const res = await app.inject({
+      method: 'GET', url: `/api/runs/${id}/transcript`,
+      headers: { range: 'lines=0-10' },
+    });
+    expect(res.statusCode).toBe(200);
+    expect(res.body).toBe('abc');
+  });
+
+  it('GET /api/runs/:id/transcript returns 416 when Range start is past EOF', async () => {
+    const { app, projectId, runs } = setup();
+    const id = await seedTranscript(app, runs, projectId, 'abcdefghij');
+    const res = await app.inject({
+      method: 'GET', url: `/api/runs/${id}/transcript`,
+      headers: { range: 'bytes=50-60' },
+    });
+    expect(res.statusCode).toBe(416);
+    expect(res.headers['content-range']).toBe('bytes */10');
+    expect(res.headers['x-transcript-total']).toBe('10');
+  });
+
+  it('GET /api/runs/:id/transcript returns 416 when Range start > end', async () => {
+    const { app, projectId, runs } = setup();
+    const id = await seedTranscript(app, runs, projectId, 'abcdefghij');
+    const res = await app.inject({
+      method: 'GET', url: `/api/runs/${id}/transcript`,
+      headers: { range: 'bytes=5-3' },
+    });
+    expect(res.statusCode).toBe(416);
+    expect(res.headers['content-range']).toBe('bytes */10');
+  });
+
+  it('GET /api/runs/:id/transcript with empty transcript returns 200 + empty body even with Range', async () => {
+    const { app, projectId, runs } = setup();
+    const id = await seedTranscript(app, runs, projectId, '');
+    const res = await app.inject({
+      method: 'GET', url: `/api/runs/${id}/transcript`,
+      headers: { range: 'bytes=0-10' },
+    });
+    expect(res.statusCode).toBe(200);
+    expect(res.headers['x-transcript-total']).toBe('0');
+    expect(res.body).toBe('');
   });
 
   describe('draft_token integration', () => {
