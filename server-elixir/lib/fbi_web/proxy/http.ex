@@ -72,7 +72,7 @@ defmodule FBIWeb.Proxy.Http do
     url = target <> conn.request_path <> query_suffix(conn)
     method = conn.method |> String.downcase() |> String.to_existing_atom()
     req_headers = strip_hop_by_hop(conn.req_headers)
-    {body, conn} = read_body_full(conn)
+    {body, conn} = read_body_or_cached(conn)
 
     request_opts =
       Keyword.merge(
@@ -108,12 +108,21 @@ defmodule FBIWeb.Proxy.Http do
   defp query_suffix(%Plug.Conn{query_string: ""}), do: ""
   defp query_suffix(%Plug.Conn{query_string: q}), do: "?" <> q
 
-  # Reads the full request body, accumulating chunks until `read_body/2`
-  # signals `:ok` (no more data). Returns `{binary_body, conn}`.
+  # Returns the raw request body along with the updated conn. Prefers the
+  # cached chunks stored by `FBIWeb.RawBodyReader` (populated when the parser
+  # runs). Falls back to `read_body/1` when nothing is cached (e.g. requests
+  # whose content-type doesn't match any registered parser, or tests hitting
+  # the plug without the parser in front of it).
+  defp read_body_or_cached(conn) do
+    case conn.assigns[:raw_body] do
+      nil -> read_body_full(conn)
+      chunks -> {IO.iodata_to_binary(Enum.reverse(chunks)), conn}
+    end
+  end
+
   defp read_body_full(conn, acc \\ "") do
     case read_body(conn) do
       {:ok, chunk, conn} ->
-        {:ok, conn} = {:ok, conn}
         {acc <> chunk, conn}
 
       {:more, chunk, conn} ->
