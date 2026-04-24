@@ -362,4 +362,53 @@ describe('TerminalController', () => {
     }
     expect(c._debugBuffers().latestState).toBe('succeeded');
   });
+
+  it('pause() sets paused state; live bytes are dropped while paused', () => {
+    const shell = makeStubShell();
+    acquiredShells.set(22, shell);
+    const term = makeFakeXterm();
+    const host = document.createElement('div');
+    const c = new TerminalController(22, term as unknown as import('@xterm/xterm').Terminal, host);
+
+    for (const cb of shell._bytes) cb(new TextEncoder().encode('pre'));
+    expect(c._debugBuffers().liveTailBytes.byteLength).toBe(3);
+
+    c.pause();
+    expect(c._debugBuffers().paused).toBe(true);
+    term.write.mockClear();
+    for (const cb of shell._bytes) cb(new TextEncoder().encode('dropped'));
+    expect(term.write).not.toHaveBeenCalled();
+    expect(c._debugBuffers().liveTailBytes.byteLength).toBe(3); // unchanged
+    expect(c._debugBuffers().liveOffset).toBe(3); // unchanged — dropped bytes aren't counted
+  });
+
+  it('pause() is idempotent; double pause does not fire listeners twice', () => {
+    const shell = makeStubShell();
+    acquiredShells.set(23, shell);
+    const term = makeFakeXterm();
+    const host = document.createElement('div');
+    const c = new TerminalController(23, term as unknown as import('@xterm/xterm').Terminal, host);
+
+    const listener = vi.fn();
+    c.onPauseChange(listener);
+    c.pause();
+    c.pause();
+    expect(listener).toHaveBeenCalledTimes(1);
+    expect(listener).toHaveBeenCalledWith(true);
+  });
+
+  it('setInteractive gate: paused blocks typing even when interactive=true', () => {
+    const shell = makeStubShell();
+    acquiredShells.set(24, shell);
+    const term = makeFakeXterm();
+    const host = document.createElement('div');
+    const c = new TerminalController(24, term as unknown as import('@xterm/xterm').Terminal, host);
+
+    c.setInteractive(true);
+    expect(term.onData).toHaveBeenCalledTimes(1);
+
+    c.pause();
+    // Gate closed: onData handler is detached.
+    expect(term.dataCbs).toHaveLength(0);
+  });
 });

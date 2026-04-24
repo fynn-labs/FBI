@@ -56,6 +56,8 @@ export class TerminalController {
   private loadedBytes: Uint8Array = new Uint8Array();
   private loadedStartOffset = 0;
   private paused = false;
+  private pauseListeners = new Set<(paused: boolean) => void>();
+  private interactiveProp = false; // track the prop so applyInteractive can recompute
 
   // Fires once after the first snapshot is written to xterm AND the
   // byte stream has settled (or after a hard cap). Consumers use this to
@@ -104,6 +106,7 @@ export class TerminalController {
 
     this.unsubBytes = this.shell.onBytes((data) => {
       if (this.disposed) return;
+      if (this.paused) return; // drop while paused — no xterm write, no liveTailBytes append
       this.term.write(data);
       // Retain the live tail so pause/chunk-load/resume rebuilds can replay
       // it. Grows unbounded by design — see spec Q8 (no cap in v1).
@@ -145,7 +148,14 @@ export class TerminalController {
 
   setInteractive(on: boolean): void {
     if (this.disposed) return;
-    if (on && !this.inputDisposable) {
+    this.interactiveProp = on;
+    this.applyInteractive();
+  }
+
+  private applyInteractive(): void {
+    if (this.disposed) return;
+    const effective = this.interactiveProp && !this.paused;
+    if (effective && !this.inputDisposable) {
       this.inputDisposable = this.term.onData((d) => {
         traceRecord('controller.input', strPreview(d));
         this.shell.send(new TextEncoder().encode(d));
@@ -153,7 +163,7 @@ export class TerminalController {
       this.hostClickHandler = () => this.term.focus();
       this.host.addEventListener('click', this.hostClickHandler);
       this.term.focus();
-    } else if (!on && this.inputDisposable) {
+    } else if (!effective && this.inputDisposable) {
       this.inputDisposable.dispose();
       this.inputDisposable = null;
       if (this.hostClickHandler) {
@@ -297,6 +307,23 @@ export class TerminalController {
     if (this.historyTerm) { this.historyTerm.dispose(); this.historyTerm = null; }
     this.term.focus();
     traceRecord('controller.resumeLive', { runId: this.runId });
+  }
+
+  onPauseChange(cb: (paused: boolean) => void): () => void {
+    this.pauseListeners.add(cb);
+    return () => { this.pauseListeners.delete(cb); };
+  }
+
+  private emitPauseChange(): void {
+    for (const cb of this.pauseListeners) cb(this.paused);
+  }
+
+  pause(): void {
+    if (this.disposed || this.paused) return;
+    traceRecord('controller.pause', { runId: this.runId });
+    this.paused = true;
+    this.applyInteractive();
+    this.emitPauseChange();
   }
 
   /** @internal — for tests only. */
