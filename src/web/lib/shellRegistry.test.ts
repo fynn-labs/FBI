@@ -30,9 +30,11 @@ function makeStubShell(): ShellHandle & {
       snapshotCbs.push(cb);
       return () => { const i = snapshotCbs.indexOf(cb); if (i !== -1) snapshotCbs.splice(i, 1); };
     }),
+    onOpen: vi.fn(() => () => {}),
     onOpenOrNow: vi.fn(() => () => {}),
     send: vi.fn(),
     resize: vi.fn(),
+    sendHello: vi.fn(),
     sendResync: vi.fn(),
     close: vi.fn(),
   };

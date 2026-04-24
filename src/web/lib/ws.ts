@@ -5,9 +5,11 @@ export interface ShellHandle {
   onBytes(cb: (data: Uint8Array) => void): () => void;
   onTypedEvent<T extends { type: string }>(cb: (msg: T) => void): () => void;
   onSnapshot(cb: (snap: RunWsSnapshotMessage) => void): () => void;
+  onOpen(cb: () => void): () => void;
   onOpenOrNow(cb: () => void): () => void;
   send(data: Uint8Array): void;
   resize(cols: number, rows: number): void;
+  sendHello(cols: number, rows: number): void;
   sendResync(): void;
   close(): void;
 }
@@ -64,6 +66,14 @@ export function openShell(runId: number): ShellHandle {
       snapshotCbs.push(cb);
       return () => { const i = snapshotCbs.indexOf(cb); if (i !== -1) snapshotCbs.splice(i, 1); };
     },
+    onOpen: (cb) => {
+      if (ws.readyState === WebSocket.OPEN) {
+        queueMicrotask(cb);
+        return () => {};
+      }
+      ws.addEventListener('open', cb);
+      return () => ws.removeEventListener('open', cb);
+    },
     onOpenOrNow: (cb) => {
       if (ws.readyState === WebSocket.OPEN) {
         queueMicrotask(cb);
@@ -82,6 +92,12 @@ export function openShell(runId: number): ShellHandle {
       if (ws.readyState === WebSocket.OPEN) {
         record('ws.out.resize', { cols, rows });
         ws.send(JSON.stringify({ type: 'resize', cols, rows }));
+      }
+    },
+    sendHello: (cols, rows) => {
+      if (ws.readyState === WebSocket.OPEN) {
+        record('ws.out.hello', { cols, rows });
+        ws.send(JSON.stringify({ type: 'hello', cols, rows }));
       }
     },
     sendResync: () => {

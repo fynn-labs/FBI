@@ -22,6 +22,7 @@ type EventKind =
   | 'ws.in.event'
   | 'ws.out.send'
   | 'ws.out.resize'
+  | 'ws.out.hello'
   | 'ws.out.resync'
   | 'term.mount'
   | 'term.unmount'
