@@ -449,6 +449,10 @@ export class TerminalController {
     if (this.loadedStartOffset === 0) return;
     if (this.pendingChunk) return this.pendingChunk.promise;
 
+    // Caller must be paused (we early-return if not). The pause gate in
+    // onBytes keeps live WS bytes from being written to xterm during the
+    // rebuild, preventing the double-write race that Task 7's seed path
+    // handles with its own local pause bracket.
     const abort = new AbortController();
     const end = this.loadedStartOffset - 1;
     const start = Math.max(0, this.loadedStartOffset - CHUNK_SIZE);
@@ -473,7 +477,7 @@ export class TerminalController {
 
         const newLoaded = concat([chunk, this.loadedBytes]);
         await this.rebuildXterm([newLoaded, this.liveTailBytes]);
-        if (this.disposed) return;
+        if (this.disposed || abort.signal.aborted) return;
 
         const newBaseY = this.term.buffer.active.baseY;
         const addedLines = newBaseY - oldBaseY;
