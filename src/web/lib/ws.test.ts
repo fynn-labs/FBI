@@ -42,50 +42,60 @@ afterEach(() => {
   MockWs.instances = [];
 });
 
-describe('ShellHandle.onOpenOrNow', () => {
-  it('fires the callback asynchronously when the socket is already OPEN', async () => {
+describe('ShellHandle.sendHello', () => {
+  it('sends a JSON hello frame when the socket is OPEN', async () => {
     const { openShell } = await import('./ws.js');
-    const shell = openShell(42);
+    const shell = openShell(50);
+    const ws = MockWs.instances[0];
+    const sent: string[] = [];
+    (ws as unknown as { send(data: string): void }).send = (data: string) => { sent.push(data); };
+    ws.fireOpen();
+    shell.sendHello(123, 45);
+    expect(sent).toEqual([
+      JSON.stringify({ type: 'hello', cols: 123, rows: 45 }),
+    ]);
+  });
+
+  it('is a no-op if the socket is not OPEN', async () => {
+    const { openShell } = await import('./ws.js');
+    const shell = openShell(51);
+    const ws = MockWs.instances[0];
+    const sent: string[] = [];
+    (ws as unknown as { send(data: string): void }).send = (data: string) => { sent.push(data); };
+    shell.sendHello(80, 24);
+    expect(sent).toEqual([]);
+  });
+});
+
+describe('ShellHandle.onOpen', () => {
+  it('fires synchronously-on-next-microtask if socket is already OPEN', async () => {
+    const { openShell } = await import('./ws.js');
+    const shell = openShell(52);
     const ws = MockWs.instances[0];
     ws.fireOpen();
     const cb = vi.fn();
-    shell.onOpenOrNow(cb);
-    // microtask flush
+    shell.onOpen(cb);
     await Promise.resolve();
     expect(cb).toHaveBeenCalledTimes(1);
   });
 
-  it('fires the callback when the socket transitions to OPEN later', async () => {
+  it('fires when the socket opens later', async () => {
     const { openShell } = await import('./ws.js');
-    const shell = openShell(43);
+    const shell = openShell(53);
     const ws = MockWs.instances[0];
     const cb = vi.fn();
-    shell.onOpenOrNow(cb);
+    shell.onOpen(cb);
     expect(cb).not.toHaveBeenCalled();
     ws.fireOpen();
     expect(cb).toHaveBeenCalledTimes(1);
   });
 
-  it('supports multiple independent callers (no {once:true} behavior)', async () => {
+  it('returns a disposer that detaches a pending listener', async () => {
     const { openShell } = await import('./ws.js');
-    const shell = openShell(44);
-    const ws = MockWs.instances[0];
-    ws.fireOpen();
-    const cb1 = vi.fn();
-    const cb2 = vi.fn();
-    shell.onOpenOrNow(cb1);
-    shell.onOpenOrNow(cb2);
-    await Promise.resolve();
-    expect(cb1).toHaveBeenCalledTimes(1);
-    expect(cb2).toHaveBeenCalledTimes(1);
-  });
-
-  it('returns an unregister function that cancels a pending listener', async () => {
-    const { openShell } = await import('./ws.js');
-    const shell = openShell(45);
+    const shell = openShell(54);
     const ws = MockWs.instances[0];
     const cb = vi.fn();
-    const off = shell.onOpenOrNow(cb);
+    const off = shell.onOpen(cb);
     off();
     ws.fireOpen();
     expect(cb).not.toHaveBeenCalled();

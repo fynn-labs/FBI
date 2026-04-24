@@ -16,8 +16,8 @@ interface Deps {
 }
 
 type ControlFrame =
-  | { type: 'resize'; cols: number; rows: number }
-  | { type: 'resync' };
+  | { type: 'hello'; cols: number; rows: number }
+  | { type: 'resize'; cols: number; rows: number };
 
 export function registerWsRoute(app: FastifyInstance, deps: Deps): void {
   app.get('/api/runs/:id/shell', { websocket: true }, (socket: WebSocket, req) => {
@@ -73,24 +73,40 @@ export function registerWsRoute(app: FastifyInstance, deps: Deps): void {
       }
     });
 
-    // Build + send the initial snapshot. If no ScreenState exists yet
-    // (e.g. fresh process, run is still spinning up and the orchestrator
-    // hasn't wired the byte pipeline), lazily rebuild from the log file —
-    // this also covers the "server was restarted mid-run" case.
+    // Resolves on hello receipt with the client's dims, or null on 1500 ms timeout.
+    type HelloDims = { cols: number; rows: number } | null;
+    let helloResolve: (dims: HelloDims) => void = () => {};
+    const helloPromise = new Promise<HelloDims>((r) => { helloResolve = r; });
+    const helloTimeout = setTimeout(() => helloResolve(null), 1500);
+
     const sendSnapshot = async (): Promise<void> => {
+      const hello = await helloPromise;
+      clearTimeout(helloTimeout);
+      if (socket.readyState !== socket.OPEN) return;
+
       let screen = deps.streams.getScreen(runId);
       if (!screen) {
         screen = await deps.streams.rebuildScreenFromLog(runId, run.log_path);
       }
+
+      if (hello) {
+        // Apply hello dims to the PTY (SIGWINCH) and ScreenState before
+        // serializing. Orchestrator may reject (e.g., no active container
+        // yet) — tolerate and continue; TUI will repaint on next redraw.
+        await deps.orchestrator.resize(runId, hello.cols, hello.rows).catch(() => {});
+        screen.resize(hello.cols, hello.rows);
+      }
+
+      // Flush any previously-queued bytes through the headless parser
+      // before serializing. Prevents catching a chunk mid-parse, which
+      // is the cursor-disappear root cause.
+      await screen.drain();
       if (socket.readyState !== socket.OPEN) return;
+
       socket.send(JSON.stringify({
         type: 'snapshot',
-        // Modes FIRST, then cell contents. DECSTBM (via modesAnsi) homes
-        // the cursor to (1,1), so we set it before SerializeAddon's
-        // output — SerializeAddon ends with a CUP that places the cursor
-        // at its proper row, which must win so subsequent relative-move
-        // sequences from the TUI (e.g. \x1b[3A to reach the prompt
-        // input line) land in the right place.
+        // modesAnsi FIRST, then cell contents. See ws.ts comment below
+        // that this replaces for rationale.
         ansi: screen.modesAnsi() + screen.serialize(),
         cols: screen.cols,
         rows: screen.rows,
@@ -105,7 +121,7 @@ export function registerWsRoute(app: FastifyInstance, deps: Deps): void {
             socket.send(chunk, (err) => { if (err) unsub(); });
           }
         }
-        // Edge: broadcaster ended while we were building the snapshot.
+        buffered.length = 0;
         if (bc.isEnded()) {
           unsub();
           unsubEvents();
@@ -114,8 +130,6 @@ export function registerWsRoute(app: FastifyInstance, deps: Deps): void {
         }
       })
       .catch(() => {
-        // rebuildScreenFromLog failed (I/O error). Tear down so the client
-        // doesn't hang; they'll reconnect and try again.
         unsub();
         unsubEvents();
         unsubState();
@@ -126,61 +140,51 @@ export function registerWsRoute(app: FastifyInstance, deps: Deps): void {
       if (!isBinary) {
         try {
           const msg = JSON.parse(data.toString('utf8')) as ControlFrame;
-          if (msg.type === 'resize') {
-            // Resize the PTY (sends SIGWINCH to the TUI) and the
-            // ScreenState. xterm's reflow on resize is best-effort and
-            // doesn't perfectly fix wrapping baked in at the old dims —
-            // the TUI (Claude Code) responds to SIGWINCH by emitting a
-            // fresh full-screen redraw at the new dims; once those bytes
-            // are parsed, the ScreenState reflects the correct layout.
+          if (msg.type === 'hello') {
+            // The first hello resolves pendingHello — that drives the
+            // opening snapshot. Subsequent hellos (e.g. a cached-socket
+            // remount) trigger a fresh snapshot via the same path.
+            helloResolve({ cols: msg.cols, rows: msg.rows });
+            // Re-arm the promise so a later remount can trigger another
+            // snapshot. We only want this on subsequent hellos, not the
+            // first — the first already kicked off sendSnapshot().
             //
-            // We deliberately do NOT suspend live forwarding during the
-            // wait below: keystroke echoes and other live updates need to
-            // keep flowing so input feels responsive. Brief visual
-            // overlap during the 200 ms is acceptable; the snapshot then
-            // clears and replaces.
-            const screenBefore = deps.streams.getScreen(runId);
-            const dimsChanged =
-              !screenBefore ||
-              screenBefore.cols !== msg.cols ||
-              screenBefore.rows !== msg.rows;
-            await deps.orchestrator.resize(runId, msg.cols, msg.rows);
-            if (dimsChanged) {
-              // Wait for the redraw to land before serializing. Without
-              // this wait, the snapshot captures pre-redraw content
-              // (still wrapped at old dims) and the client renders it
-              // mis-wrapped. Skip the wait for no-op resizes so refocus/
-              // idle resizes don't add visible latency.
-              await new Promise((r) => setTimeout(r, 200));
-            }
-            const screen = deps.streams.getScreen(runId);
-            if (screen && socket.readyState === socket.OPEN) {
-              socket.send(JSON.stringify({
-                type: 'snapshot',
-                ansi: screen.modesAnsi() + screen.serialize(),
-                cols: screen.cols,
-                rows: screen.rows,
-              }));
+            // Detecting "subsequent" cheaply: if `live` is already true,
+            // the first snapshot has been sent, so this is a re-hello.
+            if (live) {
+              live = false;
+              // Start buffering bytes again during the new serialize window.
+              const reHello: HelloDims = { cols: msg.cols, rows: msg.rows };
+              let screen = deps.streams.getScreen(runId);
+              if (!screen) {
+                screen = await deps.streams.rebuildScreenFromLog(runId, run.log_path);
+              }
+              await deps.orchestrator.resize(runId, reHello.cols, reHello.rows).catch(() => {});
+              screen.resize(reHello.cols, reHello.rows);
+              await screen.drain();
+              if (socket.readyState === socket.OPEN) {
+                socket.send(JSON.stringify({
+                  type: 'snapshot',
+                  ansi: screen.modesAnsi() + screen.serialize(),
+                  cols: screen.cols,
+                  rows: screen.rows,
+                }));
+              }
+              live = true;
+              for (const chunk of buffered) {
+                if (socket.readyState === socket.OPEN) {
+                  socket.send(chunk, (err) => { if (err) unsub(); });
+                }
+              }
+              buffered.length = 0;
             }
             return;
           }
-          if (msg.type === 'resync') {
-            // Re-serialize the current screen. If none exists in memory (rare —
-            // e.g. a previous rebuild failed), try a fresh rebuild from log.
-            let screen = deps.streams.getScreen(runId);
-            if (!screen) {
-              try {
-                screen = await deps.streams.rebuildScreenFromLog(runId, run.log_path);
-              } catch { /* swallow; leave screen undefined */ }
-            }
-            if (screen && socket.readyState === socket.OPEN) {
-              socket.send(JSON.stringify({
-                type: 'snapshot',
-                ansi: screen.modesAnsi() + screen.serialize(),
-                cols: screen.cols,
-                rows: screen.rows,
-              }));
-            }
+          if (msg.type === 'resize') {
+            await deps.orchestrator.resize(runId, msg.cols, msg.rows).catch(() => {});
+            deps.streams.getScreen(runId)?.resize(msg.cols, msg.rows);
+            // No snapshot re-send. Claude's SIGWINCH response flows
+            // through the live byte stream naturally.
             return;
           }
           return; // any other text frame: ignore, do not forward to stdin

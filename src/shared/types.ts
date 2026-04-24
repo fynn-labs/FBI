@@ -260,10 +260,9 @@ export interface GlobalStateMessage {
   last_limit_reset_at: number | null;
 }
 
-/** Sent by the server as the opening text frame on live WS connect, and in
- *  response to a client-initiated resync. Carries the current screen state
- *  as an ANSI string that reproduces the screen when written into a fresh
- *  xterm of the same cols/rows. */
+/** Sent by the server as a snapshot of the current screen. ANSI string
+ *  reproduces the screen when written into a fresh xterm of the same
+ *  cols/rows. */
 export interface RunWsSnapshotMessage {
   type: 'snapshot';
   ansi: string;
@@ -271,10 +270,15 @@ export interface RunWsSnapshotMessage {
   rows: number;
 }
 
-/** Sent by the client on window refocus / visibilitychange->visible to ask
- *  the server for a fresh snapshot frame. Body carries no payload. */
-export interface RunWsResyncMessage {
-  type: 'resync';
+/** Sent by the client as the first text frame after the WebSocket opens.
+ *  Carries the client's xterm dimensions; the server applies them to the
+ *  PTY and ScreenState before serializing the opening snapshot, so the
+ *  snapshot always matches the client's dims. No response frame type —
+ *  the response is the snapshot. */
+export interface RunWsHelloMessage {
+  type: 'hello';
+  cols: number;
+  rows: number;
 }
 
 export interface ListeningPort {

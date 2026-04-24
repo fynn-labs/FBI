@@ -196,7 +196,10 @@ export class Orchestrator {
     });
     onBytes(Buffer.from(`[fbi] image: ${imageTag}\n`));
 
-    const auth: GitAuth = new SshAgentForwarding(this.deps.config.hostSshAuthSock);
+    const auth: GitAuth = new SshAgentForwarding(
+      this.deps.config.hostSshAuthSock,
+      this.deps.config.hostBindSshAuthSock ?? this.deps.config.hostSshAuthSock,
+    );
     const projectSecrets = this.deps.secrets.decryptAll(project.id);
     const authorName = project.git_author_name ?? this.deps.config.gitAuthorName;
     const authorEmail = project.git_author_email ?? this.deps.config.gitAuthorEmail;
@@ -207,6 +210,14 @@ export class Orchestrator {
 
     const mountDir = this.ensureMountDir(runId);
     const scriptsDir = this.ensureScriptsDir(runId);
+    const toBindHost = (localPath: string): string => {
+      const { runsDir, hostRunsDir } = this.deps.config;
+      if (!hostRunsDir || hostRunsDir === runsDir) return localPath;
+      if (localPath.startsWith(runsDir)) {
+        return hostRunsDir + localPath.slice(runsDir.length);
+      }
+      return localPath;
+    };
 
     onBytes(Buffer.from(`[fbi] starting container\n`));
     const container = await this.deps.docker.createContainer({
@@ -237,12 +248,15 @@ export class Orchestrator {
         NanoCpus: Math.round(cpus * 1e9),
         PidsLimit: pids,
         Binds: [
-          `${path.join(scriptsDir, 'supervisor.sh')}:/usr/local/bin/supervisor.sh:ro`,
-          `${path.join(scriptsDir, 'finalizeBranch.sh')}:/usr/local/bin/fbi-finalize-branch.sh:ro`,
-          `${mountDir}:/home/agent/.claude/projects/`,
-          `${this.ensureStateDir(runId)}:/fbi-state/`,
-          `${this.ensureUploadsDir(runId)}:/fbi/uploads:ro`,
-          ...claudeAuthMounts(this.deps.config.hostClaudeDir),
+          `${toBindHost(path.join(scriptsDir, 'supervisor.sh'))}:/usr/local/bin/supervisor.sh:ro`,
+          `${toBindHost(path.join(scriptsDir, 'finalizeBranch.sh'))}:/usr/local/bin/fbi-finalize-branch.sh:ro`,
+          `${toBindHost(mountDir)}:/home/agent/.claude/projects/`,
+          `${toBindHost(this.ensureStateDir(runId))}:/fbi-state/`,
+          `${toBindHost(this.ensureUploadsDir(runId))}:/fbi/uploads:ro`,
+          ...claudeAuthMounts(
+            this.deps.config.hostClaudeDir,
+            this.deps.config.hostBindClaudeDir ?? this.deps.config.hostClaudeDir,
+          ),
           ...dockerSocketMounts(this.deps.config.hostDockerSocket),
           ...auth.mounts().map((m) =>
             `${m.source}:${m.target}${m.readOnly ? ':ro' : ''}`
@@ -973,11 +987,11 @@ export class Orchestrator {
 // Bind-mount OAuth tokens. On Linux they live in ~/.claude/.credentials.json;
 // macOS uses Keychain so nothing to mount. ~/.claude.json is injected separately
 // (see buildContainerClaudeJson) so we can strip host-specific fields.
-function claudeAuthMounts(hostClaudeDir: string): string[] {
-  const hostCreds = path.join(hostClaudeDir, '.credentials.json');
-  return fs.existsSync(hostCreds)
-    ? [`${hostCreds}:/home/agent/.claude/.credentials.json`]
-    : [];
+function claudeAuthMounts(hostClaudeDir: string, hostBindClaudeDir: string): string[] {
+  const localCreds = path.join(hostClaudeDir, '.credentials.json');
+  if (!fs.existsSync(localCreds)) return [];
+  const bindSource = path.join(hostBindClaudeDir, '.credentials.json');
+  return [`${bindSource}:/home/agent/.claude/.credentials.json`];
 }
 
 // Forward the host docker socket so agents can run docker/compose commands.

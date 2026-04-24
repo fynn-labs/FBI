@@ -189,6 +189,17 @@ export class ScreenState {
     return new Promise((resolve) => this.term.write(data, resolve));
   }
 
+  /**
+   * Resolve after all previously-queued writes have been parsed. Used by the
+   * WS snapshot builder: serializing before pending chunks are absorbed is
+   * the root cause of the cursor-disappear symptom — we catch Claude Code's
+   * render cycle mid-parse. Zero-length write still queues a callback behind
+   * every prior write, so its resolution marks a drain point.
+   */
+  drain(): Promise<void> {
+    return new Promise((resolve) => this.term.write('', () => resolve()));
+  }
+
   resize(cols: number, rows: number): void {
     if (cols === this.term.cols && rows === this.term.rows) return;
     this.term.resize(cols, rows);

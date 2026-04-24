@@ -22,7 +22,7 @@ type EventKind =
   | 'ws.in.event'
   | 'ws.out.send'
   | 'ws.out.resize'
-  | 'ws.out.resync'
+  | 'ws.out.hello'
   | 'term.mount'
   | 'term.unmount'
   | 'term.fit'
@@ -33,8 +33,17 @@ type EventKind =
   | 'term.input'
   | 'term.history.start'
   | 'term.history.end'
-  | 'term.resync.request'
-  | 'term.interactiveFit';
+  | 'term.interactiveFit'
+  | 'controller.mount'
+  | 'controller.dispose'
+  | 'controller.hello'
+  | 'controller.snapshot'
+  | 'controller.snapshot.cached'
+  | 'controller.input'
+  | 'controller.history.start'
+  | 'controller.history.end'
+  | 'controller.resumeLive'
+  | 'controller.redraw';
 
 interface TraceEvent {
   t: number; // ms since trace start

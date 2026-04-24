@@ -95,4 +95,14 @@ describe('ScreenState', () => {
     expect(s.modesAnsi()).toContain('\x1b[?25l');
     s.dispose();
   });
+
+  it('drain() resolves after all in-flight writes have been parsed', async () => {
+    const s = new ScreenState(80, 24);
+    // Queue writes without awaiting them individually.
+    void s.write(new TextEncoder().encode('\x1b[1;1H'));
+    void s.write(new TextEncoder().encode('hello'));
+    await s.drain();
+    expect(s.serialize()).toContain('hello');
+    s.dispose();
+  });
 });
