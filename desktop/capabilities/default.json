@@ -9,7 +9,7 @@
     "store:allow-get",
     "store:allow-set",
     "store:allow-save",
-    "notification:allow-send-notification",
+    "notification:allow-show",
     "notification:allow-is-permission-granted",
     "notification:allow-request-permission"
   ]
