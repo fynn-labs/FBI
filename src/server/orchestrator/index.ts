@@ -836,11 +836,6 @@ export class Orchestrator {
     a.attachStream.write(Buffer.from(bytes));
   }
 
-  /** Return the most recent SafeguardWatcher snapshot for a run, if any. */
-  getLastFiles(runId: number): FilesPayload | null {
-    return this.lastFiles.get(runId) ?? null;
-  }
-
   async execHistoryOp(runId: number, op: HistoryOp): Promise<ParsedOpResult> {
     const run = this.deps.runs.get(runId);
     if (!run) throw new Error('run not found');
