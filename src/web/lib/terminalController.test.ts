@@ -328,4 +328,38 @@ describe('TerminalController', () => {
       vi.useRealTimers();
     }
   });
+
+  it('accumulates live bytes in liveTailBytes and advances liveOffset', () => {
+    const shell = makeStubShell();
+    acquiredShells.set(20, shell);
+    const term = makeFakeXterm();
+    const host = document.createElement('div');
+    const c = new TerminalController(20, term as unknown as import('@xterm/xterm').Terminal, host);
+
+    for (const cb of shell._bytes) cb(new TextEncoder().encode('abc'));
+    for (const cb of shell._bytes) cb(new TextEncoder().encode('de'));
+
+    // Exposed for tests via a `_debugBuffers()` accessor (see Step 5.3).
+    const bufs = c._debugBuffers();
+    expect(Buffer.from(bufs.liveTailBytes).toString()).toBe('abcde');
+    expect(bufs.liveOffset).toBe(5);
+  });
+
+  it('tracks latestState from state typed events', () => {
+    const shell = makeStubShell();
+    acquiredShells.set(21, shell);
+    const term = makeFakeXterm();
+    const host = document.createElement('div');
+    const c = new TerminalController(21, term as unknown as import('@xterm/xterm').Terminal, host);
+
+    for (const cb of shell._events) {
+      cb({ type: 'state', state: 'running' } as unknown as { type: string });
+    }
+    expect(c._debugBuffers().latestState).toBe('running');
+
+    for (const cb of shell._events) {
+      cb({ type: 'state', state: 'succeeded' } as unknown as { type: string });
+    }
+    expect(c._debugBuffers().latestState).toBe('succeeded');
+  });
 });
