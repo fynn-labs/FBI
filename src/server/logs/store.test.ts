@@ -41,7 +41,7 @@ describe('LogStore', () => {
     const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'fbi-'));
     const p = path.join(dir, 'log');
     fs.writeFileSync(p, Buffer.from('abcdefghij'));
-    expect(Buffer.from(LogStore.readRange(p, 2, 5)).toString()).toBe('cde');
+    expect(Buffer.from(LogStore.readRange(p, 2, 5)).toString()).toBe('cdef');
     // Inclusive end:
     expect(Buffer.from(LogStore.readRange(p, 0, 10)).toString()).toBe('abcdefghij');
   });

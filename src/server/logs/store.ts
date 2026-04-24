@@ -36,8 +36,8 @@ export class LogStore {
   }
 
   /**
-   * Read a byte range `[start, end)` (start inclusive, end exclusive).
-   * Clamps end to file size; returns empty Uint8Array for missing file
+   * Read a byte range `[start, end]` (both inclusive), matching HTTP Range header semantics.
+   * Clamps end to file size - 1; returns empty Uint8Array for missing file
    * or start ≥ size.
    */
   static readRange(filePath: string, start: number, end: number): Uint8Array {
@@ -51,8 +51,8 @@ export class LogStore {
     try {
       const size = fs.fstatSync(fd).size;
       if (start >= size) return new Uint8Array();
-      const clampedEnd = Math.min(end, size);
-      const length = clampedEnd - start;
+      const clampedEnd = Math.min(end, size - 1);
+      const length = clampedEnd - start + 1;
       const buf = Buffer.alloc(length);
       let read = 0;
       while (read < length) {
