@@ -53,7 +53,8 @@ fi
 
 cd /workspace
 
-git clone --recurse-submodules "$REPO_URL" . || { echo "clone failed"; exit 10; }
+_fbi_cmd "git clone $REPO_URL ."
+git clone --recurse-submodules "$REPO_URL" . || { _fbi_fatal "clone failed"; exit 10; }
 
 PRIMARY_BRANCH="${FBI_BRANCH:-claude/run-${RUN_ID}}"
 
