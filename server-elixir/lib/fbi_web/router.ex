@@ -13,6 +13,13 @@ defmodule FBIWeb.Router do
     get "/usage/runs/:id", UsageController, :run_breakdown
   end
 
+  # WebSocket upgrade routes must not go through the :api pipeline — the
+  # `accepts ["json"]` plug rejects connections that don't carry a JSON
+  # Content-Type header, which a WS upgrade request never does.
+  scope "/api" do
+    get "/ws/usage", FBIWeb.Sockets.UsageWSHandler, :upgrade
+  end
+
   # Enable LiveDashboard in development
   if Application.compile_env(:fbi, :dev_routes) do
     # If you want to use the LiveDashboard in production, you should put
