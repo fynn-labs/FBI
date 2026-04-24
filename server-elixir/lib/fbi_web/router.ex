@@ -35,4 +35,8 @@ defmodule FBIWeb.Router do
       live_dashboard "/dashboard", metrics: FBIWeb.Telemetry
     end
   end
+
+  # Catch-all: forward every unmatched request to the upstream server.
+  # This must remain last so native routes above take precedence.
+  match :*, "/*path", FBIWeb.ProxyRouter, :dispatch
 end

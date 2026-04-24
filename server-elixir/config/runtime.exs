@@ -23,6 +23,8 @@ end
 config :fbi, FBIWeb.Endpoint, http: [port: String.to_integer(System.get_env("PORT", "4000"))]
 
 if config_env() == :prod do
+  config :fbi, proxy_target: System.get_env("PROXY_TARGET", "http://127.0.0.1:3001")
+
   database_path =
     System.get_env("DATABASE_PATH") ||
       raise """

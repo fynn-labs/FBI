@@ -13,6 +13,8 @@ config :fbi,
   generators: [timestamp_type: :utc_datetime],
   credentials_path: Path.expand("~/.claude/.credentials.json")
 
+config :fbi, proxy_target: "http://127.0.0.1:3001"
+
 # Configure the endpoint
 config :fbi, FBIWeb.Endpoint,
   url: [host: "localhost"],
