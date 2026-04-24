@@ -20,4 +20,9 @@ describe('api base URL', () => {
     setApiBaseUrl('https://fbi.tailnet');
     expect(wsBase()).toBe('wss://fbi.tailnet');
   });
+
+  it('setApiBaseUrl strips trailing slash', () => {
+    setApiBaseUrl('http://fbi.tailnet:3000/');
+    expect(wsBase()).toBe('ws://fbi.tailnet:3000');
+  });
 });
