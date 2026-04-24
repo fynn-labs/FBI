@@ -146,9 +146,15 @@ export function Terminal({ runId, interactive }: Props) {
     };
   }, [runId]);
 
+  // `runId` is in the dep list so this re-runs when the mount effect creates
+  // a new controller instance on run-switch. Without it, switching from
+  // run A to run B with the same `interactive` value would leave the new
+  // controller un-wired: no term.onData, no term.focus(), no host-click
+  // handler — the terminal renders but can't accept input and never
+  // receives focus.
   useEffect(() => {
     controllerRef.current?.setInteractive(interactive);
-  }, [interactive]);
+  }, [interactive, runId]);
 
   const onLoadHistory = async () => {
     setHistoryMode(true);
