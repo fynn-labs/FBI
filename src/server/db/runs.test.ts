@@ -429,6 +429,34 @@ describe('RunsRepo.state_entered_at', () => {
   });
 });
 
+describe('base_branch and mirror_status', () => {
+  let runs: RunsRepo;
+  let projectId: number;
+  beforeEach(() => {
+    const r = makeRepos();
+    runs = r.runs;
+    projectId = r.projectId;
+  });
+
+  it('persists base_branch and mirror_status', () => {
+    const r = runs.create({
+      project_id: projectId,
+      prompt: 'x',
+      branch_hint: 'claude/run-1',
+      log_path_tmpl: (id) => `/tmp/${id}.log`,
+    });
+    expect(runs.get(r.id)!.base_branch).toBeNull();
+    expect(runs.get(r.id)!.mirror_status).toBeNull();
+
+    runs.setBaseBranch(r.id, 'feat/x');
+    runs.setMirrorStatus(r.id, 'diverged');
+
+    const fresh = runs.get(r.id)!;
+    expect(fresh.base_branch).toBe('feat/x');
+    expect(fresh.mirror_status).toBe('diverged');
+  });
+});
+
 describe('waiting-state transitions', () => {
   function seedRunning() {
     const { runs: repo, projectId } = makeRepos();

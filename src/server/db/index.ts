@@ -137,6 +137,17 @@ export function migrate(db: DB): void {
     db.exec('ALTER TABLE runs ADD COLUMN kind_args_json TEXT');
   }
 
+  const runsCols = new Set(
+    (db.prepare("PRAGMA table_info(runs)").all() as Array<{ name: string }>)
+      .map((r) => r.name)
+  );
+  if (!runsCols.has('base_branch')) {
+    db.exec('ALTER TABLE runs ADD COLUMN base_branch TEXT');
+  }
+  if (!runsCols.has('mirror_status')) {
+    db.exec("ALTER TABLE runs ADD COLUMN mirror_status TEXT");
+  }
+
   // --- TokenEater usage migration ---
 
   // 1. Rebuild rate_limit_state if it still has the old per-bucket columns.

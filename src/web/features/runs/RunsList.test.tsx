@@ -23,6 +23,7 @@ function mkRun(id: number, state: RunState, createdAt: number, title = `run-${id
     tokens_total: 0, usage_parse_errors: 0,
     title, title_locked: 0, parent_run_id: null,
     kind: 'work' as const, kind_args_json: null,
+    base_branch: null, mirror_status: null,
   };
 }
 

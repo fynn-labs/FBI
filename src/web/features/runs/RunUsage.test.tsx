@@ -14,6 +14,7 @@ const baseRun: Run = {
   tokens_total: 300, usage_parse_errors: 0,
   title: null, title_locked: 0, parent_run_id: null,
   kind: 'work' as const, kind_args_json: null,
+  base_branch: null, mirror_status: null,
 };
 
 describe('RunUsage', () => {

@@ -5,7 +5,10 @@ export type RunState =
   | 'awaiting_resume'
   | 'succeeded'
   | 'failed'
-  | 'cancelled';
+  | 'cancelled'
+  | 'resume_failed';
+
+export type MirrorStatus = 'ok' | 'diverged' | null;
 
 export interface Project {
   id: number;
@@ -58,6 +61,8 @@ export interface Run {
   parent_run_id: number | null;
   kind: 'work' | 'merge-conflict' | 'polish';
   kind_args_json: string | null;
+  base_branch: string | null;
+  mirror_status: MirrorStatus;
 }
 
 export interface SecretName {
@@ -209,12 +214,19 @@ export interface FilesPayload {
 
 export type MergeStrategy = 'merge' | 'rebase' | 'squash';
 
+export interface WipPayload {
+  snapshot_sha: string;
+  parent_sha: string;
+  files: FilesDirtyEntry[];
+}
+
 export type HistoryOp =
   | { op: 'merge'; strategy?: MergeStrategy }
   | { op: 'sync' }
   | { op: 'squash-local'; subject: string }
   | { op: 'polish' }
-  | { op: 'push-submodule'; path: string };
+  | { op: 'push-submodule'; path: string }
+  | { op: 'mirror-rebase' };
 
 export type HistoryResult =
   | { kind: 'complete'; sha?: string }

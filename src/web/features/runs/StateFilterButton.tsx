@@ -23,6 +23,7 @@ const DOT_TONE: Record<RunState, string> = {
   succeeded:       'bg-ok',
   failed:          'bg-fail',
   cancelled:       'bg-text-faint',
+  resume_failed:   'bg-fail',
 };
 
 export type StateCounts = Record<RunState, number>;

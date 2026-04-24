@@ -15,7 +15,7 @@ function mkView(over: Partial<{ filter: Set<RunState>; groupByState: boolean }> 
 
 const emptyCounts = {
   running: 0, waiting: 0, awaiting_resume: 0, queued: 0,
-  succeeded: 0, failed: 0, cancelled: 0,
+  succeeded: 0, failed: 0, cancelled: 0, resume_failed: 0,
 } as const;
 
 describe('StateFilterButton', () => {

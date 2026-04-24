@@ -45,7 +45,10 @@ CREATE TABLE IF NOT EXISTS runs (
   parent_run_id INTEGER REFERENCES runs(id) ON DELETE SET NULL,
   kind TEXT NOT NULL DEFAULT 'work'
     CHECK (kind IN ('work', 'merge-conflict', 'polish')),
-  kind_args_json TEXT
+  kind_args_json TEXT,
+  base_branch TEXT,
+  mirror_status TEXT
+    CHECK (mirror_status IS NULL OR mirror_status IN ('ok','diverged'))
 );
 
 CREATE INDEX IF NOT EXISTS idx_runs_project ON runs(project_id);

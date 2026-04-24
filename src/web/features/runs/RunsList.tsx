@@ -21,6 +21,7 @@ const TONE_TEXT: Record<RunState, string> = {
   succeeded: 'text-ok',
   failed: 'text-fail',
   cancelled: 'text-text-faint',
+  resume_failed: 'text-fail',
 };
 
 export function RunsList({ runs, toHref, currentId }: RunsListProps) {
@@ -42,7 +43,7 @@ export function RunsList({ runs, toHref, currentId }: RunsListProps) {
   const counts: StateCounts = useMemo(() => {
     const base: StateCounts = {
       running: 0, waiting: 0, awaiting_resume: 0, queued: 0,
-      succeeded: 0, failed: 0, cancelled: 0,
+      succeeded: 0, failed: 0, cancelled: 0, resume_failed: 0,
     };
     for (const r of textFiltered) base[r.state]++;
     return base;

@@ -1,5 +1,5 @@
 import type { DB } from './index.js';
-import type { Run, RunState } from '../../shared/types.js';
+import type { MirrorStatus, Run, RunState } from '../../shared/types.js';
 
 export interface CreateRunInput {
   project_id: number;
@@ -285,5 +285,15 @@ export class RunsRepo {
 
   delete(id: number): void {
     this.db.prepare('DELETE FROM runs WHERE id = ?').run(id);
+  }
+
+  setBaseBranch(id: number, baseBranch: string | null): void {
+    this.db.prepare('UPDATE runs SET base_branch = ? WHERE id = ?')
+      .run(baseBranch, id);
+  }
+
+  setMirrorStatus(id: number, status: MirrorStatus): void {
+    this.db.prepare('UPDATE runs SET mirror_status = ? WHERE id = ?')
+      .run(status, id);
   }
 }
