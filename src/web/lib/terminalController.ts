@@ -402,10 +402,20 @@ export class TerminalController {
       this.loadedBytes = concat([seedBytes, snapBytes]);
       this.loadedStartOffset = start;
       this.liveOffset = headerTotal;
-      // Include liveTailBytes in case any live bytes arrived between the
-      // initial snapshot (written by the normal handler) and this rebuild.
-      await this.rebuildXterm([this.loadedBytes, this.liveTailBytes]);
-      this.term.scrollToBottom();
+      // Gate onBytes during the rebuild so live WS bytes arriving in
+      // the rebuild window aren't double-written (once via onBytes and
+      // again when the rebuild loop writes liveTailBytes). Bytes that
+      // arrive while gated are dropped; Claude's next redraw recovers
+      // any visible state they would have affected. Task 8/9 rebuilds
+      // are already gated because they run while this.paused === true.
+      const wasPaused = this.paused;
+      this.paused = true;
+      try {
+        await this.rebuildXterm([this.loadedBytes, this.liveTailBytes]);
+        this.term.scrollToBottom();
+      } finally {
+        this.paused = wasPaused;
+      }
       traceRecord('controller.seed.complete', { bytes: seedBytes.byteLength });
     } catch (err) {
       traceRecord('controller.seed.error', { err: String(err) });
