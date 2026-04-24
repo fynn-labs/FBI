@@ -10,8 +10,20 @@ import type {
   RunWsStateMessage,
   RunWsTitleMessage,
   ChangesPayload,
+  RunWsSnapshotMessage,
   RunState,
 } from '@shared/types.js';
+
+const CHUNK_SIZE = 512 * 1024;
+
+function concat(bufs: Uint8Array[]): Uint8Array {
+  let total = 0;
+  for (const b of bufs) total += b.byteLength;
+  const out = new Uint8Array(total);
+  let off = 0;
+  for (const b of bufs) { out.set(b, off); off += b.byteLength; }
+  return out;
+}
 
 /**
  * Owns the terminal's WebSocket lifecycle, the snapshot/bytes plumbing, and
@@ -56,6 +68,7 @@ export class TerminalController {
   private loadedBytes: Uint8Array = new Uint8Array();
   private loadedStartOffset = 0;
   private paused = false;
+  private seeded = false;
   private pauseListeners = new Set<(paused: boolean) => void>();
   private interactiveProp = false; // track the prop so applyInteractive can recompute
 
@@ -102,6 +115,13 @@ export class TerminalController {
       // sometimes omits it. This matters most on WS reconnect after a
       // container restart, where the first snapshot lands without cursor.
       this.scheduleCursorRedraw();
+      if (!this.seeded) {
+        this.seeded = true;
+        // Defer to a microtask so synchronous subscribers (tests, or any
+        // callers that register handlers and then set up fetch stubs)
+        // run to completion before the first Range request fires.
+        queueMicrotask(() => { void this.seedInitialHistory(snap); });
+      }
     });
 
     this.unsubBytes = this.shell.onBytes((data) => {
@@ -331,6 +351,75 @@ export class TerminalController {
     this.paused = true;
     this.applyInteractive();
     this.emitPauseChange();
+  }
+
+  private writeAndWait(data: Uint8Array | string): Promise<void> {
+    return new Promise<void>((resolve) => this.term.write(data, resolve));
+  }
+
+  /**
+   * Reset xterm and replay a sequence of byte buffers. Returns after all
+   * writes have been acknowledged by xterm's parser.
+   */
+  private async rebuildXterm(buffers: Array<Uint8Array | string>): Promise<void> {
+    this.term.reset();
+    for (const b of buffers) {
+      await this.writeAndWait(b);
+    }
+  }
+
+  /**
+   * Fetch the last CHUNK_SIZE bytes of the transcript and rebuild the
+   * xterm with [seed, snapshot]. Called once on mount, after the initial
+   * snapshot has been written to xterm by the normal handler.
+   *
+   * Stores seed+snapshot bytes in `loadedBytes`. On total < CHUNK_SIZE,
+   * fetches from byte 0 (i.e., the full transcript so far).
+   */
+  private async seedInitialHistory(snap: RunWsSnapshotMessage): Promise<void> {
+    try {
+      const snapBytes = new TextEncoder().encode(snap.ansi);
+      const headerTotal = await this.fetchTranscriptMeta();
+      if (headerTotal === 0) {
+        this.loadedBytes = snapBytes;
+        this.loadedStartOffset = 0;
+        this.liveOffset = 0;
+        traceRecord('controller.seed.complete', { bytes: 0 });
+        return;
+      }
+      const start = Math.max(0, headerTotal - CHUNK_SIZE);
+      const end = headerTotal - 1;
+      const res = await fetch(`/api/runs/${this.runId}/transcript`, {
+        headers: { Range: `bytes=${start}-${end}` },
+      });
+      if (this.disposed) return;
+      if (!res.ok && res.status !== 206) {
+        traceRecord('controller.seed.error', { status: res.status });
+        return;
+      }
+      const seedBytes = new Uint8Array(await res.arrayBuffer());
+      if (this.disposed) return;
+      this.loadedBytes = concat([seedBytes, snapBytes]);
+      this.loadedStartOffset = start;
+      this.liveOffset = headerTotal;
+      // Include liveTailBytes in case any live bytes arrived between the
+      // initial snapshot (written by the normal handler) and this rebuild.
+      await this.rebuildXterm([this.loadedBytes, this.liveTailBytes]);
+      this.term.scrollToBottom();
+      traceRecord('controller.seed.complete', { bytes: seedBytes.byteLength });
+    } catch (err) {
+      traceRecord('controller.seed.error', { err: String(err) });
+    }
+  }
+
+  /** HEAD-less total: make a 1-byte Range request to read X-Transcript-Total. */
+  private async fetchTranscriptMeta(): Promise<number> {
+    const res = await fetch(`/api/runs/${this.runId}/transcript`, {
+      headers: { Range: 'bytes=0-0' },
+    });
+    if (this.disposed) return 0;
+    const total = Number(res.headers.get('X-Transcript-Total') ?? '0');
+    return Number.isFinite(total) ? total : 0;
   }
 
   /** @internal — for tests only. */

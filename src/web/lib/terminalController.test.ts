@@ -96,9 +96,36 @@ function makeFakeXterm() {
   };
 }
 
+interface FetchCall { url: string; headers: Record<string, string> }
+const fetchCalls: FetchCall[] = [];
+let fetchResponder: (call: FetchCall) => { status: number; headers: Record<string, string>; body: Uint8Array } =
+  () => ({ status: 404, headers: {}, body: new Uint8Array() });
+
+function installFetchMock() {
+  globalThis.fetch = vi.fn((url: RequestInfo | URL, init?: RequestInit) => {
+    const h: Record<string, string> = {};
+    const raw = init?.headers as Record<string, string> | undefined;
+    if (raw) for (const [k, v] of Object.entries(raw)) h[k.toLowerCase()] = v;
+    const call: FetchCall = { url: String(url), headers: h };
+    fetchCalls.push(call);
+    const r = fetchResponder(call);
+    return Promise.resolve({
+      ok: r.status >= 200 && r.status < 300,
+      status: r.status,
+      headers: {
+        get: (name: string) => r.headers[name.toLowerCase()] ?? null,
+      },
+      arrayBuffer: () => Promise.resolve(r.body.buffer.slice(r.body.byteOffset, r.body.byteOffset + r.body.byteLength)),
+    } as unknown as Response);
+  }) as unknown as typeof fetch;
+}
+
 beforeEach(() => {
   acquiredShells.clear();
   usagePublishes.length = 0;
+  fetchCalls.length = 0;
+  fetchResponder = () => ({ status: 404, headers: {}, body: new Uint8Array() });
+  installFetchMock();
 });
 
 afterEach(() => {
@@ -410,5 +437,52 @@ describe('TerminalController', () => {
     c.pause();
     // Gate closed: onData handler is detached.
     expect(term.dataCbs).toHaveLength(0);
+  });
+
+  it('seedInitialHistory fetches last 512KB via Range, rebuilds xterm with [seed, snapshot]', async () => {
+    const shell = makeStubShell({ openState: 'open' });
+    acquiredShells.set(40, shell);
+    const term = makeFakeXterm();
+    const host = document.createElement('div');
+    const c = new TerminalController(40, term as unknown as import('@xterm/xterm').Terminal, host);
+
+    const snap: RunWsSnapshotMessage = { type: 'snapshot', ansi: 'SNAP', cols: 120, rows: 40 };
+    for (const cb of shell._snap) cb(snap);
+    expect(term.writes).toEqual(['__RESET__', 'SNAP']);
+
+    const FULL_TOTAL = 1_000_000;
+    const seedBytes = new Uint8Array(512 * 1024).fill(65); // 'A' * 524288
+    fetchResponder = (call): { status: number; headers: Record<string, string>; body: Uint8Array } => {
+      expect(call.url).toBe('/api/runs/40/transcript');
+      if (call.headers.range === 'bytes=0-0') {
+        return {
+          status: 206,
+          headers: { 'x-transcript-total': String(FULL_TOTAL) },
+          body: new Uint8Array([0]),
+        };
+      }
+      if (call.headers.range === `bytes=${FULL_TOTAL - 524288}-${FULL_TOTAL - 1}`) {
+        return {
+          status: 206,
+          headers: {
+            'x-transcript-total': String(FULL_TOTAL),
+            'content-range': `bytes ${FULL_TOTAL - 524288}-${FULL_TOTAL - 1}/${FULL_TOTAL}`,
+          },
+          body: seedBytes,
+        };
+      }
+      return { status: 404, headers: {}, body: new Uint8Array() };
+    };
+
+    // Seed is kicked off after the snapshot handler runs — controller calls it internally.
+    // Give it a few macrotask ticks to settle the async chain (meta fetch, seed fetch, rebuild).
+    await new Promise((r) => setTimeout(r, 0));
+    await new Promise((r) => setTimeout(r, 0));
+    await new Promise((r) => setTimeout(r, 0));
+
+    const bufs = c._debugBuffers();
+    expect(bufs.loadedBytes.byteLength).toBe(524288 + 4); // seed + 'SNAP'
+    expect(bufs.loadedStartOffset).toBe(FULL_TOTAL - 524288);
+    expect(bufs.liveOffset).toBe(FULL_TOTAL);
   });
 });
