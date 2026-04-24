@@ -43,6 +43,13 @@ defmodule FBIWeb.Router do
     patch "/projects/:id", ProjectsController, :update
     delete "/projects/:id", ProjectsController, :delete
     get "/projects/:id/prompts/recent", ProjectsController, :recent_prompts
+
+    get "/runs", RunsController, :index
+    get "/runs/:id", RunsController, :show
+    patch "/runs/:id", RunsController, :patch_title
+    delete "/runs/:id", RunsController, :delete
+    get "/runs/:id/siblings", RunsController, :siblings
+    get "/projects/:id/runs", RunsController, :index_for_project
   end
 
   # WebSocket upgrade routes must not go through the :api pipeline — the
