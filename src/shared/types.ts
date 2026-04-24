@@ -55,6 +55,9 @@ export interface Run {
   title: string | null;
   title_locked: 0 | 1;
   parent_run_id: number | null;
+  model: string | null;
+  effort: string | null;
+  subagent_model: string | null;
 }
 
 export interface SecretName {

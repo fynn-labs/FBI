@@ -59,7 +59,7 @@ function setup() {
     continueRun: async (_id: number) => {},
     orchestrator: stubOrchestrator,
   });
-  return { app, projectId: p.id, launched, cancelled, streams, runs };
+  return { app, projectId: p.id, launched, cancelled, streams, runs, runsDir: dir };
 }
 
 function setupWithUploads() {
@@ -510,6 +510,145 @@ describe('runs routes', () => {
     const body = res.json() as { code: string; message: string };
     expect(body.code).toBe('no_session');
     expect(body.message).toMatch(/session/i);
+  });
+
+  describe('POST /api/projects/:id/runs — model params', () => {
+    it('persists model, effort, subagent_model when provided', async () => {
+      const { app, projectId, runs } = setup();
+      const res = await app.inject({
+        method: 'POST',
+        url: `/api/projects/${projectId}/runs`,
+        payload: {
+          prompt: 'do thing',
+          model: 'opus',
+          effort: 'xhigh',
+          subagent_model: 'sonnet',
+        },
+      });
+      expect(res.statusCode).toBe(201);
+      const body = res.json() as { id: number };
+      const row = runs.get(body.id)!;
+      expect(row.model).toBe('opus');
+      expect(row.effort).toBe('xhigh');
+      expect(row.subagent_model).toBe('sonnet');
+    });
+
+    it('stores NULLs when model params are omitted', async () => {
+      const { app, projectId, runs } = setup();
+      const res = await app.inject({
+        method: 'POST',
+        url: `/api/projects/${projectId}/runs`,
+        payload: { prompt: 'do thing' },
+      });
+      expect(res.statusCode).toBe(201);
+      const body = res.json() as { id: number };
+      const row = runs.get(body.id)!;
+      expect(row.model).toBeNull();
+      expect(row.effort).toBeNull();
+      expect(row.subagent_model).toBeNull();
+    });
+
+    it('returns 400 on invalid model', async () => {
+      const { app, projectId } = setup();
+      const res = await app.inject({
+        method: 'POST',
+        url: `/api/projects/${projectId}/runs`,
+        payload: { prompt: 'x', model: 'turbo' },
+      });
+      expect(res.statusCode).toBe(400);
+    });
+
+    it('returns 400 on effort + haiku', async () => {
+      const { app, projectId } = setup();
+      const res = await app.inject({
+        method: 'POST',
+        url: `/api/projects/${projectId}/runs`,
+        payload: { prompt: 'x', model: 'haiku', effort: 'high' },
+      });
+      expect(res.statusCode).toBe(400);
+    });
+
+    it('returns 400 on xhigh + sonnet', async () => {
+      const { app, projectId } = setup();
+      const res = await app.inject({
+        method: 'POST',
+        url: `/api/projects/${projectId}/runs`,
+        payload: { prompt: 'x', model: 'sonnet', effort: 'xhigh' },
+      });
+      expect(res.statusCode).toBe(400);
+    });
+  });
+
+  describe('POST /api/runs/:id/continue — model params', () => {
+    function makeContinuableRun(runs: RunsRepo, projectId: number, runsDir: string, seed?: {
+      model?: string | null; effort?: string | null; subagent_model?: string | null;
+    }) {
+      const run = runs.create({
+        project_id: projectId,
+        prompt: 'x',
+        log_path_tmpl: (id) => path.join(runsDir, `${id}.log`),
+        model: seed?.model ?? null,
+        effort: seed?.effort ?? null,
+        subagent_model: seed?.subagent_model ?? null,
+      });
+      // Simulate a finished run so checkContinueEligibility passes.
+      runs.markStarted(run.id, 'c1');
+      runs.setClaudeSessionId(run.id, 'sess');
+      runs.markFinished(run.id, { state: 'failed', exit_code: 1 });
+      // Plant a session jsonl so the eligibility check passes.
+      const sessDir = path.join(runsDir, String(run.id), 'claude-projects');
+      fs.mkdirSync(sessDir, { recursive: true });
+      fs.writeFileSync(path.join(sessDir, 'sess.jsonl'), '{"x":1}\n');
+      return runs.get(run.id)!;
+    }
+
+    it('updates the run row with new params before firing continue', async () => {
+      const { app, projectId, runs, runsDir } = setup();
+      const run = makeContinuableRun(runs, projectId, runsDir, {
+        model: 'sonnet', effort: 'high', subagent_model: null,
+      });
+      const res = await app.inject({ method: 'POST', url: `/api/runs/${run.id}/continue`, payload: { model: 'opus', effort: 'xhigh', subagent_model: 'haiku' } });
+      expect(res.statusCode).toBe(204);
+      const after = runs.get(run.id)!;
+      expect(after.model).toBe('opus');
+      expect(after.effort).toBe('xhigh');
+      expect(after.subagent_model).toBe('haiku');
+    });
+
+    it('explicit null clears a previously-set param', async () => {
+      const { app, projectId, runs, runsDir } = setup();
+      const run = makeContinuableRun(runs, projectId, runsDir, {
+        model: 'sonnet', effort: 'high', subagent_model: null,
+      });
+      const res = await app.inject({ method: 'POST', url: `/api/runs/${run.id}/continue`, payload: { model: null, effort: null, subagent_model: null } });
+      expect(res.statusCode).toBe(204);
+      const after = runs.get(run.id)!;
+      expect(after.model).toBeNull();
+      expect(after.effort).toBeNull();
+      expect(after.subagent_model).toBeNull();
+    });
+
+    it('empty body clears all params (UI always sends full state; empty body is an edge case)', async () => {
+      const { app, projectId, runs, runsDir } = setup();
+      const run = makeContinuableRun(runs, projectId, runsDir, {
+        model: 'sonnet', effort: 'high', subagent_model: null,
+      });
+      const res = await app.inject({ method: 'POST', url: `/api/runs/${run.id}/continue`, payload: {} });
+      expect(res.statusCode).toBe(204);
+      const after = runs.get(run.id)!;
+      expect(after.model).toBeNull();
+      expect(after.effort).toBeNull();
+      expect(after.subagent_model).toBeNull();
+    });
+
+    it('returns 400 on invalid combination (haiku + effort)', async () => {
+      const { app, projectId, runs, runsDir } = setup();
+      const run = makeContinuableRun(runs, projectId, runsDir);
+      const res = await app.inject({ method: 'POST', url: `/api/runs/${run.id}/continue`, payload: { model: 'haiku', effort: 'high' } });
+      expect(res.statusCode).toBe(400);
+      const after = runs.get(run.id)!;
+      expect(after.model).toBeNull();
+    });
   });
 
   describe('draft_token integration', () => {

@@ -1,6 +1,7 @@
 import { useRef, useState, type FormEvent } from 'react';
 import { useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import { api } from '../lib/api.js';
+import { ModelParamsCollapse, type ModelParamsValue } from '../components/ModelParamsCollapse.js';
 import { RecentPromptsDropdown } from '../components/RecentPromptsDropdown.js';
 import { UploadTray, type UploadTrayFile } from '../components/UploadTray.js';
 import { FormRow } from '@ui/patterns/FormRow.js';
@@ -11,6 +12,23 @@ import { UsageWarning } from '../features/usage/UsageWarning.js';
 
 const PER_FILE = 100 * 1024 * 1024;
 const PER_RUN = 1024 * 1024 * 1024;
+
+const LS_KEY = 'fbi.newRun.lastModelParams';
+
+function loadModelParams(): ModelParamsValue {
+  try {
+    const raw = localStorage.getItem(LS_KEY);
+    if (!raw) return { model: null, effort: null, subagent_model: null };
+    const parsed = JSON.parse(raw) as Partial<ModelParamsValue>;
+    return {
+      model: parsed.model ?? null,
+      effort: parsed.effort ?? null,
+      subagent_model: parsed.subagent_model ?? null,
+    };
+  } catch {
+    return { model: null, effort: null, subagent_model: null };
+  }
+}
 
 export function NewRunPage() {
   const { id } = useParams();
@@ -23,6 +41,7 @@ export function NewRunPage() {
   const [error, setError] = useState<string | null>(null);
   const [draftToken, setDraftToken] = useState<string | null>(null);
   const [attached, setAttached] = useState<UploadTrayFile[]>([]);
+  const [modelParams, setModelParams] = useState<ModelParamsValue>(loadModelParams);
   const textareaRef = useRef<HTMLTextAreaElement | null>(null);
   const dropZoneRef = useRef<HTMLDivElement | null>(null);
 
@@ -61,7 +80,18 @@ export function NewRunPage() {
     if (!prompt.trim()) return;
     setSubmitting(true);
     try {
-      const run = await api.createRun(pid, prompt, branch || undefined, draftToken ?? undefined);
+      const run = await api.createRun(
+        pid,
+        prompt,
+        branch || undefined,
+        draftToken ?? undefined,
+        modelParams,
+      );
+      try {
+        localStorage.setItem(LS_KEY, JSON.stringify(modelParams));
+      } catch {
+        // storage unavailable — harmless, move on
+      }
       nav(`/projects/${pid}/runs/${run.id}`);
     } catch (err) {
       setError(String(err));
@@ -84,6 +114,7 @@ export function NewRunPage() {
       <FormRow label="Branch name" hint="Leave blank to let Claude choose.">
         <Input className="w-full" value={branch} onChange={(e) => setBranch(e.target.value)} placeholder="feat/branch-name" />
       </FormRow>
+      <ModelParamsCollapse value={modelParams} onChange={setModelParams} />
       <FormRow label="Prompt">
         <div
           ref={dropZoneRef}

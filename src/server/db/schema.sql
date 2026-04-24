@@ -39,7 +39,10 @@ CREATE TABLE IF NOT EXISTS runs (
   started_at INTEGER,
   finished_at INTEGER,
   created_at INTEGER NOT NULL,
-  state_entered_at INTEGER NOT NULL DEFAULT 0
+  state_entered_at INTEGER NOT NULL DEFAULT 0,
+  model TEXT,
+  effort TEXT,
+  subagent_model TEXT
 );
 
 CREATE INDEX IF NOT EXISTS idx_runs_project ON runs(project_id);

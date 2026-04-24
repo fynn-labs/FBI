@@ -25,6 +25,7 @@ import type { RateLimitSnapshot } from '../../shared/types.js';
 import { ResumeScheduler } from './resumeScheduler.js';
 import { scanSessionId, runMountDir, runStateDir, runUploadsDir, runScriptsDir } from './sessionId.js';
 import { snapshotScripts } from './snapshotScripts.js';
+import { modelParamEnvEntries } from './modelParamEnv.js';
 import { TitleWatcher } from './titleWatcher.js';
 import type { RateLimitStateRepo } from '../db/rateLimitState.js';
 import type { UsageRepo } from '../db/usage.js';
@@ -237,6 +238,7 @@ export class Orchestrator {
         ...(opts.branchName ? [`FBI_CHECKOUT_BRANCH=${opts.branchName}`] : []),
         ...Object.entries(auth.env()).map(([k, v]) => `${k}=${v}`),
         ...Object.entries(projectSecrets).map(([k, v]) => `${k}=${v}`),
+        ...modelParamEnvEntries(run),
       ],
       Tty: true,
       OpenStdin: true,
