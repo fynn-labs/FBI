@@ -27,11 +27,9 @@ jobs:
       - name: Install npm dependencies
         run: npm ci
 
-      - name: Build web frontend
-        run: npm run build:web
-
       - name: Build macOS desktop app
-        run: cd desktop && cargo tauri build
+        run: npx tauri build
+        working-directory: desktop
 
       - name: Upload macOS artifacts
         uses: actions/upload-artifact@v4
@@ -72,11 +70,9 @@ jobs:
       - name: Install npm dependencies
         run: npm ci
 
-      - name: Build web frontend
-        run: npm run build:web
-
       - name: Build Linux desktop app
-        run: cd desktop && cargo tauri build
+        run: npx tauri build
+        working-directory: desktop
 
       - name: Upload Linux artifacts
         uses: actions/upload-artifact@v4

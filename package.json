@@ -18,8 +18,8 @@
     "cli:install": "make -C cli/fbi-tunnel install",
     "cli:test": "make -C cli/fbi-tunnel test",
     "lint": "eslint src",
-    "tauri:dev": "cd desktop && cargo tauri dev",
-    "tauri:build": "npm run build:web && (cd desktop && cargo tauri build)"
+    "tauri:dev": "cd desktop && npx tauri dev",
+    "tauri:build": "cd desktop && npx tauri build"
   },
   "dependencies": {
     "@codemirror/lang-json": "^6.0.2",
