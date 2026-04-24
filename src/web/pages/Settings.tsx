@@ -24,6 +24,7 @@ export function SettingsPage() {
   const [saved, setSaved] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [changingServer, setChangingServer] = useState(false);
+  const [loadError, setLoadError] = useState(false);
 
   useEffect(() => {
     void api.getSettings().then((s) => {
@@ -37,7 +38,7 @@ export function SettingsPage() {
       setAutoResumeEnabled(s.auto_resume_enabled);
       setAutoResumeMaxAttempts(s.auto_resume_max_attempts);
       setUsageNotif(s.usage_notifications_enabled);
-    });
+    }).catch(() => setLoadError(true));
   }, []);
 
   async function submit(e: FormEvent) {
@@ -61,7 +62,35 @@ export function SettingsPage() {
     finally { setSaving(false); }
   }
 
-  if (prompt == null) return <LoadingState label="Loading settings…" />;
+  if (prompt == null) {
+    if (loadError && isTauri()) {
+      return (
+        <div className="max-w-2xl mx-auto p-6 space-y-4">
+          <h1 className="text-[26px] font-semibold tracking-[-0.02em]">Settings</h1>
+          <ErrorState message="Could not reach the server. Check the URL or switch to a different server." />
+          <Button
+            type="button"
+            variant="ghost"
+            size="sm"
+            disabled={changingServer}
+            onClick={async () => {
+              setChangingServer(true);
+              try {
+                await setServerUrl('');
+                setApiBaseUrl('');
+                window.location.reload();
+              } catch {
+                setChangingServer(false);
+              }
+            }}
+          >
+            Change server
+          </Button>
+        </div>
+      );
+    }
+    return <LoadingState label="Loading settings…" />;
+  }
 
   return (
     <form onSubmit={submit} className="max-w-2xl mx-auto p-6 space-y-6">
