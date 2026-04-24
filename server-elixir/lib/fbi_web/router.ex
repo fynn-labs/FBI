@@ -35,6 +35,14 @@ defmodule FBIWeb.Router do
     post "/projects/:id/mcp-servers", McpServersController, :create_project
     patch "/projects/:id/mcp-servers/:sid", McpServersController, :patch_project
     delete "/projects/:id/mcp-servers/:sid", McpServersController, :delete_project
+
+    # Phase 3+4+5+6+8 routes.
+    get "/projects", ProjectsController, :index
+    post "/projects", ProjectsController, :create
+    get "/projects/:id", ProjectsController, :show
+    patch "/projects/:id", ProjectsController, :update
+    delete "/projects/:id", ProjectsController, :delete
+    get "/projects/:id/prompts/recent", ProjectsController, :recent_prompts
   end
 
   # WebSocket upgrade routes must not go through the :api pipeline — the
