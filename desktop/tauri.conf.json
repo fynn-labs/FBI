@@ -25,6 +25,14 @@
       "csp": "default-src 'self' tauri: asset: blob:; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; connect-src 'self' http://* https://* ws://* wss://*; img-src 'self' data: asset: tauri: blob:; font-src 'self' data:"
     }
   },
+  "plugins": {
+    "updater": {
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IEI4REE5Nzk1NTg0RjQ0RDgKUldUWVJFOVlsWmZhdUtoR1RhVjZCdzJNZy9aeFZnOWlaYnZ3dzY2MTErWTVYQ09lR05xaGV4cWYK",
+      "endpoints": [
+        "https://github.com/fynn-labs/FBI/releases/latest/download/latest.json"
+      ]
+    }
+  },
   "bundle": {
     "active": true,
     "targets": "all",

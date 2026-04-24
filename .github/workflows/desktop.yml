@@ -36,14 +36,19 @@ jobs:
       - name: Build macOS desktop app
         run: tauri build
         working-directory: desktop
+        env:
+          APPLE_SIGNING_IDENTITY: "-"
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
 
       - name: Upload macOS artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: fbi-macos-${{ github.ref_name }}
+          name: macos-bundles
           path: |
             desktop/target/release/bundle/dmg/*.dmg
-            desktop/target/release/bundle/macos/*.app
+            desktop/target/release/bundle/macos/*.app.tar.gz
+            desktop/target/release/bundle/macos/*.app.tar.gz.sig
 
   build-linux:
     runs-on: ubuntu-latest
@@ -85,11 +90,83 @@ jobs:
       - name: Build Linux desktop app
         run: tauri build
         working-directory: desktop
+        env:
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
 
       - name: Upload Linux artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: fbi-linux-${{ github.ref_name }}
+          name: linux-bundles
           path: |
             desktop/target/release/bundle/deb/*.deb
             desktop/target/release/bundle/appimage/*.AppImage
+            desktop/target/release/bundle/appimage/*.AppImage.tar.gz
+            desktop/target/release/bundle/appimage/*.AppImage.tar.gz.sig
+
+  release:
+    needs: [build-macos, build-linux]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Download macOS artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: macos-bundles
+          path: artifacts/macos
+
+      - name: Download Linux artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: linux-bundles
+          path: artifacts/linux
+
+      - name: Generate latest.json
+        run: |
+          python3 << 'EOF'
+          import json, os, glob
+          from datetime import datetime, timezone
+
+          tag = os.environ['GITHUB_REF_NAME']
+          version = tag.lstrip('v')
+          pub_date = datetime.now(timezone.utc).strftime('%Y-%m-%dT%H:%M:%SZ')
+          platforms = {}
+
+          for sig_file in glob.glob('artifacts/macos/*.app.tar.gz.sig'):
+              tgz = sig_file[:-4]
+              if os.path.exists(tgz):
+                  sig = open(sig_file).read().strip()
+                  filename = os.path.basename(tgz)
+                  platforms['darwin-aarch64'] = {
+                      'signature': sig,
+                      'url': f'https://github.com/fynn-labs/FBI/releases/download/{tag}/{filename}'
+                  }
+
+          for sig_file in glob.glob('artifacts/linux/*.AppImage.tar.gz.sig'):
+              tgz = sig_file[:-4]
+              if os.path.exists(tgz):
+                  sig = open(sig_file).read().strip()
+                  filename = os.path.basename(tgz)
+                  platforms['linux-x86_64'] = {
+                      'signature': sig,
+                      'url': f'https://github.com/fynn-labs/FBI/releases/download/{tag}/{filename}'
+                  }
+
+          data = {'version': version, 'notes': '', 'pub_date': pub_date, 'platforms': platforms}
+          json.dump(data, open('latest.json', 'w'), indent=2)
+          print(json.dumps(data, indent=2))
+          EOF
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            artifacts/macos/*.dmg
+            artifacts/macos/*.app.tar.gz
+            artifacts/macos/*.app.tar.gz.sig
+            artifacts/linux/*.deb
+            artifacts/linux/*.AppImage
+            artifacts/linux/*.AppImage.tar.gz
+            artifacts/linux/*.AppImage.tar.gz.sig
+            latest.json
