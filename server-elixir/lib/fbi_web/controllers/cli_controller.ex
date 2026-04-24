@@ -17,7 +17,8 @@ defmodule FBIWeb.CliController do
     * `:cli_dist_dir` — directory on disk holding the per-os/arch binaries.
       Defaults to `"dist/cli"`.  Overridable via `CLI_DIST_DIR` in prod.
     * `:fbi_cli_version` — string surfaced via the `X-FBI-CLI-Version`
-      header when set.  `nil` (the default) omits the header.
+      header when set.  `nil` (the default) omits the header.  In prod this
+      is sourced from the `FBI_VERSION` env var (see `config/runtime.exs`).
   """
 
   use FBIWeb, :controller
