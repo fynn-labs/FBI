@@ -873,9 +873,9 @@ export class Orchestrator {
   deleteRun(runId: number): void {
     const run = this.deps.runs.get(runId);
     if (!run) return;
-    this.deps.runs.delete(runId);
     try { fs.unlinkSync(run.log_path); } catch { /* noop */ }
     this.wipRepo.remove(runId);
+    this.deps.runs.delete(runId);
   }
 
   async rehydrateSchedules(): Promise<void> {

@@ -174,6 +174,9 @@ export function registerRunsRoutes(app: FastifyInstance, deps: Deps): void {
         });
       } catch (err) {
         // Rollback: delete the run row and its (possibly partial) uploads dir.
+        // Rollback path: rm the just-created row/files before wipRepo.init has run
+        // (init happens at the top of launch()). Therefore no wip.git exists yet
+        // and the full deleteRun() orchestration isn't needed here.
         deps.runs.delete(run.id);
         try {
           fs.rmSync(path.join(deps.runsDir, String(run.id)), { recursive: true, force: true });
