@@ -1042,9 +1042,25 @@ export class Orchestrator {
     // Output: follow container.logs from where we left off, and feed into the
     // same LimitMonitor used by fresh launches so a pre-existing container
     // stuck on the in-TUI rate-limit message also gets nudged out.
+    //
+    // Use the log file's mtime (whole-second precision) as the `since`
+    // lower bound rather than run.started_at. If we used started_at, Docker
+    // would replay every byte since container launch — each replayed byte
+    // goes through onBytes, which store.appends it to the log (duplicating
+    // everything already on disk) AND broadcasts it to connected WS
+    // clients (the full-history stream users see on server restart).
+    // Using log mtime limits the replay to the server-downtime window —
+    // bytes the container emitted while the orchestrator was dead — with
+    // at most one second of overlap.
     const limitMonitor = this.makeLimitMonitor(runId, container, attachStream, onBytes);
     const runtimeWatcher = this.makeRuntimeStateWatcher(runId);
-    const sinceSec = Math.floor((run.started_at ?? Date.now()) / 1000);
+    let sinceSec = Math.floor((run.started_at ?? Date.now()) / 1000);
+    try {
+      const stat = fs.statSync(run.log_path);
+      if (stat.size > 0) sinceSec = Math.floor(stat.mtimeMs / 1000);
+    } catch {
+      // log file missing; fall back to started_at
+    }
     const logsStream = (await container.logs({
       follow: true,
       stdout: true,
