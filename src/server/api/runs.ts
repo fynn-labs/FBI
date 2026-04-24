@@ -215,14 +215,32 @@ export function registerRunsRoutes(app: FastifyInstance, deps: Deps): void {
 
   app.post('/api/runs/:id/continue', async (req, reply) => {
     const { id } = req.params as { id: string };
+    const body = (req.body ?? {}) as {
+      model?: string | null;
+      effort?: string | null;
+      subagent_model?: string | null;
+    };
     const run = deps.runs.get(Number(id));
     if (!run) return reply.code(404).send({ error: 'not found' });
-    // Synchronous eligibility check so 409s don't pay the latency of the
-    // orchestrator's full container-start sequence.
     const verdict = checkContinueEligibility(run, deps.runsDir);
     if (!verdict.ok) {
       return reply.code(409).send({ code: verdict.code, message: verdict.message });
     }
+    const valid = validateModelParams({
+      model: body.model,
+      effort: body.effort,
+      subagent_model: body.subagent_model,
+    });
+    if (!valid.ok) {
+      return reply.code(400).send({ error: valid.message });
+    }
+    // Continue is "the dialog is source of truth": always overwrite. The UI
+    // pre-fills the dialog from the current run so unchanged fields round-trip.
+    deps.runs.updateModelParams(run.id, {
+      model: body.model ?? null,
+      effort: body.effort ?? null,
+      subagent_model: body.subagent_model ?? null,
+    });
     // Fire-and-forget: continueRun runs the entire container lifecycle, so
     // awaiting it would block the HTTP response for the duration of the run.
     void deps.continueRun(run.id).catch((err) => {

@@ -579,6 +579,170 @@ describe('runs routes', () => {
     });
   });
 
+  describe('POST /api/runs/:id/continue — model params', () => {
+    function makeContinuableRun(runs: RunsRepo, projectId: number, runsDir: string, seed?: {
+      model?: string | null; effort?: string | null; subagent_model?: string | null;
+    }) {
+      const run = runs.create({
+        project_id: projectId,
+        prompt: 'x',
+        log_path_tmpl: (id) => path.join(runsDir, `${id}.log`),
+        model: seed?.model ?? null,
+        effort: seed?.effort ?? null,
+        subagent_model: seed?.subagent_model ?? null,
+      });
+      // Simulate a finished run so checkContinueEligibility passes.
+      runs.markStarted(run.id, 'c1');
+      runs.setClaudeSessionId(run.id, 'sess');
+      runs.markFinished(run.id, { state: 'failed', exit_code: 1 });
+      // Plant a session jsonl so the eligibility check passes.
+      const sessDir = path.join(runsDir, String(run.id), 'claude-projects');
+      fs.mkdirSync(sessDir, { recursive: true });
+      fs.writeFileSync(path.join(sessDir, 'sess.jsonl'), '{"x":1}\n');
+      return runs.get(run.id)!;
+    }
+
+    it('updates the run row with new params before firing continue', async () => {
+      const { app, projectId, runs, runsDir } = (() => {
+        const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'fbi-'));
+        const db = openDb(path.join(dir, 'db.sqlite'));
+        const projects = new ProjectsRepo(db);
+        const runs = new RunsRepo(db);
+        const p = projects.create({
+          name: 'p', repo_url: 'r', default_branch: 'main',
+          devcontainer_override_json: null, instructions: null,
+          git_author_name: null, git_author_email: null,
+        });
+        const app = Fastify();
+        registerRunsRoutes(app, {
+          runs, projects, gh: stubGh, streams: new RunStreamRegistry(),
+          runsDir: dir, draftUploadsDir: dir,
+          launch: async () => {}, cancel: async () => {},
+          fireResumeNow: () => {}, continueRun: async () => {},
+          orchestrator: stubOrchestrator,
+        });
+        return { app, projectId: p.id, runs, runsDir: dir };
+      })();
+      const run = makeContinuableRun(runs, projectId, runsDir, {
+        model: 'sonnet', effort: 'high', subagent_model: null,
+      });
+      const res = await app.inject({
+        method: 'POST',
+        url: `/api/runs/${run.id}/continue`,
+        payload: { model: 'opus', effort: 'xhigh', subagent_model: 'haiku' },
+      });
+      expect(res.statusCode).toBe(204);
+      const after = runs.get(run.id)!;
+      expect(after.model).toBe('opus');
+      expect(after.effort).toBe('xhigh');
+      expect(after.subagent_model).toBe('haiku');
+    });
+
+    it('explicit null clears a previously-set param', async () => {
+      const { app, projectId, runs, runsDir } = (() => {
+        const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'fbi-'));
+        const db = openDb(path.join(dir, 'db.sqlite'));
+        const projects = new ProjectsRepo(db);
+        const runs = new RunsRepo(db);
+        const p = projects.create({
+          name: 'p', repo_url: 'r', default_branch: 'main',
+          devcontainer_override_json: null, instructions: null,
+          git_author_name: null, git_author_email: null,
+        });
+        const app = Fastify();
+        registerRunsRoutes(app, {
+          runs, projects, gh: stubGh, streams: new RunStreamRegistry(),
+          runsDir: dir, draftUploadsDir: dir,
+          launch: async () => {}, cancel: async () => {},
+          fireResumeNow: () => {}, continueRun: async () => {},
+          orchestrator: stubOrchestrator,
+        });
+        return { app, projectId: p.id, runs, runsDir: dir };
+      })();
+      const run = makeContinuableRun(runs, projectId, runsDir, {
+        model: 'sonnet', effort: 'high', subagent_model: null,
+      });
+      const res = await app.inject({
+        method: 'POST',
+        url: `/api/runs/${run.id}/continue`,
+        payload: { model: null, effort: null, subagent_model: null },
+      });
+      expect(res.statusCode).toBe(204);
+      const after = runs.get(run.id)!;
+      expect(after.model).toBeNull();
+      expect(after.effort).toBeNull();
+      expect(after.subagent_model).toBeNull();
+    });
+
+    it('empty body clears all params (UI always sends full state; empty body is an edge case)', async () => {
+      const { app, projectId, runs, runsDir } = (() => {
+        const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'fbi-'));
+        const db = openDb(path.join(dir, 'db.sqlite'));
+        const projects = new ProjectsRepo(db);
+        const runs = new RunsRepo(db);
+        const p = projects.create({
+          name: 'p', repo_url: 'r', default_branch: 'main',
+          devcontainer_override_json: null, instructions: null,
+          git_author_name: null, git_author_email: null,
+        });
+        const app = Fastify();
+        registerRunsRoutes(app, {
+          runs, projects, gh: stubGh, streams: new RunStreamRegistry(),
+          runsDir: dir, draftUploadsDir: dir,
+          launch: async () => {}, cancel: async () => {},
+          fireResumeNow: () => {}, continueRun: async () => {},
+          orchestrator: stubOrchestrator,
+        });
+        return { app, projectId: p.id, runs, runsDir: dir };
+      })();
+      const run = makeContinuableRun(runs, projectId, runsDir, {
+        model: 'sonnet', effort: 'high', subagent_model: null,
+      });
+      const res = await app.inject({
+        method: 'POST',
+        url: `/api/runs/${run.id}/continue`,
+        payload: {},
+      });
+      expect(res.statusCode).toBe(204);
+      const after = runs.get(run.id)!;
+      expect(after.model).toBeNull();
+      expect(after.effort).toBeNull();
+      expect(after.subagent_model).toBeNull();
+    });
+
+    it('returns 400 on invalid combination (haiku + effort)', async () => {
+      const { app, projectId, runs, runsDir } = (() => {
+        const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'fbi-'));
+        const db = openDb(path.join(dir, 'db.sqlite'));
+        const projects = new ProjectsRepo(db);
+        const runs = new RunsRepo(db);
+        const p = projects.create({
+          name: 'p', repo_url: 'r', default_branch: 'main',
+          devcontainer_override_json: null, instructions: null,
+          git_author_name: null, git_author_email: null,
+        });
+        const app = Fastify();
+        registerRunsRoutes(app, {
+          runs, projects, gh: stubGh, streams: new RunStreamRegistry(),
+          runsDir: dir, draftUploadsDir: dir,
+          launch: async () => {}, cancel: async () => {},
+          fireResumeNow: () => {}, continueRun: async () => {},
+          orchestrator: stubOrchestrator,
+        });
+        return { app, projectId: p.id, runs, runsDir: dir };
+      })();
+      const run = makeContinuableRun(runs, projectId, runsDir);
+      const res = await app.inject({
+        method: 'POST',
+        url: `/api/runs/${run.id}/continue`,
+        payload: { model: 'haiku', effort: 'high' },
+      });
+      expect(res.statusCode).toBe(400);
+      const after = runs.get(run.id)!;
+      expect(after.model).toBeNull();
+    });
+  });
+
   describe('draft_token integration', () => {
     it('POST /api/projects/:id/runs with draft_token promotes uploads and still launches', async () => {
       const { app, projectId, launched, runsDir } = setupWithUploads();
