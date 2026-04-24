@@ -41,13 +41,12 @@ import { checkContinueEligibility } from './continueEligibility.js';
 import { makeOnBytes } from '../logs/onBytes.js';
 import type { FilesPayload } from '../../shared/types.js';
 import { WipRepo } from './wipRepo.js';
+import { buildSafeguardBind } from './safeguardBind.js';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const SUPERVISOR = path.join(HERE, 'supervisor.sh');
 const FINALIZE_BRANCH = path.join(HERE, 'finalizeBranch.sh');
 const HISTORY_OP = path.join(HERE, 'fbi-history-op.sh');
-const WIP_SNAPSHOT = path.join(HERE, 'fbi-wip-snapshot.sh');
-const RESUME_RESTORE = path.join(HERE, 'fbi-resume-restore.sh');
 
 export class ContinueNotEligibleError extends Error {
   constructor(public readonly code: 'wrong_state' | 'no_session' | 'session_files_missing', message: string) {
@@ -151,7 +150,7 @@ export class Orchestrator {
 
   private ensureScriptsDir(runId: number): string {
     const dir = runScriptsDir(this.deps.config.runsDir, runId);
-    snapshotScripts(dir, SUPERVISOR, FINALIZE_BRANCH, HISTORY_OP, WIP_SNAPSHOT, RESUME_RESTORE);
+    snapshotScripts(dir, SUPERVISOR, FINALIZE_BRANCH, HISTORY_OP);
     return dir;
   }
 
@@ -278,9 +277,11 @@ export class Orchestrator {
           `${toBindHost(path.join(scriptsDir, 'supervisor.sh'))}:/usr/local/bin/supervisor.sh:ro`,
           `${toBindHost(path.join(scriptsDir, 'finalizeBranch.sh'))}:/usr/local/bin/fbi-finalize-branch.sh:ro`,
           `${toBindHost(path.join(scriptsDir, 'fbi-history-op.sh'))}:/usr/local/bin/fbi-history-op.sh:ro`,
-          `${toBindHost(path.join(scriptsDir, 'fbi-wip-snapshot.sh'))}:/usr/local/bin/fbi-wip-snapshot.sh:ro`,
-          `${toBindHost(path.join(scriptsDir, 'fbi-resume-restore.sh'))}:/usr/local/bin/fbi-resume-restore.sh:ro`,
-          `${toBindHost(this.wipRepo.path(runId))}:/fbi-wip.git:rw`,
+          buildSafeguardBind(
+            this.deps.config.runsDir,
+            runId,
+            this.deps.config.hostRunsDir,
+          ),
           `${toBindHost(mountDir)}:/home/agent/.claude/projects/`,
           `${toBindHost(this.ensureStateDir(runId))}:/fbi-state/`,
           `${toBindHost(this.ensureUploadsDir(runId))}:/fbi/uploads:ro`,
