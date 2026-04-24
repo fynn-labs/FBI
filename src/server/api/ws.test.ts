@@ -355,7 +355,8 @@ describe('WS snapshot handshake', () => {
     const logPath = path.join(dir, 'run-hello.log');
     fs.writeFileSync(logPath, '');
     const run = runs.create({ project_id: p.id, prompt: 'hi', log_path_tmpl: () => logPath });
-    runs.markStarted(run.id, 'c1');
+    runs.markStartingFromQueued(run.id, 'c1');
+    runs.markRunning(run.id);
     // Pre-create a screen so sendSnapshot doesn't go down the rebuild path.
     streams.getOrCreateScreen(run.id, 80, 24);
 
@@ -421,7 +422,8 @@ describe('WS snapshot handshake', () => {
     const logPath = path.join(dir, 'run-fallback.log');
     fs.writeFileSync(logPath, '');
     const run = runs.create({ project_id: p.id, prompt: 'hi', log_path_tmpl: () => logPath });
-    runs.markStarted(run.id, 'c1');
+    runs.markStartingFromQueued(run.id, 'c1');
+    runs.markRunning(run.id);
     streams.getOrCreateScreen(run.id, 120, 40); // default dims
 
     const orchestrator = { writeStdin: () => {}, resize: async () => {}, cancel: async () => {} };

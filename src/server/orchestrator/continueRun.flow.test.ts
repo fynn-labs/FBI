@@ -212,4 +212,46 @@ describe('Orchestrator.continueRun', () => {
     const orch = makeOrchestrator({ createContainer: vi.fn() } as unknown as Docker);
     await expect(orch.continueRun(run.id)).rejects.toThrow(/wrong_state/);
   });
+
+  it('clears stale runtime sentinels so markStartingContainer sees state=starting', async () => {
+    const { dir, runs, p, makeOrchestrator } = setup();
+    const run = runs.create({
+      project_id: p.id, prompt: 'x',
+      branch_hint: 'feat/x',
+      log_path_tmpl: (id) => path.join(os.tmpdir(), `cont-stale-${id}.log`),
+    });
+    runs.markStartingFromQueued(run.id, 'c1');
+    runs.markRunning(run.id);
+    runs.setClaudeSessionId(run.id, 'sess-stale');
+    runs.markFinished(run.id, { state: 'succeeded' });
+    const sessDir = runMountDir(dir, run.id);
+    fs.mkdirSync(sessDir, { recursive: true });
+    fs.writeFileSync(path.join(sessDir, 'sess-stale.jsonl'), '{"x":1}\n');
+
+    // Plant a stale `prompted` sentinel from the previous run.
+    const { runStateDir } = await import('./sessionId.js');
+    const stateDir = runStateDir(dir, run.id);
+    fs.mkdirSync(stateDir, { recursive: true });
+    fs.writeFileSync(path.join(stateDir, 'prompted'), '');
+
+    const mockDocker = {
+      createContainer: vi.fn().mockResolvedValue(makeSuccessContainer()),
+    } as unknown as Docker;
+    const orch = makeOrchestrator(mockDocker);
+    runs.markStartingForContinueRequest(run.id);
+
+    // Intercept markStartingContainer to capture the DB state at call time.
+    const statesAtCall: string[] = [];
+    const origFn = runs.markStartingContainer.bind(runs);
+    vi.spyOn(runs, 'markStartingContainer').mockImplementation((id, containerId) => {
+      statesAtCall.push(runs.get(id)?.state ?? 'not-found');
+      origFn(id, containerId);
+    });
+
+    await orch.continueRun(run.id);
+
+    // Without clearRuntimeSentinels, the stale `prompted` sentinel fires markRunning first,
+    // which flips state to 'running' before markStartingContainer is called — guard fails.
+    expect(statesAtCall).toEqual(['starting']);
+  });
 });

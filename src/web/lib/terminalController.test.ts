@@ -140,6 +140,42 @@ describe('TerminalController', () => {
     expect(term.writes).toEqual(['__RESET__', 'ANSI_SNAP']);
   });
 
+  it('schedules a cursor-redraw nudge on every snapshot (initial AND reconnect)', async () => {
+    vi.useFakeTimers();
+    try {
+      const shell = makeStubShell();
+      acquiredShells.set(30, shell);
+      const term = makeFakeXterm();
+      const host = document.createElement('div');
+      new TerminalController(30, term as unknown as import('@xterm/xterm').Terminal, host);
+      shell.resizes.length = 0;
+
+      const snap: RunWsSnapshotMessage = { type: 'snapshot', ansi: 'A', cols: 120, rows: 40 };
+
+      // First snapshot.
+      for (const cb of shell._snap) cb(snap);
+      vi.advanceTimersByTime(800);
+      // requestRedraw fires two resizes: rows+1 then rows.
+      vi.advanceTimersByTime(40);
+      expect(shell.resizes).toEqual([
+        { cols: 120, rows: 41 },
+        { cols: 120, rows: 40 },
+      ]);
+
+      // Reconnect-served snapshot must also trigger a fresh redraw nudge.
+      shell.resizes.length = 0;
+      for (const cb of shell._snap) cb(snap);
+      vi.advanceTimersByTime(800);
+      vi.advanceTimersByTime(40);
+      expect(shell.resizes).toEqual([
+        { cols: 120, rows: 41 },
+        { cols: 120, rows: 40 },
+      ]);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it('setInteractive(true) wires term.onData and focuses; (false) detaches', () => {
     const shell = makeStubShell();
     acquiredShells.set(4, shell);

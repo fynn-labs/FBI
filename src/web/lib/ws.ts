@@ -12,44 +12,76 @@ export interface ShellHandle {
   close(): void;
 }
 
+const RECONNECT_DELAY_MS = 500;
+
 export function openShell(runId: number): ShellHandle {
   const proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
-  const ws = new WebSocket(`${proto}//${location.host}/api/runs/${runId}/shell`);
-  ws.binaryType = 'arraybuffer';
-  ws.addEventListener('open', () => record('ws.open', { runId }));
-  ws.addEventListener('close', (e) => record('ws.close', { runId, code: e.code, reason: e.reason }));
+  const url = `${proto}//${location.host}/api/runs/${runId}/shell`;
+
+  // Subscriber arrays live across reconnects so the controller's
+  // onBytes/onSnapshot/onOpen handlers wired once at mount keep firing
+  // for every reconnect-served WS instance.
   const bytesCbs: Array<(d: Uint8Array) => void> = [];
   const typedCbs: Array<(msg: { type: string }) => void> = [];
   const snapshotCbs: Array<(s: RunWsSnapshotMessage) => void> = [];
-  ws.onmessage = (ev) => {
-    if (typeof ev.data === 'string') {
-      try {
-        const msg = JSON.parse(ev.data) as { type: string };
-        if (msg.type === 'snapshot') {
-          const snap = msg as unknown as RunWsSnapshotMessage;
-          record('ws.in.snapshot', {
-            cols: snap.cols, rows: snap.rows,
-            ansiLen: snap.ansi.length,
-            ansiPreview: strPreview(snap.ansi),
-          });
-          for (const cb of snapshotCbs) cb(snap);
-          return;
+  const openCbs: Array<() => void> = [];
+
+  let ws: WebSocket;
+  let userClosed = false;
+  let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
+
+  const connect = (): void => {
+    ws = new WebSocket(url);
+    ws.binaryType = 'arraybuffer';
+    ws.addEventListener('open', () => {
+      record('ws.open', { runId });
+      for (const cb of openCbs) cb();
+    });
+    ws.addEventListener('close', (e) => {
+      record('ws.close', { runId, code: e.code, reason: e.reason });
+      if (userClosed) return;
+      // The server closes the WS when the run's broadcaster ends (terminal
+      // run state). If the user clicks Continue, a new broadcaster is
+      // created and a fresh WS will subscribe to it. Auto-reconnect so the
+      // controller transparently reattaches to the new container's bytes.
+      if (reconnectTimer !== null) clearTimeout(reconnectTimer);
+      reconnectTimer = setTimeout(() => {
+        reconnectTimer = null;
+        if (!userClosed) connect();
+      }, RECONNECT_DELAY_MS);
+    });
+    ws.onmessage = (ev) => {
+      if (typeof ev.data === 'string') {
+        try {
+          const msg = JSON.parse(ev.data) as { type: string };
+          if (msg.type === 'snapshot') {
+            const snap = msg as unknown as RunWsSnapshotMessage;
+            record('ws.in.snapshot', {
+              cols: snap.cols, rows: snap.rows,
+              ansiLen: snap.ansi.length,
+              ansiPreview: strPreview(snap.ansi),
+            });
+            for (const cb of snapshotCbs) cb(snap);
+            return;
+          }
+          record('ws.in.event', { type: msg.type, msg });
+          for (const cb of typedCbs) cb(msg);
+        } catch {
+          const data = new TextEncoder().encode(ev.data);
+          record('ws.in.bytes', { source: 'text-fallback', ...bytesPreview(data) });
+          for (const cb of bytesCbs) cb(data);
         }
-        record('ws.in.event', { type: msg.type, msg });
-        for (const cb of typedCbs) cb(msg);
-      } catch {
-        const data = new TextEncoder().encode(ev.data);
-        record('ws.in.bytes', { source: 'text-fallback', ...bytesPreview(data) });
-        for (const cb of bytesCbs) cb(data);
+        return;
       }
-      return;
-    }
-    const data = ev.data instanceof ArrayBuffer
-      ? new Uint8Array(ev.data)
-      : new TextEncoder().encode('');
-    record('ws.in.bytes', bytesPreview(data));
-    for (const cb of bytesCbs) cb(data);
+      const data = ev.data instanceof ArrayBuffer
+        ? new Uint8Array(ev.data)
+        : new TextEncoder().encode('');
+      record('ws.in.bytes', bytesPreview(data));
+      for (const cb of bytesCbs) cb(data);
+    };
   };
+  connect();
+
   return {
     onBytes: (cb) => {
       bytesCbs.push(cb);
@@ -65,12 +97,12 @@ export function openShell(runId: number): ShellHandle {
       return () => { const i = snapshotCbs.indexOf(cb); if (i !== -1) snapshotCbs.splice(i, 1); };
     },
     onOpen: (cb) => {
-      if (ws.readyState === WebSocket.OPEN) {
-        queueMicrotask(cb);
-        return () => {};
-      }
-      ws.addEventListener('open', cb);
-      return () => ws.removeEventListener('open', cb);
+      // Persist across reconnects: every fresh WS open re-fires registered
+      // callbacks so the controller can re-send hello and get a fresh
+      // snapshot for the new container.
+      openCbs.push(cb);
+      if (ws.readyState === WebSocket.OPEN) queueMicrotask(cb);
+      return () => { const i = openCbs.indexOf(cb); if (i !== -1) openCbs.splice(i, 1); };
     },
     send: (data) => {
       if (ws.readyState === WebSocket.OPEN) {
@@ -90,6 +122,10 @@ export function openShell(runId: number): ShellHandle {
         ws.send(JSON.stringify({ type: 'hello', cols, rows }));
       }
     },
-    close: () => ws.close(),
+    close: () => {
+      userClosed = true;
+      if (reconnectTimer !== null) { clearTimeout(reconnectTimer); reconnectTimer = null; }
+      ws.close();
+    },
   };
 }

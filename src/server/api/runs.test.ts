@@ -648,7 +648,8 @@ describe('runs routes', () => {
         subagent_model: seed?.subagent_model ?? null,
       });
       // Simulate a finished run so checkContinueEligibility passes.
-      runs.markStarted(run.id, 'c1');
+      runs.markStartingFromQueued(run.id, 'c1');
+      runs.markRunning(run.id);
       runs.setClaudeSessionId(run.id, 'sess');
       runs.markFinished(run.id, { state: 'failed', exit_code: 1 });
       // Plant a session jsonl so the eligibility check passes.

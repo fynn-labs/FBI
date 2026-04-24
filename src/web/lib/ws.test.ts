@@ -31,6 +31,11 @@ class MockWs {
     this.readyState = MockWs.OPEN;
     (this.listeners.get('open') ?? []).forEach((f) => f(new Event('open')));
   }
+  fireClose(code = 1000, reason = '') {
+    this.readyState = MockWs.CLOSED;
+    const ev = Object.assign(new Event('close'), { code, reason });
+    (this.listeners.get('close') ?? []).forEach((f) => f(ev));
+  }
 }
 
 beforeEach(() => {
@@ -99,5 +104,51 @@ describe('ShellHandle.onOpen', () => {
     off();
     ws.fireOpen();
     expect(cb).not.toHaveBeenCalled();
+  });
+});
+
+describe('ShellHandle auto-reconnect', () => {
+  beforeEach(() => { vi.useFakeTimers(); });
+  afterEach(() => { vi.useRealTimers(); });
+
+  it('opens a new socket after the server closes the existing one', async () => {
+    const { openShell } = await import('./ws.js');
+    openShell(60);
+    expect(MockWs.instances).toHaveLength(1);
+    MockWs.instances[0].fireClose();
+    vi.advanceTimersByTime(500);
+    expect(MockWs.instances).toHaveLength(2);
+  });
+
+  it('re-fires onOpen callbacks on every reconnect', async () => {
+    const { openShell } = await import('./ws.js');
+    const shell = openShell(61);
+    const cb = vi.fn();
+    shell.onOpen(cb);
+
+    MockWs.instances[0].fireOpen();
+    expect(cb).toHaveBeenCalledTimes(1);
+
+    MockWs.instances[0].fireClose();
+    vi.advanceTimersByTime(500);
+    MockWs.instances[1].fireOpen();
+    expect(cb).toHaveBeenCalledTimes(2);
+  });
+
+  it('does not reconnect after the caller calls close()', async () => {
+    const { openShell } = await import('./ws.js');
+    const shell = openShell(62);
+    shell.close();
+    vi.advanceTimersByTime(2000);
+    expect(MockWs.instances).toHaveLength(1);
+  });
+
+  it('does not reconnect after caller close() even if a close event is also delivered', async () => {
+    const { openShell } = await import('./ws.js');
+    const shell = openShell(63);
+    shell.close();
+    MockWs.instances[0].fireClose();
+    vi.advanceTimersByTime(2000);
+    expect(MockWs.instances).toHaveLength(1);
   });
 });

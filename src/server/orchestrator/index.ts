@@ -600,6 +600,7 @@ export class Orchestrator {
       attach.on('data', (c: Buffer) => { limitMonitor.feedLog(c); onBytes(c); });
       await container.start();
       limitMonitor.start();
+      this.clearRuntimeSentinels(runId);
       runtimeWatcher.start();
       this.active.set(runId, { container, attachStream: attach });
       this.deps.runs.markStartingForResume(runId, container.id);
@@ -676,6 +677,7 @@ export class Orchestrator {
       attach.on('data', (c: Buffer) => { limitMonitor.feedLog(c); onBytes(c); });
       await container.start();
       limitMonitor.start();
+      this.clearRuntimeSentinels(runId);
       runtimeWatcher.start();
       this.active.set(runId, { container, attachStream: attach });
       this.deps.runs.markStartingContainer(runId, container.id);
@@ -734,6 +736,12 @@ export class Orchestrator {
         });
       },
     });
+  }
+
+  private clearRuntimeSentinels(runId: number): void {
+    const dir = this.stateDirFor(runId);
+    fs.rmSync(path.join(dir, 'waiting'), { force: true });
+    fs.rmSync(path.join(dir, 'prompted'), { force: true });
   }
 
   private makeRuntimeStateWatcher(runId: number): RuntimeStateWatcher {

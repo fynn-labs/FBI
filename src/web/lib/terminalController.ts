@@ -84,6 +84,11 @@ export class TerminalController {
       // callbacks), and we only need this to *start* a settling window —
       // exact "parsed" timing doesn't matter.
       this.onSnapshotParsed();
+      // Each snapshot (initial AND reconnect-served) gets a deferred redraw
+      // nudge so Claude paints its cursor cell — its first redraw frame
+      // sometimes omits it. This matters most on WS reconnect after a
+      // container restart, where the first snapshot lands without cursor.
+      this.scheduleCursorRedraw();
     });
 
     this.unsubBytes = this.shell.onBytes((data) => {
@@ -155,19 +160,25 @@ export class TerminalController {
     this.readyCbs.push(cb);
   }
 
-  // Called when the first snapshot has been parsed into xterm. Starts the
-  // byte-silence watch + hard cap: ready fires after 400 ms of no bytes,
-  // or after 2000 ms as a hard cap (so a perpetually-chatty terminal still
-  // reveals itself eventually). Also schedules a cursor-nudge redraw:
-  // Claude Code sometimes omits its prompt-cursor cell on a SIGWINCH
-  // redraw (depending on which render phase the TUI is in). A deferred
-  // requestRedraw 800ms after the initial snapshot asks Claude to paint
-  // one more full frame, catching the cursor in a later render phase.
+  // Called when a snapshot has been parsed into xterm. Starts the byte-
+  // silence watch + hard cap on first snapshot only: ready fires after
+  // 400 ms of no bytes, or after 2000 ms as a hard cap (so a perpetually-
+  // chatty terminal still reveals itself eventually). The cursor-redraw
+  // nudge is scheduled separately on every snapshot — see scheduleCursorRedraw.
   private onSnapshotParsed(): void {
     if (this.snapshotArrived) return;
     this.snapshotArrived = true;
     this.bumpReadySilenceTimer();
     this.readyCapTimer = setTimeout(() => this.fireReady(), 2000);
+  }
+
+  // Deferred redraw nudge: Claude Code sometimes omits its prompt-cursor
+  // cell on a SIGWINCH redraw (depending on which render phase the TUI is
+  // in). A deferred requestRedraw 800ms after each snapshot asks Claude
+  // to paint one more full frame, catching the cursor. Runs on every
+  // snapshot (initial AND reconnect) so a container-restart reattach
+  // also gets the cursor back.
+  private scheduleCursorRedraw(): void {
     setTimeout(() => {
       if (!this.disposed) this.requestRedraw();
     }, 800);
