@@ -19,36 +19,13 @@ interface Props {
 }
 
 function readTheme() {
+  // Terminal is always dark regardless of app theme. 256-colour and true-colour
+  // escape codes from modern CLIs are designed for dark surfaces and can't be
+  // remapped — the only reliable fix is to never use a light background.
   const s = getComputedStyle(document.documentElement);
-  const bg = s.getPropertyValue('--surface-sunken').trim() || '#0b0f14';
-  const fg = s.getPropertyValue('--text').trim() || '#e2e8f0';
-  const isLight = document.documentElement.classList.contains('light');
-
-  const base = { background: bg, foreground: fg, cursor: bg, cursorAccent: bg };
-  if (!isLight) return base;
-
-  // Remap the 16 ANSI colors for legibility on a light background.
-  // Xterm's defaults (brightYellow=#ffff00, brightWhite=#fff, etc.) are
-  // invisible on light surfaces, so we substitute darker equivalents.
-  return {
-    ...base,
-    black:         '#1e293b',
-    red:           '#b91c1c',
-    green:         '#15803d',
-    yellow:        '#a16207',
-    blue:          '#1d4ed8',
-    magenta:       '#7e22ce',
-    cyan:          '#0f766e',
-    white:         '#475569',
-    brightBlack:   '#334155',
-    brightRed:     '#991b1b',
-    brightGreen:   '#166534',
-    brightYellow:  '#854d0e',
-    brightBlue:    '#1e40af',
-    brightMagenta: '#6b21a8',
-    brightCyan:    '#155e75',
-    brightWhite:   '#0f172a',
-  };
+  const bg = s.getPropertyValue('--terminal-bg').trim() || '#060a0f';
+  const fg = s.getPropertyValue('--terminal-fg').trim() || '#e2e8f0';
+  return { background: bg, foreground: fg, cursor: bg, cursorAccent: bg };
 }
 
 export function Terminal({ runId, interactive }: Props) {
@@ -196,9 +173,9 @@ export function Terminal({ runId, interactive }: Props) {
   };
 
   return (
-    <div className="relative h-full w-full bg-surface-sunken">
+    <div className="relative h-full w-full bg-terminal">
       {!ready && (
-        <div className="pointer-events-none absolute inset-0 z-20 flex items-center justify-center bg-surface-sunken text-text-dim text-[12px]">
+        <div className="pointer-events-none absolute inset-0 z-20 flex items-center justify-center bg-terminal text-text-dim text-[12px]">
           <span>Loading terminal…</span>
         </div>
       )}

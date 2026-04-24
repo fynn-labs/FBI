@@ -9,6 +9,7 @@ export default {
         surface: 'var(--surface)',
         'surface-raised': 'var(--surface-raised)',
         'surface-sunken': 'var(--surface-sunken)',
+        terminal: 'var(--terminal-bg)',
         border: 'var(--border)',
         'border-strong': 'var(--border-strong)',
         text: {

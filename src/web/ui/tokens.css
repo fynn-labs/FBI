@@ -66,6 +66,10 @@
   --z-palette: 60;
   --z-toast: 70;
 
+  /* terminal is always dark regardless of app theme */
+  --terminal-bg: #060a0f;
+  --terminal-fg: #e2e8f0;
+
   color-scheme: dark;
 }
 
