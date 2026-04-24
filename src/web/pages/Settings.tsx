@@ -176,9 +176,13 @@ export function SettingsPage() {
             disabled={changingServer}
             onClick={async () => {
               setChangingServer(true);
-              await setServerUrl('');
-              setApiBaseUrl('');
-              window.location.reload();
+              try {
+                await setServerUrl('');
+                setApiBaseUrl('');
+                window.location.reload();
+              } catch {
+                setChangingServer(false);
+              }
             }}
           >
             Change server
