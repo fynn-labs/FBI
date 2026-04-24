@@ -315,7 +315,14 @@ export class TerminalController {
   }
 
   private emitPauseChange(): void {
-    for (const cb of this.pauseListeners) cb(this.paused);
+    // Snapshot the set so a listener that unsubscribes itself during emit
+    // doesn't disturb iteration. Errors in one listener don't skip later ones.
+    const snap = [...this.pauseListeners];
+    for (const cb of snap) {
+      try { cb(this.paused); } catch (err) {
+        traceRecord('controller.pause.listener.error', { err: String(err) });
+      }
+    }
   }
 
   pause(): void {
@@ -347,6 +354,7 @@ export class TerminalController {
     this.unsubSnapshot?.(); this.unsubSnapshot = null;
     this.unsubOpen?.(); this.unsubOpen = null;
     this.unsubEvents?.(); this.unsubEvents = null;
+    this.pauseListeners.clear();
     if (this.historyTerm) { this.historyTerm.dispose(); this.historyTerm = null; }
     releaseShell(this.runId);
   }
