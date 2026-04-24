@@ -32,7 +32,8 @@ import type { UsageRepo } from '../db/usage.js';
 import { UsageTailer } from './usageTailer.js';
 import { LimitMonitor } from './limitMonitor.js';
 import { RuntimeStateWatcher, type DerivedRuntimeState } from './runtimeStateWatcher.js';
-import { GitStateWatcher } from './gitStateWatcher.js';
+import { SafeguardWatcher } from './safeguardWatcher.js';
+import { MirrorStatusPoller } from './mirrorStatusPoller.js';
 import { dockerExec, type DockerExecOptions, type DockerExecResult } from './dockerExec.js';
 import { buildEnv, runHistoryOpInContainer, runHistoryOpInTransientContainer, type ParsedOpResult } from './historyOp.js';
 import type { HistoryOp } from '../../shared/types.js';
@@ -344,7 +345,8 @@ export class Orchestrator {
     let titleWatcher: TitleWatcher | null = null;
     let limitMonitor: LimitMonitor | null = null;
     let runtimeWatcher: RuntimeStateWatcher | null = null;
-    let gitWatcher: GitStateWatcher | null = null;
+    let safeguardWatcher: SafeguardWatcher | null = null;
+    let mirrorPoller: MirrorStatusPoller | null = null;
 
     try {
       const { container, projectSecrets } = await this.createContainerForRun(
@@ -409,17 +411,12 @@ export class Orchestrator {
         onError: () => { /* swallow — best effort */ },
       });
       titleWatcher.start();
-      gitWatcher = new GitStateWatcher({
-        container,
-        defaultBranch: project.default_branch,
-        pollMs: 2000,
+      safeguardWatcher = new SafeguardWatcher({
+        bareDir: this.wipRepo.path(runId),
+        branch: run.branch_name ?? `claude/run-${runId}`,
         onSnapshot: (snap) => {
           this.lastFiles.set(runId, snap);
           const runNow = this.deps.runs.get(runId);
-          if (snap.mirror_status !== undefined &&
-              snap.mirror_status !== runNow?.mirror_status) {
-            this.deps.runs.setMirrorStatus(runId, snap.mirror_status);
-          }
           events.publish({
             type: 'changes',
             branch_name: runNow?.branch_name || null,
@@ -432,7 +429,13 @@ export class Orchestrator {
           });
         },
       });
-      gitWatcher.start();
+      void safeguardWatcher.start();
+      mirrorPoller = new MirrorStatusPoller({
+        path: `${this.stateDirFor(runId)}/mirror-status`,
+        pollMs: 1000,
+        onChange: (s) => { this.deps.runs.setMirrorStatus(runId, s); },
+      });
+      mirrorPoller.start();
       void this.deps.poller.nudge();
 
       await this.awaitAndComplete(runId, container, onBytes, store, broadcaster);
@@ -451,7 +454,8 @@ export class Orchestrator {
       if (titleWatcher) await titleWatcher.stop();
       if (limitMonitor) limitMonitor.stop();
       if (runtimeWatcher) runtimeWatcher.stop();
-      if (gitWatcher) await gitWatcher.stop();
+      if (safeguardWatcher) await safeguardWatcher.stop();
+      if (mirrorPoller) mirrorPoller.stop();
     }
   }
 
@@ -845,7 +849,7 @@ export class Orchestrator {
     a.attachStream.write(Buffer.from(bytes));
   }
 
-  /** Return the most recent GitStateWatcher snapshot for a run, if any. */
+  /** Return the most recent SafeguardWatcher snapshot for a run, if any. */
   getLastFiles(runId: number): FilesPayload | null {
     return this.lastFiles.get(runId) ?? null;
   }
@@ -1071,17 +1075,12 @@ export class Orchestrator {
       onError: () => { /* swallow — best effort */ },
     });
     titleWatcher.start();
-    const gitWatcher = new GitStateWatcher({
-      container,
-      defaultBranch: project?.default_branch ?? 'main',
-      pollMs: 2000,
+    const safeguardWatcher = new SafeguardWatcher({
+      bareDir: this.wipRepo.path(runId),
+      branch: run.branch_name ?? `claude/run-${runId}`,
       onSnapshot: (snap) => {
         this.lastFiles.set(runId, snap);
         const runNow = this.deps.runs.get(runId);
-        if (snap.mirror_status !== undefined &&
-            snap.mirror_status !== runNow?.mirror_status) {
-          this.deps.runs.setMirrorStatus(runId, snap.mirror_status);
-        }
         events.publish({
           type: 'changes',
           branch_name: runNow?.branch_name || null,
@@ -1094,7 +1093,13 @@ export class Orchestrator {
         });
       },
     });
-    gitWatcher.start();
+    void safeguardWatcher.start();
+    const mirrorPoller = new MirrorStatusPoller({
+      path: `${this.stateDirFor(runId)}/mirror-status`,
+      pollMs: 1000,
+      onChange: (s) => { this.deps.runs.setMirrorStatus(runId, s); },
+    });
+    mirrorPoller.start();
 
     try {
       const waitRes = await container.wait();
@@ -1157,7 +1162,8 @@ export class Orchestrator {
     } finally {
       await tailer.stop();
       await titleWatcher.stop();
-      await gitWatcher.stop();
+      await safeguardWatcher.stop();
+      mirrorPoller.stop();
       limitMonitor.stop();
       runtimeWatcher.stop();
       events.end();
