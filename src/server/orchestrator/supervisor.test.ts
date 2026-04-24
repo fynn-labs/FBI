@@ -17,6 +17,7 @@ interface Sandbox {
   fbi: string;
   fbiState: string;
   workspace: string;
+  safe: string;
   bin: string;
   tmpOut: string;
   script: string;
@@ -29,9 +30,10 @@ function makeSandbox(): Sandbox {
   const fbi = path.join(root, 'sbx-fbi');
   const fbiState = path.join(root, 'sbx-fbi-state');
   const workspace = path.join(root, 'sbx-ws');
+  const safe = path.join(root, 'sbx-safe');
   const bin = path.join(root, 'bin');
   const tmpOut = path.join(root, 'tmpout');
-  for (const d of [fbi, fbiState, workspace, bin, tmpOut]) {
+  for (const d of [fbi, fbiState, workspace, safe, bin, tmpOut]) {
     fs.mkdirSync(d, { recursive: true });
   }
 
@@ -63,13 +65,16 @@ case "$1" in
   config) exit 0 ;;
   add) exit 0 ;;
   commit) exit 0 ;;
-  remote) exit 0 ;;
+  remote)
+    [ "$2" = "get-url" ] && [ "$3" = "origin" ] && { echo git@example:org/repo.git; exit 0; }
+    exit 0 ;;
   rev-parse)
     # --verify --quiet origin/claude/run-* → exit 1 (branch not yet on remote,
-    # i.e. fresh run). All other rev-parse forms succeed.
+    # i.e. fresh run). safeguard/* also returns exit 1 (nothing on safeguard yet).
+    # All other rev-parse forms succeed.
     for arg in "$@"; do
       case "$arg" in
-        origin/claude/run-*) exit 1 ;;
+        origin/claude/run-*|safeguard/*) exit 1 ;;
       esac
     done
     case "$2" in
@@ -80,31 +85,9 @@ case "$1" in
     exit 0
     ;;
   push) exit 0 ;;
+  fetch) exit 0 ;;
   *) exit 0 ;;
 esac
-`,
-    { mode: 0o755 },
-  );
-
-  // Stub resume-restore.sh (deliberately omits the `fbi-` prefix so the
-  // `/fbi\b` path rewrite below doesn't clobber it). A fresh run has no WIP
-  // snapshot to restore, so the stub always succeeds (exit 0) as a no-op.
-  const resumeStub = path.join(bin, 'resume-restore-stub.sh');
-  fs.writeFileSync(
-    resumeStub,
-    `#!/bin/sh
-exit 0
-`,
-    { mode: 0o755 },
-  );
-
-  // Stub snapshot.sh (deliberately omits the `fbi-` prefix). Called by the
-  // snapshot daemon. Just succeeds.
-  const snapshotStub = path.join(bin, 'snapshot-stub.sh');
-  fs.writeFileSync(
-    snapshotStub,
-    `#!/bin/sh
-exit 0
 `,
     { mode: 0o755 },
   );
@@ -132,18 +115,17 @@ exit 0
   // paths first.
   const src = fs.readFileSync(SUPERVISOR_SRC, 'utf8');
   const patched = src
-    .replace(/\/usr\/local\/bin\/fbi-resume-restore\.sh/g, resumeStub)
-    .replace(/\/usr\/local\/bin\/fbi-wip-snapshot\.sh/g, snapshotStub)
     .replace(/\/usr\/local\/bin\/fbi-finalize-branch\.sh/g, finalizeStub)
     .replace(/\/tmp\/prompt\.txt\b/g, path.join(tmpOut, 'prompt.txt'))
     .replace(/\/tmp\/result\.json\b/g, path.join(tmpOut, 'result.json'))
+    .replace(/\/safeguard\b/g, safe)
     .replace(/\/workspace\b/g, workspace)
     .replace(/\/fbi-state\b/g, fbiState)
     .replace(/\/fbi\b/g, fbi);
   const script = path.join(root, 'supervisor.sh');
   fs.writeFileSync(script, patched, { mode: 0o755 });
 
-  return { root, fbi, fbiState, workspace, bin, tmpOut, script };
+  return { root, fbi, fbiState, workspace, safe, bin, tmpOut, script };
 }
 
 function run(sb: Sandbox, env: Record<string, string>) {
@@ -195,35 +177,18 @@ describe('supervisor.sh', () => {
     expect(composed).toContain('do the thing');
   });
 
-  it('checks out FBI_CHECKOUT_BRANCH when set, then creates claude/run-N', () => {
+  it('checks out FBI_BRANCH as the primary branch when set', () => {
     fs.writeFileSync(path.join(sb.fbi, 'prompt.txt'), 'hi');
-    const res = run(sb, { FBI_CHECKOUT_BRANCH: 'feature/x' });
+    // origin/feat/x exists on stub (rev-parse exits 0 for non-claude/run-N branches),
+    // so supervisor calls: checkout -B feat/x origin/feat/x
+    const res = run(sb, { FBI_BRANCH: 'feat/x' });
     expect(res.status).toBe(0);
     const checkouts = fs.readFileSync(path.join(sb.tmpOut, 'checkouts.log'), 'utf8').trim().split('\n');
-    // [0] base branch checkout, [1] agent branch (claude/run-7)
-    expect(checkouts[0]).toBe('feature/x');
-    expect(checkouts[1]).toBe('claude/run-7');
-  });
-
-  it('falls through to DEFAULT_BRANCH when the requested branch is missing on remote, then creates claude/run-N', () => {
-    fs.writeFileSync(path.join(sb.fbi, 'prompt.txt'), 'hi');
-    const res = run(sb, { FBI_CHECKOUT_BRANCH: 'does-not-exist' });
-    expect(res.status).toBe(0);
-    const checkouts = fs.readFileSync(path.join(sb.tmpOut, 'checkouts.log'), 'utf8').trim().split('\n');
-    // [0] attempted branch, [1] fallback to DEFAULT_BRANCH, [2] agent branch
-    expect(checkouts[0]).toBe('does-not-exist');
-    expect(checkouts[1]).toBe('main');
-    expect(checkouts[2]).toBe('claude/run-7');
-  });
-
-  it('checks out DEFAULT_BRANCH when FBI_CHECKOUT_BRANCH is unset, then creates claude/run-N', () => {
-    fs.writeFileSync(path.join(sb.fbi, 'prompt.txt'), 'hi');
-    const res = run(sb, {});
-    expect(res.status).toBe(0);
-    const checkouts = fs.readFileSync(path.join(sb.tmpOut, 'checkouts.log'), 'utf8').trim().split('\n');
-    // [0] DEFAULT_BRANCH, [1] agent branch (claude/run-7)
-    expect(checkouts[0]).toBe('main');
-    expect(checkouts[1]).toBe('claude/run-7');
+    // The stub logs the last non-flag token; for `checkout -B feat/x origin/feat/x`
+    // that is the start-point `origin/feat/x`.
+    expect(checkouts[0]).toBe('origin/feat/x');
+    // No second checkout (no claude/run-N branch created separately).
+    expect(checkouts.length).toBe(1);
   });
 
   it('fresh path touches /fbi-state/prompted so the host watcher leaves starting → running', () => {

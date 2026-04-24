@@ -1,24 +1,26 @@
 #!/usr/bin/env bash
 # FBI run container entrypoint. Mounted at /usr/local/bin/supervisor.sh.
 #
-# Claude owns branching: supervisor does NOT pre-create a branch. It runs the
-# agent on the default branch checkout, then hands off to finalizeBranch.sh
-# which decides whether to push (skips empty / already-merged runs), creates
-# a fallback branch if Claude stayed on the default branch AND produced new
-# commits, and writes /tmp/result.json.
+# The agent's only branch is $PRIMARY_BRANCH (the user's typed branch, or
+# claude/run-<id> if none was provided). Commits are pushed to:
+#   - safeguard  (local bind-mount; always succeeds)
+#   - origin     (best-effort; result drives /fbi-state/mirror-status)
 #
 # Required env vars (set by orchestrator):
 #   RUN_ID, REPO_URL, DEFAULT_BRANCH,
 #   GIT_AUTHOR_NAME, GIT_AUTHOR_EMAIL
 # Optional:
+#   FBI_BRANCH              user's typed branch (else claude/run-<id>)
 #   FBI_MARKETPLACES        newline-separated plugin marketplace sources
-#   FBI_PLUGINS             newline-separated plugin specs (name@marketplace)
-#   FBI_RESUME_SESSION_ID   when set, uses claude --resume instead of fresh start
+#   FBI_PLUGINS             newline-separated plugin specs
+#   FBI_RESUME_SESSION_ID   resume an existing session
 #   Any project secret, injected as env var.
 # Required mounts:
 #   /ssh-agent              (host ssh-agent socket, RW)
 #   /home/agent/.claude.json (host ~/.claude.json, RW — OAuth)
 #   /fbi                    (injected via putArchive: preamble/instructions/global/prompt)
+#   /safeguard              (host-side bare git repo for this run)
+#   /fbi-state              (host-side dir; hook writes mirror-status here)
 #
 # Contract: at end, write /tmp/result.json with exit_code, push_exit, head_sha, branch.
 
@@ -26,8 +28,6 @@ set -euo pipefail
 
 export SSH_AUTH_SOCK=/ssh-agent
 
-# Install plugin marketplaces and plugins. Failures are non-fatal so a bad
-# entry doesn't block the run — the agent just won't have that plugin.
 if [ -n "${FBI_MARKETPLACES:-}" ]; then
     while IFS= read -r mkt; do
         [ -z "$mkt" ] && continue
@@ -47,113 +47,98 @@ cd /workspace
 
 git clone --recurse-submodules "$REPO_URL" . || { echo "clone failed"; exit 10; }
 
-# PRIMARY branch: where the agent checks out, commits, and pushes. Falls back
-# to the project default if not provided. If the branch exists on origin, we
-# check it out; otherwise we create it locally and push on first commit.
 PRIMARY_BRANCH="${FBI_BRANCH:-claude/run-${RUN_ID}}"
 
-if git rev-parse --verify --quiet "origin/$PRIMARY_BRANCH" >/dev/null; then
-    git checkout -B "$PRIMARY_BRANCH" "origin/$PRIMARY_BRANCH" \
-      || { echo "[fbi] fatal: could not switch to $PRIMARY_BRANCH"; exit 13; }
-else
-    git checkout -b "$PRIMARY_BRANCH" \
-      || { echo "[fbi] fatal: could not create branch $PRIMARY_BRANCH"; exit 13; }
-    # Push immediately so the UI has a target and GitHub knows about the branch.
-    git push -u origin "$PRIMARY_BRANCH" || echo "[fbi] warn: initial push of $PRIMARY_BRANCH failed"
+# Detect whether the project has an origin remote. No-remote projects are
+# supported; only safeguard pushes happen in that case.
+HAS_ORIGIN=0
+if git remote get-url origin >/dev/null 2>&1; then
+    HAS_ORIGIN=1
 fi
 
-# MIRROR branch: safety shadow we always create to back up the primary. Skip
-# when primary IS the default claude/run-N name (nothing to mirror).
-MIRROR_BRANCH="claude/run-${RUN_ID}"
-if [ "$PRIMARY_BRANCH" != "$MIRROR_BRANCH" ]; then
-    git push origin "HEAD:refs/heads/$MIRROR_BRANCH" \
-      || echo "[fbi] warn: initial mirror push of $MIRROR_BRANCH failed"
-fi
+# Register the safeguard remote. Idempotent.
+git remote add safeguard /safeguard 2>/dev/null \
+    || git remote set-url safeguard /safeguard \
+    || { echo "[fbi] fatal: could not register safeguard remote"; exit 14; }
 
-# Register the WIP remote so the snapshot daemon can push to it.
-git remote add fbi-wip /fbi-wip.git 2>/dev/null \
-  || git remote set-url fbi-wip /fbi-wip.git \
-  || { echo "[fbi] fatal: could not register fbi-wip remote"; exit 14; }
-
-# If this is a resume, restore the WIP snapshot. The script no-ops when
-# there's nothing to restore (fresh run) and exits non-zero with a
-# structured /tmp/result.json when the restore can't apply cleanly.
+# Checkout the primary branch. Resume mode prefers safeguard; fresh mode
+# prefers origin; both fall back to creating the branch locally.
+CHECKED_OUT=0
 if [ -n "${FBI_RESUME_SESSION_ID:-}" ]; then
-  FBI_WORKSPACE=/workspace \
-  FBI_AGENT_BRANCH="$PRIMARY_BRANCH" \
-  FBI_RESULT_PATH=/tmp/result.json \
-  FBI_RUN_ID="$RUN_ID" \
-  /usr/local/bin/fbi-resume-restore.sh
-  RESTORE_EXIT=$?
-  if [ "$RESTORE_EXIT" != "0" ]; then
-    echo "[fbi] resume restore failed (exit $RESTORE_EXIT); see /tmp/result.json"
-    exit "$RESTORE_EXIT"
-  fi
+    if git fetch --quiet safeguard "$PRIMARY_BRANCH" 2>/dev/null; then
+        if git rev-parse --verify --quiet "safeguard/$PRIMARY_BRANCH" >/dev/null 2>&1; then
+            git checkout -B "$PRIMARY_BRANCH" "safeguard/$PRIMARY_BRANCH" \
+                || { echo "[fbi] fatal: could not restore from safeguard/$PRIMARY_BRANCH"; exit 13; }
+            CHECKED_OUT=1
+        fi
+    fi
 fi
 
-# Snapshot daemon. Captures working-tree state every 30s and pushes to
-# fbi-wip/wip. Non-fatal on failure. Killed by the trap below at exit.
-(
-  while true; do
-    sleep 30
-    out=$(/usr/local/bin/fbi-wip-snapshot.sh 2>&1)
-    printf '%s\n' "$out" > /tmp/last-snapshot.log
-    # Mirror to /fbi-state so GitStateWatcher-equivalent server code can read it.
-    mkdir -p /fbi-state
-    printf '%s\n' "$out" > /fbi-state/snapshot-status 2>/dev/null || :
-  done
-) </dev/null >/dev/null 2>&1 &
-FBI_SNAPSHOT_PID=$!
-trap 'kill "$FBI_SNAPSHOT_PID" 2>/dev/null || :' EXIT
+if [ "$CHECKED_OUT" = "0" ]; then
+    if [ "$HAS_ORIGIN" = "1" ] && git rev-parse --verify --quiet "origin/$PRIMARY_BRANCH" >/dev/null 2>&1; then
+        git checkout -B "$PRIMARY_BRANCH" "origin/$PRIMARY_BRANCH" \
+            || { echo "[fbi] fatal: could not switch to $PRIMARY_BRANCH"; exit 13; }
+    else
+        git checkout -b "$PRIMARY_BRANCH" \
+            || { echo "[fbi] fatal: could not create branch $PRIMARY_BRANCH"; exit 13; }
+        if [ "$HAS_ORIGIN" = "1" ]; then
+            git push -u origin "$PRIMARY_BRANCH" \
+                || echo "[fbi] warn: initial push of $PRIMARY_BRANCH to origin failed"
+        fi
+    fi
+fi
 
 git config user.name  "$GIT_AUTHOR_NAME"
 git config user.email "$GIT_AUTHOR_EMAIL"
 
-# Ensure env vars that the post-commit hook needs are exported so the hook
-# subshell (a new process spawned by git) inherits them.
-export RUN_ID
-export DEFAULT_BRANCH
-export PRIMARY_BRANCH
-export MIRROR_BRANCH
+# Export HAS_ORIGIN so the hook subshell inherits it.
+export HAS_ORIGIN
 
-# Silent post-commit push hook:
-#   - Primary push writes to $PRIMARY_BRANCH (user's branch). force-with-lease
-#     detects external divergence and surfaces it via /fbi-state/mirror-status.
-#   - Mirror push to claude/run-N is a best-effort safety copy (sole writer,
-#     always fast-forward).
+mkdir -p /fbi-state
+# Pre-seed mirror-status for no-remote projects so the UI shows the muted
+# indicator even before the first commit.
+if [ "$HAS_ORIGIN" = "0" ]; then
+    echo local_only > /fbi-state/mirror-status
+fi
+
+# Silent post-commit push hook.
+#   - safeguard: always push; the hook's core durability guarantee.
+#   - origin: only push when HAS_ORIGIN=1. force-with-lease detects external
+#     divergence and surfaces it via /fbi-state/mirror-status.
 mkdir -p .git/hooks
 cat > .git/hooks/post-commit <<'HOOK'
 #!/bin/sh
 mkdir -p /fbi-state
-# Primary push: user's target branch with force-with-lease. If origin advanced
-# externally, the push is rejected and mirror-status reflects the divergence.
+BRANCH="$(git symbolic-ref --short HEAD)"
+
+# Safeguard push — always runs, always succeeds (local bind).
 (
-  if git push --recurse-submodules=on-demand --force-with-lease origin "HEAD:refs/heads/$PRIMARY_BRANCH" > /tmp/last-push.log 2>&1; then
-    echo ok > /fbi-state/mirror-status
-  else
-    echo diverged > /fbi-state/mirror-status
-  fi
+  git push safeguard "HEAD:refs/heads/$BRANCH" > /tmp/last-safeguard-push.log 2>&1 \
+    || echo "fatal: safeguard push failed" >&2
 ) &
 
-# Mirror push: claude/run-N safety copy. Skip when primary already is that
-# name.
-if [ "$PRIMARY_BRANCH" != "$MIRROR_BRANCH" ]; then
-  ( git push --recurse-submodules=on-demand origin "HEAD:refs/heads/$MIRROR_BRANCH" > /tmp/last-mirror.log 2>&1 || true ) &
+# Origin push — best-effort. Skipped entirely when HAS_ORIGIN=0.
+if [ "${HAS_ORIGIN:-0}" = "1" ]; then
+  (
+    if git push --recurse-submodules=on-demand --force-with-lease \
+        origin "HEAD:refs/heads/$BRANCH" > /tmp/last-origin-push.log 2>&1; then
+      echo ok > /fbi-state/mirror-status
+    else
+      echo diverged > /fbi-state/mirror-status
+    fi
+  ) &
+else
+  echo local_only > /fbi-state/mirror-status
 fi
 HOOK
 chmod +x .git/hooks/post-commit
 
 # Run the agent. Two modes:
 #   fresh: compose /tmp/prompt.txt from /fbi/*.txt and stdin-pipe into claude.
-#   resume: use $FBI_RESUME_SESSION_ID to continue an existing session. The
-#           resume path reuses the saved Claude session and does not need a
-#           fresh prompt, so /fbi/prompt.txt is intentionally not required.
+#   resume: use $FBI_RESUME_SESSION_ID to continue an existing session.
 set +e
 if [ -n "${FBI_RESUME_SESSION_ID:-}" ]; then
     echo "[fbi] resuming claude session $FBI_RESUME_SESSION_ID"
-    # claude --resume presents '>' immediately and waits for user input. Signal
-    # 'waiting' state so the host watcher leaves 'starting' before any hook fires.
-    # The Stop hook touches the same file, so this is just an early signal.
     touch /fbi-state/waiting
     claude --resume "$FBI_RESUME_SESSION_ID" --dangerously-skip-permissions
     CLAUDE_EXIT=$?
@@ -167,19 +152,12 @@ else
     done
     [ -f /fbi/prompt.txt ] || { echo "prompt.txt not found in /fbi"; exit 12; }
     cat /fbi/prompt.txt >> /tmp/prompt.txt
-    # Fresh launch: a prompt is being submitted via stdin pipe. Signal 'running'
-    # so the host watcher leaves 'starting'. Claude Code does not fire
-    # UserPromptSubmit for stdin-piped input, so we have to signal it ourselves.
     touch /fbi-state/prompted
     claude --dangerously-skip-permissions < /tmp/prompt.txt
     CLAUDE_EXIT=$?
 fi
 set -e
 
-# Finalize the run's branch state: decide whether to push, create a fallback
-# branch if Claude stayed on the default branch, and write /tmp/result.json.
-# Kept in a separate script so it can be tested in isolation — see
-# finalizeBranch.test.ts.
 CLAUDE_EXIT="$CLAUDE_EXIT" RESULT_PATH=/tmp/result.json \
     /usr/local/bin/fbi-finalize-branch.sh
 
