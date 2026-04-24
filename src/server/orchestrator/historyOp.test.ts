@@ -59,10 +59,40 @@ describe('runHistoryOpInTransientContainer', () => {
       historyOpScriptPath: '/host/path/fbi-history-op.sh',
       env: { FBI_OP: 'sync', FBI_BRANCH: 'feat/x', FBI_DEFAULT: 'main', FBI_RUN_ID: '1' },
       sshSocket: '/tmp/sock',
+      safeguardPath: '/var/lib/agent-manager/runs/1/wip.git',
       authorName: 'a', authorEmail: 'a@b', timeoutMs: 10_000,
     });
 
     expect(r).toEqual({ kind: 'complete', sha: 'cafebabe' });
     expect(container.remove).toHaveBeenCalled();
+  });
+
+  it('transient container binds the safeguard bare repo at /safeguard', async () => {
+    const captured: any[] = [];
+    const docker = {
+      createContainer: async (spec: any) => {
+        captured.push(spec);
+        return {
+          start: async () => {},
+          logs: async () => {
+            const stream: any = require('node:stream').Readable.from([]);
+            return stream;
+          },
+          wait: async () => ({ StatusCode: 0 }),
+          remove: async () => {},
+          kill: async () => {},
+        };
+      },
+    } as any;
+    await runHistoryOpInTransientContainer({
+      docker, image: 'x', repoUrl: 'git@example:x/y.git',
+      historyOpScriptPath: '/tmp/fbi-history-op.sh',
+      env: { FBI_OP: 'sync', FBI_BRANCH: 'feat/x', FBI_DEFAULT: 'main', FBI_RUN_ID: '7' },
+      sshSocket: '/tmp/ssh',
+      safeguardPath: '/var/lib/agent-manager/runs/7/wip.git',
+      authorName: 'a', authorEmail: 'a@b',
+    });
+    const binds = captured[0].HostConfig.Binds as string[];
+    expect(binds).toContain('/var/lib/agent-manager/runs/7/wip.git:/safeguard:rw');
   });
 });

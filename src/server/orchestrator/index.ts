@@ -875,6 +875,7 @@ export class Orchestrator {
       historyOpScriptPath: HISTORY_OP,
       env,
       sshSocket: this.deps.config.hostSshAuthSock,
+      safeguardPath: this.wipRepo.path(runId),
       authorName: project.git_author_name ?? this.deps.config.gitAuthorName,
       authorEmail: project.git_author_email ?? this.deps.config.gitAuthorEmail,
     });

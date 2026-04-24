@@ -87,6 +87,7 @@ export interface TransientOpInput {
   historyOpScriptPath: string;
   env: HistoryOpEnv;
   sshSocket: string;
+  safeguardPath: string;
   authorName: string;
   authorEmail: string;
   timeoutMs?: number;
@@ -130,6 +131,7 @@ export async function runHistoryOpInTransientContainer(
       Binds: [
         `${sshSocket}:/ssh-agent`,
         `${historyOpScriptPath}:/usr/local/bin/fbi-history-op.sh:ro`,
+        `${input.safeguardPath}:/safeguard:rw`,
       ],
     },
     WorkingDir: '/workspace',

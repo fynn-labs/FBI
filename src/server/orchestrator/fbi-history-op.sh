@@ -55,6 +55,18 @@ if [ "$FBI_OP" != "push-submodule" ]; then
     exit 0
   fi
 
+  # Prefer the safeguard's view of the run branch over origin's (safeguard is
+  # the canonical source of Claude's committed work under the safeguard
+  # design; origin may be stale or behind).
+  if [ -d /safeguard ]; then
+      git -C /workspace remote add safeguard /safeguard 2>/dev/null \
+          || git -C /workspace remote set-url safeguard /safeguard 2>/dev/null \
+          || :
+      if git -C /workspace fetch --quiet safeguard "$FBI_BRANCH" 2>/dev/null; then
+          git -C /workspace update-ref "refs/remotes/origin/$FBI_BRANCH" "safeguard/$FBI_BRANCH" 2>/dev/null || :
+      fi
+  fi
+
   if ! out=$(git -C /workspace worktree add --detach "$WORK" "origin/$FBI_DEFAULT" 2>&1); then
     emit_fail gh-error "worktree add failed: $out"
     exit 0
@@ -87,7 +99,7 @@ run_merge() {
         emit_fail conflict "rebase conflict: $out"
         exit 0
       fi
-      if ! out=$(git push --recurse-submodules=on-demand --force-with-lease origin "HEAD:refs/heads/$FBI_BRANCH" 2>&1); then
+      if ! out=$(git push --recurse-submodules=on-demand --force origin "HEAD:refs/heads/$FBI_BRANCH" 2>&1); then
         emit_fail gh-error "force-push branch failed: $out"
         exit 0
       fi
@@ -140,7 +152,7 @@ run_sync() {
     emit_fail conflict "rebase conflict: $out"
     exit 0
   fi
-  if ! out=$(git push --recurse-submodules=on-demand --force-with-lease origin "HEAD:refs/heads/$FBI_BRANCH" 2>&1); then
+  if ! out=$(git push --recurse-submodules=on-demand --force origin "HEAD:refs/heads/$FBI_BRANCH" 2>&1); then
     emit_fail gh-error "force-push failed: $out"
     exit 0
   fi
@@ -166,7 +178,7 @@ run_squash_local() {
     emit_fail gh-error "commit failed: $out"
     exit 0
   fi
-  if ! out=$(git push --recurse-submodules=on-demand --force-with-lease origin "HEAD:refs/heads/$FBI_BRANCH" 2>&1); then
+  if ! out=$(git push --recurse-submodules=on-demand --force origin "HEAD:refs/heads/$FBI_BRANCH" 2>&1); then
     emit_fail gh-error "force-push failed: $out"
     exit 0
   fi
@@ -205,7 +217,7 @@ run_mirror_rebase() {
         exit 0
     fi
     rebased=$(git rev-parse HEAD)
-    if ! out=$(git push --force-with-lease origin "HEAD:refs/heads/$FBI_BRANCH" 2>&1); then
+    if ! out=$(git push --force origin "HEAD:refs/heads/$FBI_BRANCH" 2>&1); then
         emit_fail gh-error "push agent branch failed: $out"
         exit 0
     fi
