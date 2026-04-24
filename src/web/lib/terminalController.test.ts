@@ -527,4 +527,122 @@ describe('TerminalController', () => {
     expect(bufs.liveTailBytes.byteLength).toBe(0);
     expect(bufs.liveOffset).toBe(TOTAL);
   });
+
+  it('loadOlderChunk fetches a 512KB range before loadedStartOffset and prepends to loadedBytes', async () => {
+    const shell = makeStubShell({ openState: 'open' });
+    acquiredShells.set(50, shell);
+    const term = makeFakeXterm();
+    const host = document.createElement('div');
+    const c = new TerminalController(50, term as unknown as import('@xterm/xterm').Terminal, host);
+
+    const TOTAL = 2_000_000;
+    const seedBytes = new Uint8Array(524288).fill(66);
+    const olderBytes = new Uint8Array(524288).fill(67);
+    fetchResponder = (call): { status: number; headers: Record<string, string>; body: Uint8Array } => {
+      if (call.headers.range === 'bytes=0-0') {
+        return { status: 206, headers: { 'x-transcript-total': String(TOTAL) }, body: new Uint8Array([0]) };
+      }
+      if (call.headers.range === `bytes=${TOTAL - 524288}-${TOTAL - 1}`) {
+        return { status: 206, headers: { 'x-transcript-total': String(TOTAL) }, body: seedBytes };
+      }
+      if (call.headers.range === `bytes=${TOTAL - 1048576}-${TOTAL - 524289}`) {
+        return { status: 206, headers: { 'x-transcript-total': String(TOTAL) }, body: olderBytes };
+      }
+      return { status: 404, headers: {}, body: new Uint8Array() };
+    };
+
+    const snap: RunWsSnapshotMessage = { type: 'snapshot', ansi: 'S', cols: 120, rows: 40 };
+    for (const cb of shell._snap) cb(snap);
+    // Let the seed chain settle (meta fetch + seed fetch + rebuild).
+    for (let i = 0; i < 10; i++) {
+      await new Promise((r) => setTimeout(r, 0));
+      if (c._debugBuffers().loadedStartOffset === TOTAL - 524288) break;
+    }
+    expect(c._debugBuffers().loadedStartOffset).toBe(TOTAL - 524288);
+
+    c.pause();
+    await c.loadOlderChunk();
+
+    const b = c._debugBuffers();
+    expect(b.loadedBytes.byteLength).toBe(524288 + 524288 + 1); // older + seed + 'S'
+    expect(b.loadedStartOffset).toBe(TOTAL - 1048576);
+    expect(b.loadedBytes[0]).toBe(67);
+    expect(b.loadedBytes[524287]).toBe(67);
+    expect(b.loadedBytes[524288]).toBe(66);
+  });
+
+  it('loadOlderChunk is idempotent during a pending fetch (dedup)', async () => {
+    const shell = makeStubShell({ openState: 'open' });
+    acquiredShells.set(51, shell);
+    const term = makeFakeXterm();
+    const host = document.createElement('div');
+    const c = new TerminalController(51, term as unknown as import('@xterm/xterm').Terminal, host);
+
+    const TOTAL = 2_000_000;
+    const seedBytes = new Uint8Array(524288).fill(1);
+    fetchResponder = (call): { status: number; headers: Record<string, string>; body: Uint8Array } => {
+      if (call.headers.range === 'bytes=0-0') {
+        return { status: 206, headers: { 'x-transcript-total': String(TOTAL) }, body: new Uint8Array([0]) };
+      }
+      if (call.headers.range === `bytes=${TOTAL - 524288}-${TOTAL - 1}`) {
+        return { status: 206, headers: { 'x-transcript-total': String(TOTAL) }, body: seedBytes };
+      }
+      return { status: 206, headers: {}, body: new Uint8Array(524288).fill(2) };
+    };
+
+    const snap: RunWsSnapshotMessage = { type: 'snapshot', ansi: 'S', cols: 120, rows: 40 };
+    for (const cb of shell._snap) cb(snap);
+    for (let i = 0; i < 10; i++) {
+      await new Promise((r) => setTimeout(r, 0));
+      if (c._debugBuffers().loadedStartOffset === TOTAL - 524288) break;
+    }
+
+    c.pause();
+    const p1 = c.loadOlderChunk();
+    const p2 = c.loadOlderChunk(); // should dedupe to p1
+    await Promise.all([p1, p2]);
+    // Count fetches that are the "older" chunk range (not meta, not seed).
+    const olderCalls = fetchCalls.filter((callArg) =>
+      callArg.headers.range?.startsWith('bytes=')
+      && callArg.headers.range !== 'bytes=0-0'
+      && !callArg.headers.range.startsWith(`bytes=${TOTAL - 524288}`)
+    );
+    expect(olderCalls.length).toBe(1);
+  });
+
+  it('loadOlderChunk writes start-of-run marker when loadedStartOffset reaches 0', async () => {
+    const shell = makeStubShell({ openState: 'open' });
+    acquiredShells.set(52, shell);
+    const term = makeFakeXterm();
+    const host = document.createElement('div');
+    const c = new TerminalController(52, term as unknown as import('@xterm/xterm').Terminal, host);
+
+    const TOTAL = 100_000; // smaller than CHUNK_SIZE — seed covers everything.
+    const seedBytes = new Uint8Array(TOTAL).fill(9);
+    fetchResponder = (call): { status: number; headers: Record<string, string>; body: Uint8Array } => {
+      if (call.headers.range === 'bytes=0-0') {
+        return { status: 206, headers: { 'x-transcript-total': String(TOTAL) }, body: new Uint8Array([0]) };
+      }
+      if (call.headers.range === `bytes=0-${TOTAL - 1}`) {
+        return { status: 206, headers: { 'x-transcript-total': String(TOTAL) }, body: seedBytes };
+      }
+      return { status: 404, headers: {}, body: new Uint8Array() };
+    };
+
+    const snap: RunWsSnapshotMessage = { type: 'snapshot', ansi: 'S', cols: 120, rows: 40 };
+    for (const cb of shell._snap) cb(snap);
+    for (let i = 0; i < 10; i++) {
+      await new Promise((r) => setTimeout(r, 0));
+      if (c._debugBuffers().loadedStartOffset === 0) break;
+    }
+    expect(c._debugBuffers().loadedStartOffset).toBe(0);
+
+    c.pause();
+    await c.loadOlderChunk();
+    const olderCalls = fetchCalls.filter((call) => {
+      const r = call.headers.range;
+      return r && r !== 'bytes=0-0' && r !== `bytes=0-${TOTAL - 1}`;
+    });
+    expect(olderCalls.length).toBe(0);
+  });
 });
