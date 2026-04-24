@@ -1,7 +1,7 @@
 use tauri::{
     menu::{Menu, MenuItem, PredefinedMenuItem},
-    tray::{MouseButton, TrayIconBuilder, TrayIconEvent},
-    AppHandle, Manager,
+    tray::TrayIconBuilder,
+    AppHandle, Emitter, Manager,
 };
 
 #[derive(serde::Deserialize)]
@@ -24,15 +24,18 @@ pub fn setup_tray(app: &mut tauri::App) -> tauri::Result<()> {
         .menu(&menu)
         .icon(icon)
         .icon_as_template(true)
-        .on_menu_event(|app, event| match event.id.as_ref() {
-            "quit" => app.exit(0),
-            "show" => show_main_window(app),
-            id if id.starts_with("run-") => show_main_window(app),
-            _ => {}
-        })
-        .on_tray_icon_event(|tray, event| {
-            if let TrayIconEvent::Click { button: MouseButton::Left, .. } = event {
-                show_main_window(tray.app_handle());
+        .on_menu_event(|app, event| {
+            let id = event.id.as_ref();
+            match id {
+                "quit" => app.exit(0),
+                "show" => show_main_window(app),
+                id if id.starts_with("run-") => {
+                    show_main_window(app);
+                    if let Ok(run_id) = id[4..].parse::<u32>() {
+                        let _ = app.emit("navigate-to-run", run_id);
+                    }
+                }
+                _ => {}
             }
         })
         .build(app)?;
@@ -98,13 +101,13 @@ pub fn update_tray_runs(app: AppHandle, runs: Vec<TrayRunInfo>) -> Result<(), St
         #[cfg(target_os = "macos")]
         {
             let icon_data: &[u8] = if has_waiting {
-                include_bytes!("../icons/tray-waiting.png")
+                include_bytes!("../icons/tray-waiting-template.png")
             } else {
                 include_bytes!("../icons/tray-template.png")
             };
             let icon = tauri::image::Image::from_bytes(icon_data).map_err(|e| e.to_string())?;
             tray.set_icon(Some(icon)).map_err(|e| e.to_string())?;
-            tray.set_icon_as_template(!has_waiting).map_err(|e| e.to_string())?;
+            tray.set_icon_as_template(true).map_err(|e| e.to_string())?;
         }
 
         #[cfg(not(target_os = "macos"))]

@@ -11,6 +11,8 @@ import { toggleTheme } from '@ui/theme.js';
 import { api } from './lib/api.js';
 import { useRunWatcher } from './hooks/useRunWatcher.js';
 import { useConnectionState } from './lib/connectionState.js';
+import { isTauri } from '@tauri-apps/api/core';
+import { listen } from '@tauri-apps/api/event';
 import type { Project, Run } from '@shared/types.js';
 import { ProjectsPage } from './pages/Projects.js';
 import { NewProjectPage } from './pages/NewProject.js';
@@ -107,6 +109,14 @@ export function App() {
     void api.getSettings().then((s) => setNotif(s.notifications_enabled));
   }, []);
   useRunWatcher(notif);
+
+  useEffect(() => {
+    if (!isTauri()) return;
+    const unlisten = listen<number>('navigate-to-run', (e) => {
+      nav(`/runs/${e.payload}`);
+    });
+    return () => { void unlisten.then((f) => f()); };
+  }, [nav]);
 
   const dataRef = useRef({ projects, runs });
   dataRef.current = { projects, runs };
