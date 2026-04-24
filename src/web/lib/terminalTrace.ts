@@ -42,7 +42,8 @@ type EventKind =
   | 'controller.input'
   | 'controller.history.start'
   | 'controller.history.end'
-  | 'controller.resumeLive';
+  | 'controller.resumeLive'
+  | 'controller.redraw';
 
 interface TraceEvent {
   t: number; // ms since trace start

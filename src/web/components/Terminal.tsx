@@ -75,14 +75,14 @@ export function Terminal({ runId, interactive }: Props) {
     setReady(false);
     controller.onReady(() => setReady(true));
 
-    // Re-request a snapshot when the tab becomes visible again. Claude Code
-    // only draws its cursor cell at specific render moments; those moments
-    // can happen while the tab is hidden (rAF is throttled). The cursor
-    // cell then never makes it into xterm's visible state. Asking the
-    // server for a fresh snapshot on visibility-return captures the
-    // current screen (with cursor) and resets xterm to it.
+    // On tab-return, nudge Claude to repaint. A bare re-hello with the
+    // same dims doesn't always trigger a Claude redraw (the server's
+    // orchestrator.resize → Docker resize is a no-op for same dims).
+    // controller.requestRedraw() briefly perturbs the PTY rows by one
+    // and restores, forcing two SIGWINCHes and two Claude redraws. The
+    // second redraw's bytes include the cursor cell.
     const onVisibility = () => {
-      if (!document.hidden) controller.requestSnapshot();
+      if (!document.hidden) controller.requestRedraw();
     };
     document.addEventListener('visibilitychange', onVisibility);
 

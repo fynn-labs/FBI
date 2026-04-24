@@ -200,53 +200,86 @@ describe('TerminalController', () => {
     expect(usagePublishes).toEqual([[7, snapshot]]);
   });
 
-  it('onReady fires after the first snapshot is written to xterm', () => {
-    const shell = makeStubShell();
-    acquiredShells.set(8, shell);
-    const term = makeFakeXterm();
-    const host = document.createElement('div');
-    const c = new TerminalController(8, term as unknown as import('@xterm/xterm').Terminal, host);
+  it('requestRedraw perturbs rows and restores to force two SIGWINCHes', async () => {
+    vi.useFakeTimers();
+    try {
+      const shell = makeStubShell();
+      acquiredShells.set(10, shell);
+      const term = makeFakeXterm();
+      const host = document.createElement('div');
+      const c = new TerminalController(10, term as unknown as import('@xterm/xterm').Terminal, host);
+      shell.resizes.length = 0;
 
-    const readyCb = vi.fn();
-    c.onReady(readyCb);
-    expect(readyCb).not.toHaveBeenCalled();
+      c.requestRedraw();
+      // First resize lands synchronously: rows+1.
+      expect(shell.resizes).toEqual([{ cols: 120, rows: 41 }]);
 
-    const snap: RunWsSnapshotMessage = { type: 'snapshot', ansi: 'X', cols: 120, rows: 40 };
-    for (const cb of shell._snap) cb(snap);
-    expect(readyCb).toHaveBeenCalledTimes(1);
-
-    // A second snapshot does not re-fire onReady.
-    for (const cb of shell._snap) cb(snap);
-    expect(readyCb).toHaveBeenCalledTimes(1);
+      // Second resize lands on next setTimeout tick at current dims.
+      vi.advanceTimersByTime(40);
+      expect(shell.resizes).toEqual([
+        { cols: 120, rows: 41 },
+        { cols: 120, rows: 40 },
+      ]);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
-  it('onReady subscribed after the first snapshot still fires (microtask)', async () => {
-    const shell = makeStubShell();
-    acquiredShells.set(9, shell);
-    const term = makeFakeXterm();
-    const host = document.createElement('div');
-    const c = new TerminalController(9, term as unknown as import('@xterm/xterm').Terminal, host);
+  it('onReady fires after 400ms of byte silence post-snapshot (not before)', async () => {
+    vi.useFakeTimers();
+    try {
+      const shell = makeStubShell();
+      acquiredShells.set(11, shell);
+      const term = makeFakeXterm();
+      const host = document.createElement('div');
+      const c = new TerminalController(11, term as unknown as import('@xterm/xterm').Terminal, host);
 
-    const snap: RunWsSnapshotMessage = { type: 'snapshot', ansi: 'X', cols: 120, rows: 40 };
-    for (const cb of shell._snap) cb(snap);
+      const readyCb = vi.fn();
+      c.onReady(readyCb);
 
-    const readyCb = vi.fn();
-    c.onReady(readyCb);
-    expect(readyCb).not.toHaveBeenCalled();
-    await Promise.resolve();
-    expect(readyCb).toHaveBeenCalledTimes(1);
+      const snap: RunWsSnapshotMessage = { type: 'snapshot', ansi: 'X', cols: 120, rows: 40 };
+      for (const cb of shell._snap) cb(snap);
+      // Snapshot parsed (write callback fires synchronously in the fake).
+      // Ready should NOT have fired yet — we wait for byte silence.
+      expect(readyCb).not.toHaveBeenCalled();
+
+      // Simulate a byte arriving 300ms in; resets the silence timer.
+      vi.advanceTimersByTime(300);
+      for (const cb of shell._bytes) cb(new TextEncoder().encode('more'));
+      expect(readyCb).not.toHaveBeenCalled();
+
+      // 400ms after the LAST byte, ready fires.
+      vi.advanceTimersByTime(400);
+      expect(readyCb).toHaveBeenCalledTimes(1);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
-  it('requestSnapshot sends hello with current term dims', () => {
-    const shell = makeStubShell();
-    acquiredShells.set(10, shell);
-    const term = makeFakeXterm();
-    const host = document.createElement('div');
-    const c = new TerminalController(10, term as unknown as import('@xterm/xterm').Terminal, host);
-    // Clear the initial hello that onOpen may have queued.
-    shell.sentHello.length = 0;
+  it('onReady fires via the 2s hard cap even if bytes keep flowing', () => {
+    vi.useFakeTimers();
+    try {
+      const shell = makeStubShell();
+      acquiredShells.set(12, shell);
+      const term = makeFakeXterm();
+      const host = document.createElement('div');
+      const c = new TerminalController(12, term as unknown as import('@xterm/xterm').Terminal, host);
 
-    c.requestSnapshot();
-    expect(shell.sentHello).toEqual([{ cols: 120, rows: 40 }]);
+      const readyCb = vi.fn();
+      c.onReady(readyCb);
+
+      const snap: RunWsSnapshotMessage = { type: 'snapshot', ansi: 'X', cols: 120, rows: 40 };
+      for (const cb of shell._snap) cb(snap);
+
+      // Steady byte stream: 100ms cadence, never idle long enough for
+      // the 400ms silence timer to fire.
+      for (let t = 0; t < 2500; t += 100) {
+        vi.advanceTimersByTime(100);
+        for (const cb of shell._bytes) cb(new TextEncoder().encode('b'));
+      }
+      expect(readyCb).toHaveBeenCalledTimes(1); // via 2000ms cap
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });

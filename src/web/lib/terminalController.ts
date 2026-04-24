@@ -49,12 +49,15 @@ export class TerminalController {
   // class is unusable; monotonic.
   private disposed = false;
 
-  // Fires once after the first snapshot is written to xterm (cached or
-  // from the server). Consumers use this to drop a "Loading…" overlay
-  // without flashing fast-forward content while the opening snapshot is
-  // being parsed.
+  // Fires once after the first snapshot is written to xterm AND the
+  // byte stream has settled (or after a hard cap). Consumers use this to
+  // drop a "Loading…" overlay without flashing fast-forward content while
+  // Claude's post-snapshot redraw bytes are flushing in.
   private ready = false;
   private readyCbs: Array<() => void> = [];
+  private readySilenceTimer: ReturnType<typeof setTimeout> | null = null;
+  private readyCapTimer: ReturnType<typeof setTimeout> | null = null;
+  private snapshotArrived = false;
 
   constructor(runId: number, term: Xterm, host: HTMLElement) {
     this.runId = runId;
@@ -75,12 +78,21 @@ export class TerminalController {
       if (this.disposed) return;
       traceRecord('controller.snapshot', { ansiLen: snap.ansi.length, cols: snap.cols, rows: snap.rows });
       this.term.reset();
-      this.term.write(snap.ansi, () => { this.fireReady(); });
+      this.term.write(snap.ansi);
+      // Kick off the byte-silence timer synchronously. xterm's write-complete
+      // callback is unreliable here (term.reset() appears to drop pending
+      // callbacks), and we only need this to *start* a settling window —
+      // exact "parsed" timing doesn't matter.
+      this.onSnapshotParsed();
     });
 
     this.unsubBytes = this.shell.onBytes((data) => {
       if (this.disposed) return;
       this.term.write(data);
+      // Reset the byte-silence timer on every byte arrival. Ready fires
+      // when the stream has been quiet for a short window after the
+      // snapshot has been parsed.
+      this.bumpReadySilenceTimer();
     });
 
     // Apply any cached snapshot synchronously so a quick remount shows
@@ -92,7 +104,8 @@ export class TerminalController {
     if (cached) {
       traceRecord('controller.snapshot.cached', { cols: cached.cols, rows: cached.rows });
       this.term.reset();
-      this.term.write(cached.ansi, () => { this.fireReady(); });
+      this.term.write(cached.ansi);
+      this.onSnapshotParsed();
     }
 
     this.unsubOpen = this.shell.onOpen(() => {
@@ -137,26 +150,58 @@ export class TerminalController {
     this.readyCbs.push(cb);
   }
 
+  // Called when the first snapshot has been parsed into xterm. Starts the
+  // byte-silence watch + hard cap: ready fires after 400 ms of no bytes,
+  // or after 2000 ms as a hard cap (so a perpetually-chatty terminal still
+  // reveals itself eventually).
+  private onSnapshotParsed(): void {
+    if (this.snapshotArrived) return;
+    this.snapshotArrived = true;
+    this.bumpReadySilenceTimer();
+    this.readyCapTimer = setTimeout(() => this.fireReady(), 2000);
+  }
+
+  private bumpReadySilenceTimer(): void {
+    if (this.ready || !this.snapshotArrived) return;
+    if (this.readySilenceTimer) clearTimeout(this.readySilenceTimer);
+    this.readySilenceTimer = setTimeout(() => this.fireReady(), 400);
+  }
+
   private fireReady(): void {
     if (this.ready) return;
     this.ready = true;
+    if (this.readySilenceTimer) { clearTimeout(this.readySilenceTimer); this.readySilenceTimer = null; }
+    if (this.readyCapTimer) { clearTimeout(this.readyCapTimer); this.readyCapTimer = null; }
     const cbs = this.readyCbs.splice(0);
     for (const cb of cbs) cb();
   }
 
   /**
-   * Re-ask the server for a fresh snapshot by re-sending hello. The server
-   * processes hellos idempotently — it drains the parser, re-serializes, and
-   * sends a new snapshot frame. Used by the page-visibility handler so a
-   * tab-return captures Claude Code's *current* cursor cell rather than
-   * whatever was last in the buffer (Claude only draws its cursor cell at
-   * specific render moments, and those can happen while the tab is hidden
-   * and rAF is throttled).
+   * Nudge Claude to repaint and re-sync the xterm buffer to the server's
+   * current screen. Used by the page-visibility handler so tab-return
+   * behaves like a page refresh (cursor cell and all).
+   *
+   * Page-refresh works because the fresh xterm is created at 80×24, then
+   * fit.fit() resizes to the real viewport — two real dim changes, two
+   * SIGWINCHes, two Claude redraws. A visibility return has stable dims,
+   * so a re-hello alone often doesn't trigger a fresh Claude redraw.
+   *
+   * This method forces a redraw by briefly perturbing the PTY size by one
+   * row on the server, then restoring it 40 ms later. Both resizes reach
+   * Claude as SIGWINCH, Claude redraws the viewport (including its cursor
+   * cell), redraw bytes flow to the client. The +1/−1 perturbation is
+   * invisible because xterm's own cols/rows never change; only the
+   * server's PTY dims do, and the overlap is under one frame.
    */
-  requestSnapshot(): void {
+  requestRedraw(): void {
     if (this.disposed) return;
-    traceRecord('controller.hello', { cols: this.term.cols, rows: this.term.rows });
-    this.shell.sendHello(this.term.cols, this.term.rows);
+    const { cols, rows } = this.term;
+    traceRecord('controller.redraw', { cols, rows });
+    this.shell.resize(cols, rows + 1);
+    setTimeout(() => {
+      if (this.disposed) return;
+      this.shell.resize(cols, rows);
+    }, 40);
   }
 
   async enterHistory(historyHost: HTMLElement): Promise<void> {
