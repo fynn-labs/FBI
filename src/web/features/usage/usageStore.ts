@@ -1,4 +1,5 @@
 import type { UsageState, UsageWsMessage, UsageWsThresholdMessage } from '@shared/types.js';
+import { api, wsBase } from '../../lib/api.js';
 
 type SnapshotListener = (s: UsageState) => void;
 type ThresholdListener = (m: UsageWsThresholdMessage) => void;
@@ -54,14 +55,13 @@ class UsageStore {
 
   private async fetchInitial(): Promise<void> {
     try {
-      const res = await fetch('/api/usage');
-      if (res.ok) this.apply(await res.json() as UsageState);
+      const state = await api.getUsage();
+      this.apply(state);
     } catch { /* fall through to WS */ }
   }
 
   private connect(): void {
-    const proto = location.protocol === 'https:' ? 'wss' : 'ws';
-    const ws = new WebSocket(`${proto}://${location.host}/api/ws/usage`);
+    const ws = new WebSocket(`${wsBase()}/api/ws/usage`);
     this.ws = ws;
     ws.addEventListener('message', (ev) => {
       try {
