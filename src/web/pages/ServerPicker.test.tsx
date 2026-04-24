@@ -44,4 +44,14 @@ describe('ServerPicker', () => {
     fireEvent.click(screen.getByRole('button', { name: /connect/i }));
     await waitFor(() => expect(onConnect).toHaveBeenCalledWith('http://myserver:3000'));
   });
+
+  it('clicking a discovered server populates the input', async () => {
+    mockInvoke.mockResolvedValue([{ name: 'fbi-server', url: 'http://fbi-server:3000' }]);
+    render(<ServerPicker onConnect={vi.fn()} />);
+    fireEvent.click(screen.getByRole('button', { name: /discover/i }));
+    await waitFor(() => screen.getByText('fbi-server'));
+    fireEvent.click(screen.getByText('fbi-server').closest('button')!);
+    expect((screen.getByPlaceholderText(/http:\/\//) as HTMLInputElement).value)
+      .toBe('http://fbi-server:3000');
+  });
 });

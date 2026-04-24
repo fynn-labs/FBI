@@ -28,9 +28,12 @@ export function ServerPicker({ onConnect }: { onConnect: (url: string) => void }
 
   async function connect(url: string) {
     setConnecting(true);
+    setError(null);
     try {
       await setServerUrl(url);
       onConnect(url);
+    } catch {
+      setError('Failed to save server URL — please try again');
     } finally {
       setConnecting(false);
     }
