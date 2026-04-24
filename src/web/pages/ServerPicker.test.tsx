@@ -25,7 +25,8 @@ describe('ServerPicker', () => {
     mockInvoke.mockResolvedValue([{ name: 'fbi-server', url: 'http://fbi-server:3000' }]);
     render(<ServerPicker onConnect={vi.fn()} />);
     fireEvent.click(screen.getByRole('button', { name: /discover/i }));
-    await waitFor(() => expect(screen.getByText(/fbi-server/)).toBeInTheDocument());
+    await waitFor(() => expect(screen.getByText('fbi-server')).toBeInTheDocument());
+    expect(screen.getByText('http://fbi-server:3000')).toBeInTheDocument();
   });
 
   it('shows error message when discovery returns empty', async () => {
