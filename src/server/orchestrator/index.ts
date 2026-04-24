@@ -1011,11 +1011,14 @@ function uniq(xs: string[]): string[] {
 }
 
 // ~/.claude/settings.json injected into every run container. `hooks` wires
-// Claude Code's Stop and UserPromptSubmit events to a /fbi-state/waiting
-// sentinel that WaitingWatcher polls; Stop means "turn ended, waiting for
-// user", UserPromptSubmit means "user replied". This replaces the old
-// TTY-scraping WaitingMonitor. `skipDangerousModePermissionPrompt` pairs
-// with supervisor.sh's --dangerously-skip-permissions.
+// Claude Code's Stop and UserPromptSubmit events to two /fbi-state/ sentinel
+// files that RuntimeStateWatcher polls. Stop creates /fbi-state/waiting
+// (turn ended). UserPromptSubmit removes /fbi-state/waiting (user replied)
+// AND creates /fbi-state/prompted (sticky — Claude has accepted at least
+// one prompt this container, so it's past the launch gap). Derived state:
+//   waiting present                  -> 'waiting'
+//   waiting absent, prompted present -> 'running'
+//   both absent                      -> 'starting'
 export function buildClaudeSettingsJson(): string {
   return JSON.stringify({
     skipDangerousModePermissionPrompt: true,
@@ -1024,7 +1027,11 @@ export function buildClaudeSettingsJson(): string {
         { hooks: [{ type: 'command', command: 'touch /fbi-state/waiting', timeout: 5 }] },
       ],
       UserPromptSubmit: [
-        { hooks: [{ type: 'command', command: 'rm -f /fbi-state/waiting', timeout: 5 }] },
+        { hooks: [{
+          type: 'command',
+          command: 'rm -f /fbi-state/waiting && touch /fbi-state/prompted',
+          timeout: 5,
+        }] },
       ],
     },
   });

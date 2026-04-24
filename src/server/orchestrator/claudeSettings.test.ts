@@ -17,12 +17,12 @@ describe('buildClaudeSettingsJson', () => {
     });
   });
 
-  it('wires UserPromptSubmit to remove /fbi-state/waiting', () => {
+  it('wires UserPromptSubmit to remove /fbi-state/waiting and create /fbi-state/prompted', () => {
     const parsed = JSON.parse(buildClaudeSettingsJson());
     const ups = parsed.hooks?.UserPromptSubmit?.[0]?.hooks?.[0];
     expect(ups).toEqual({
       type: 'command',
-      command: 'rm -f /fbi-state/waiting',
+      command: 'rm -f /fbi-state/waiting && touch /fbi-state/prompted',
       timeout: 5,
     });
   });
