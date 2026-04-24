@@ -388,6 +388,10 @@ export class Orchestrator {
         onSnapshot: (snap) => {
           this.lastFiles.set(runId, snap);
           const runNow = this.deps.runs.get(runId);
+          if (snap.mirror_status !== undefined &&
+              snap.mirror_status !== runNow?.mirror_status) {
+            this.deps.runs.setMirrorStatus(runId, snap.mirror_status);
+          }
           events.publish({
             type: 'changes',
             branch_name: runNow?.branch_name || null,
@@ -1002,6 +1006,10 @@ export class Orchestrator {
       onSnapshot: (snap) => {
         this.lastFiles.set(runId, snap);
         const runNow = this.deps.runs.get(runId);
+        if (snap.mirror_status !== undefined &&
+            snap.mirror_status !== runNow?.mirror_status) {
+          this.deps.runs.setMirrorStatus(runId, snap.mirror_status);
+        }
         events.publish({
           type: 'changes',
           branch_name: runNow?.branch_name || null,

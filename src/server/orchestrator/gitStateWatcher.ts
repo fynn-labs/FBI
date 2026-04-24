@@ -3,6 +3,7 @@ import { dockerExec } from './dockerExec.js';
 import type {
   FilesPayload, FilesDirtyEntry, FilesHeadEntry, FileStatus,
 } from '../../shared/types.js';
+import { parseMirrorStatus } from './mirrorStatus.js';
 
 export interface GitStateWatcherOptions {
   container: Docker.Container;
@@ -59,10 +60,11 @@ export class GitStateWatcher {
       `printf "__AB__"; git rev-list --left-right --count refs/remotes/origin/${db}...HEAD 2>/dev/null`,
       `printf "__SM_STATUS__"; git submodule status 2>/dev/null`,
       `printf "__SM_INFO__"; git config --file .gitmodules --get-regexp '^submodule\\..*\\.\\(path\\|url\\)$' 2>/dev/null`,
+      `printf "__MIRROR__"; cat /fbi-state/mirror-status 2>/dev/null || true`,
       'exit 0',
     ].join('; ');
     const r = await dockerExec(c, ['bash', '-lc', script], { timeoutMs: 5000 });
-    const parts = splitMarkers(r.stdout, ['__Z__', '__NS__', '__LG__', '__SH__', '__AB__', '__SM_STATUS__', '__SM_INFO__']);
+    const parts = splitMarkers(r.stdout, ['__Z__', '__NS__', '__LG__', '__SH__', '__AB__', '__SM_STATUS__', '__SM_INFO__', '__MIRROR__']);
     const payload = parseGitState({
       zlist: parts['__Z__'] ?? '',
       numstat: parts['__NS__'] ?? '',
@@ -82,7 +84,8 @@ export class GitStateWatcher {
       unpushed_commits: [],
       unpushed_truncated: false,
     }));
-    this.opts.onSnapshot({ ...payload, live: true, dirty_submodules: dirtySubmodules });
+    const mirrorStatus = parseMirrorStatus(parts['__MIRROR__'] ?? '');
+    this.opts.onSnapshot({ ...payload, live: true, dirty_submodules: dirtySubmodules, mirror_status: mirrorStatus });
   }
 }
 

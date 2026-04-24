@@ -210,6 +210,7 @@ export interface FilesPayload {
   branchBase: { base: string; ahead: number; behind: number } | null;
   live: boolean;
   dirty_submodules?: SubmoduleDirty[];
+  mirror_status?: MirrorStatus;
 }
 
 export type MergeStrategy = 'merge' | 'rebase' | 'squash';
