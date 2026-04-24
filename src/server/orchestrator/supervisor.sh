@@ -151,7 +151,7 @@ chmod +x .git/hooks/post-commit
 #   resume: use $FBI_RESUME_SESSION_ID to continue an existing session.
 set +e
 if [ -n "${FBI_RESUME_SESSION_ID:-}" ]; then
-    echo "[fbi] resuming claude session $FBI_RESUME_SESSION_ID"
+    _fbi_status "resuming session $FBI_RESUME_SESSION_ID"
     touch /fbi-state/waiting
     claude --resume "$FBI_RESUME_SESSION_ID" --dangerously-skip-permissions
     CLAUDE_EXIT=$?
@@ -163,7 +163,7 @@ else
             printf '\n\n---\n\n' >> /tmp/prompt.txt
         fi
     done
-    [ -f /fbi/prompt.txt ] || { echo "prompt.txt not found in /fbi"; exit 12; }
+    [ -f /fbi/prompt.txt ] || { _fbi_fatal "prompt.txt not found in /fbi"; exit 12; }
     cat /fbi/prompt.txt >> /tmp/prompt.txt
     touch /fbi-state/prompted
     claude --dangerously-skip-permissions < /tmp/prompt.txt
