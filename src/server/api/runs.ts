@@ -10,6 +10,7 @@ import type { RunStreamRegistry } from '../logs/registry.js';
 import { checkContinueEligibility } from '../orchestrator/continueEligibility.js';
 import { promoteDraft } from '../uploads/promote.js';
 import { isDraftToken } from '../uploads/token.js';
+import { validateModelParams } from './modelParams.js';
 import type {
   FilesPayload, FilesHeadEntry, FileDiffPayload, FileDiffHunk,
   GithubPayload, MergeResponse,
@@ -116,17 +117,35 @@ export function registerRunsRoutes(app: FastifyInstance, deps: Deps): void {
 
   app.post('/api/projects/:id/runs', async (req, reply) => {
     const { id } = req.params as { id: string };
-    const body = req.body as { prompt: string; branch?: string; draft_token?: string };
+    const body = req.body as {
+      prompt: string;
+      branch?: string;
+      draft_token?: string;
+      model?: string | null;
+      effort?: string | null;
+      subagent_model?: string | null;
+    };
     const hint = (body.branch ?? '').trim();
     const token = typeof body.draft_token === 'string' ? body.draft_token : '';
     if (token.length > 0 && !isDraftToken(token)) {
       return reply.code(400).send({ error: 'invalid_token' });
+    }
+    const verdict = validateModelParams({
+      model: body.model,
+      effort: body.effort,
+      subagent_model: body.subagent_model,
+    });
+    if (!verdict.ok) {
+      return reply.code(400).send({ error: verdict.message });
     }
     const run = deps.runs.create({
       project_id: Number(id),
       prompt: body.prompt,
       branch_hint: hint === '' ? undefined : hint,
       log_path_tmpl: (rid) => path.join(deps.runsDir, `${rid}.log`),
+      model: body.model ?? null,
+      effort: body.effort ?? null,
+      subagent_model: body.subagent_model ?? null,
     });
     if (token.length > 0) {
       try {

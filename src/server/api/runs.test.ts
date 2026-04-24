@@ -512,6 +512,73 @@ describe('runs routes', () => {
     expect(body.message).toMatch(/session/i);
   });
 
+  describe('POST /api/projects/:id/runs — model params', () => {
+    it('persists model, effort, subagent_model when provided', async () => {
+      const { app, projectId, runs } = setup();
+      const res = await app.inject({
+        method: 'POST',
+        url: `/api/projects/${projectId}/runs`,
+        payload: {
+          prompt: 'do thing',
+          model: 'opus',
+          effort: 'xhigh',
+          subagent_model: 'sonnet',
+        },
+      });
+      expect(res.statusCode).toBe(201);
+      const body = res.json() as { id: number };
+      const row = runs.get(body.id)!;
+      expect(row.model).toBe('opus');
+      expect(row.effort).toBe('xhigh');
+      expect(row.subagent_model).toBe('sonnet');
+    });
+
+    it('stores NULLs when model params are omitted', async () => {
+      const { app, projectId, runs } = setup();
+      const res = await app.inject({
+        method: 'POST',
+        url: `/api/projects/${projectId}/runs`,
+        payload: { prompt: 'do thing' },
+      });
+      expect(res.statusCode).toBe(201);
+      const body = res.json() as { id: number };
+      const row = runs.get(body.id)!;
+      expect(row.model).toBeNull();
+      expect(row.effort).toBeNull();
+      expect(row.subagent_model).toBeNull();
+    });
+
+    it('returns 400 on invalid model', async () => {
+      const { app, projectId } = setup();
+      const res = await app.inject({
+        method: 'POST',
+        url: `/api/projects/${projectId}/runs`,
+        payload: { prompt: 'x', model: 'turbo' },
+      });
+      expect(res.statusCode).toBe(400);
+    });
+
+    it('returns 400 on effort + haiku', async () => {
+      const { app, projectId } = setup();
+      const res = await app.inject({
+        method: 'POST',
+        url: `/api/projects/${projectId}/runs`,
+        payload: { prompt: 'x', model: 'haiku', effort: 'high' },
+      });
+      expect(res.statusCode).toBe(400);
+    });
+
+    it('returns 400 on xhigh + sonnet', async () => {
+      const { app, projectId } = setup();
+      const res = await app.inject({
+        method: 'POST',
+        url: `/api/projects/${projectId}/runs`,
+        payload: { prompt: 'x', model: 'sonnet', effort: 'xhigh' },
+      });
+      expect(res.statusCode).toBe(400);
+    });
+  });
+
   describe('draft_token integration', () => {
     it('POST /api/projects/:id/runs with draft_token promotes uploads and still launches', async () => {
       const { app, projectId, launched, runsDir } = setupWithUploads();
