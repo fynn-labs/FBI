@@ -10,3 +10,9 @@
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
+
+@layer base {
+  html, body {
+    overscroll-behavior: none;
+  }
+}
