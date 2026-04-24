@@ -320,7 +320,6 @@ export class Orchestrator {
     if (run.state !== 'queued') throw new Error(`run ${runId} not queued`);
     const project = this.deps.projects.get(run.project_id);
     if (!project) throw new Error(`project ${run.project_id} missing`);
-    this.wipRepo.init(runId);
 
     const store = new LogStore(run.log_path);
     const broadcaster = this.deps.streams.getOrCreate(runId);

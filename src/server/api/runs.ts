@@ -37,6 +37,7 @@ interface OrchestratorDep {
   execHistoryOp(runId: number, op: HistoryOp): Promise<ParsedOpResult>;
   spawnSubRun(parentRunId: number, kind: 'merge-conflict' | 'polish', argsJson: string): Promise<number>;
   deleteRun(runId: number): void;
+  initSafeguard(runId: number): void;
 }
 
 interface WipRepoDep {
@@ -205,10 +206,7 @@ export function registerRunsRoutes(app: FastifyInstance, deps: Deps): void {
           runId: run.id,
         });
       } catch (err) {
-        // Rollback: delete the run row and its (possibly partial) uploads dir.
-        // Rollback path: rm the just-created row/files before wipRepo.init has run
-        // (init happens at the top of launch()). Therefore no wip.git exists yet
-        // and the full deleteRun() orchestration isn't needed here.
+        // Rollback: delete the run row, uploads, and the safeguard bare repo.
         deps.runs.delete(run.id);
         try {
           fs.rmSync(path.join(deps.runsDir, String(run.id)), { recursive: true, force: true });
@@ -226,6 +224,11 @@ export function registerRunsRoutes(app: FastifyInstance, deps: Deps): void {
       deps.runs.setBranchName(run.id, effectiveBranch);
       run.branch_name = effectiveBranch;
     }
+    // Provision the safeguard bare repo up-front. The run may never launch
+    // (draft promotion failure below rolls it back), but having wip.git in
+    // place is cheap and lets the /safeguard bind mount be ready synchronously
+    // when the container starts.
+    deps.orchestrator.initSafeguard(run.id);
     void deps.launch(run.id).catch((err) => app.log.error({ err }, 'launch failed'));
     reply.code(201);
     return run;
