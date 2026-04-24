@@ -18,68 +18,15 @@ interface Props {
   interactive: boolean;
 }
 
-// Compute the 240-entry extendedAnsi array (xterm colors 16–255) with every
-// color's luminance capped so it has at least 3:1 contrast against the light
-// terminal background (#eef2f7, L≈0.86).  Called once per theme switch.
-function buildLightExtendedAnsi(): string[] {
-  // Max foreground luminance for 3:1 contrast on L=0.86 background:
-  // (0.86 + 0.05) / (L + 0.05) >= 3  →  L <= 0.253
-  const MAX_L = 0.253;
-  const toLinear = (c: number) => {
-    const n = c / 255;
-    return n <= 0.04045 ? n / 12.92 : ((n + 0.055) / 1.055) ** 2.4;
-  };
-  const luma = (r: number, g: number, b: number) =>
-    0.2126 * toLinear(r) + 0.7152 * toLinear(g) + 0.0722 * toLinear(b);
-  const c6 = (i: number) => (i === 0 ? 0 : 55 + i * 40);
-  const h2 = (n: number) => n.toString(16).padStart(2, '0');
-
-  const out: string[] = [];
-
-  // Colors 16–231: 6×6×6 RGB cube
-  for (let i = 0; i < 216; i++) {
-    let r = c6(Math.floor(i / 36));
-    let g = c6(Math.floor((i % 36) / 6));
-    let b = c6(i % 6);
-    const L = luma(r, g, b);
-    if (L > MAX_L) {
-      const s = Math.sqrt(MAX_L / L);
-      r = Math.round(r * s); g = Math.round(g * s); b = Math.round(b * s);
-    }
-    out.push(`#${h2(r)}${h2(g)}${h2(b)}`);
-  }
-
-  // Colors 232–255: grayscale ramp
-  for (let i = 0; i < 24; i++) {
-    let v = 8 + i * 10;
-    if (luma(v, v, v) > MAX_L) v = Math.round(v * Math.sqrt(MAX_L / luma(v, v, v)));
-    out.push(`#${h2(v)}${h2(v)}${h2(v)}`);
-  }
-
-  return out;
-}
-
 function readTheme() {
   const s = getComputedStyle(document.documentElement);
   const bg = s.getPropertyValue('--terminal-bg').trim() || '#060a0f';
   const fg = s.getPropertyValue('--terminal-fg').trim() || '#e2e8f0';
-  const base = { background: bg, foreground: fg, cursor: bg, cursorAccent: bg };
+  return { background: bg, foreground: fg, cursor: bg, cursorAccent: bg };
+}
 
-  if (!document.documentElement.classList.contains('light')) return base;
-
-  // Light mode: remap the full 16-colour ANSI palette to dark equivalents,
-  // and cap the luminance of every 256-colour entry so text stays readable
-  // on the light terminal background.
-  return {
-    ...base,
-    black:         '#1e293b', red:           '#b91c1c', green:         '#15803d',
-    yellow:        '#a16207', blue:          '#1d4ed8', magenta:       '#7e22ce',
-    cyan:          '#0f766e', white:         '#475569',
-    brightBlack:   '#334155', brightRed:     '#991b1b', brightGreen:   '#166534',
-    brightYellow:  '#854d0e', brightBlue:    '#1e40af', brightMagenta: '#6b21a8',
-    brightCyan:    '#155e75', brightWhite:   '#0f172a',
-    extendedAnsi: buildLightExtendedAnsi(),
-  };
+function isLightMode() {
+  return document.documentElement.classList.contains('light');
 }
 
 export function Terminal({ runId, interactive }: Props) {
@@ -112,6 +59,11 @@ export function Terminal({ runId, interactive }: Props) {
       fontSize: 13,
       theme: readTheme(),
       cursorBlink: false,
+      // In light mode, let xterm enforce per-cell contrast so that colours
+      // designed for dark terminals (light fg on dark bg, or dark fg on light
+      // bg) are both adjusted to remain readable regardless of which
+      // background a CLI chose.
+      minimumContrastRatio: isLightMode() ? 4.5 : 1,
       // xterm's default is 1000 lines, which would silently cap our
       // lazy-loaded scrollback. A single 512 KB chunk already produces
       // ~4000 lines at typical line lengths, and users can load many
@@ -124,7 +76,10 @@ export function Terminal({ runId, interactive }: Props) {
     term.open(host);
     traceRecord('term.mount', { runId });
 
-    const observer = new MutationObserver(() => { term.options.theme = readTheme(); });
+    const observer = new MutationObserver(() => {
+      term.options.theme = readTheme();
+      term.options.minimumContrastRatio = isLightMode() ? 4.5 : 1;
+    });
     observer.observe(document.documentElement, { attributes: true, attributeFilter: ['class'] });
 
     const rect = host.getBoundingClientRect();
