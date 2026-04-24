@@ -15,6 +15,11 @@ import type {
 } from '@shared/types.js';
 
 const CHUNK_SIZE = 512 * 1024;
+const RESUME_SNAPSHOT_TIMEOUT_MS = 2000;
+
+function isLiveState(s: RunState): boolean {
+  return s === 'queued' || s === 'starting' || s === 'running' || s === 'waiting' || s === 'awaiting_resume';
+}
 
 function concat(bufs: Uint8Array[]): Uint8Array {
   let total = 0;
@@ -70,6 +75,7 @@ export class TerminalController {
   private paused = false;
   private seeded = false;
   private pendingChunk: { abort: AbortController; promise: Promise<void> } | null = null;
+  private pendingResumeSnapshot: ((snap: RunWsSnapshotMessage) => void) | null = null;
   private startMarkerWritten = false;
   private pauseListeners = new Set<(paused: boolean) => void>();
   private interactiveProp = false; // track the prop so applyInteractive can recompute
@@ -105,6 +111,22 @@ export class TerminalController {
     this.unsubSnapshot = this.shell.onSnapshot((snap) => {
       if (this.disposed) return;
       traceRecord('controller.snapshot', { ansiLen: snap.ansi.length, cols: snap.cols, rows: snap.rows });
+      // Resume interception: if a resume is waiting for a fresh snapshot,
+      // hand it over and skip the normal reset+write (resume does its own
+      // rebuild with scrollback preserved).
+      if (this.pendingResumeSnapshot) {
+        const resolve = this.pendingResumeSnapshot;
+        this.pendingResumeSnapshot = null;
+        resolve(snap);
+        return;
+      }
+      // Drop snapshots while paused — they would term.reset() and wipe
+      // the scrollback the user is actively reading. On resume, we'll
+      // request a fresh snapshot via sendHello.
+      if (this.paused) {
+        traceRecord('controller.snapshot.dropped', { reason: 'paused' });
+        return;
+      }
       this.term.reset();
       this.term.write(snap.ansi);
       // Kick off the byte-silence timer synchronously. xterm's write-complete
@@ -351,6 +373,61 @@ export class TerminalController {
     if (this.disposed || this.paused) return;
     traceRecord('controller.pause', { runId: this.runId });
     this.paused = true;
+    this.applyInteractive();
+    this.emitPauseChange();
+  }
+
+  async resume(): Promise<void> {
+    if (this.disposed || !this.paused) return;
+    traceRecord('controller.resume', { runId: this.runId, state: this.latestState });
+
+    // Abort a concurrent chunk load; its rebuild would be wasted work.
+    if (this.pendingChunk) {
+      this.pendingChunk.abort.abort();
+      this.pendingChunk = null;
+    }
+
+    let freshSnap: RunWsSnapshotMessage | null = null;
+    if (isLiveState(this.latestState)) {
+      const p = new Promise<RunWsSnapshotMessage>((resolve) => {
+        this.pendingResumeSnapshot = resolve;
+      });
+      const timeout = new Promise<null>((r) => setTimeout(() => r(null), RESUME_SNAPSHOT_TIMEOUT_MS));
+      this.shell.sendHello(this.term.cols, this.term.rows);
+      const snap = await Promise.race([p, timeout]);
+      this.pendingResumeSnapshot = null;
+      if (snap) freshSnap = snap;
+    }
+
+    let tail: Uint8Array | null = null;
+    if (!freshSnap) {
+      try {
+        const res = await fetch(`/api/runs/${this.runId}/transcript`, {
+          headers: { Range: `bytes=${this.liveOffset}-` },
+        });
+        if (!this.disposed && (res.ok || res.status === 206)) {
+          tail = new Uint8Array(await res.arrayBuffer());
+          if (tail.byteLength > 0) {
+            const mergedLive = concat([this.liveTailBytes, tail]);
+            this.liveTailBytes = mergedLive;
+            this.liveOffset += tail.byteLength;
+          }
+        }
+      } catch (err) {
+        traceRecord('controller.resume.tail.error', { err: String(err) });
+      }
+    }
+
+    if (this.disposed) return;
+
+    const buffers: Array<Uint8Array | string> = [this.loadedBytes, this.liveTailBytes];
+    if (freshSnap) buffers.push(freshSnap.ansi);
+    await this.rebuildXterm(buffers);
+
+    if (this.disposed) return;
+    this.term.scrollToBottom();
+    this.scheduleCursorRedraw();
+    this.paused = false;
     this.applyInteractive();
     this.emitPauseChange();
   }

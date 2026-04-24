@@ -50,7 +50,10 @@ type EventKind =
   | 'controller.seed.error'
   | 'controller.chunk.fetch'
   | 'controller.chunk.rebuild'
-  | 'controller.chunk.error';
+  | 'controller.chunk.error'
+  | 'controller.resume'
+  | 'controller.resume.tail.error'
+  | 'controller.snapshot.dropped';
 
 interface TraceEvent {
   t: number; // ms since trace start
