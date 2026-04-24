@@ -37,7 +37,7 @@ export class SafeguardWatcher {
     const packedPath = path.join(this.opts.bareDir, 'packed-refs');
     try {
       this.packedWatcher = fs.watch(path.dirname(packedPath), (_ev, fn) => {
-        if (fn === 'packed-refs') void this.emit();
+        if (!fn || fn === 'packed-refs') void this.emit();
       });
     } catch (e) {
       this.opts.onError?.(String(e));

@@ -429,7 +429,7 @@ export class Orchestrator {
           });
         },
       });
-      void safeguardWatcher.start();
+      await safeguardWatcher.start();
       mirrorPoller = new MirrorStatusPoller({
         path: `${this.stateDirFor(runId)}/mirror-status`,
         pollMs: 1000,
@@ -1093,7 +1093,7 @@ export class Orchestrator {
         });
       },
     });
-    void safeguardWatcher.start();
+    await safeguardWatcher.start();
     const mirrorPoller = new MirrorStatusPoller({
       path: `${this.stateDirFor(runId)}/mirror-status`,
       pollMs: 1000,

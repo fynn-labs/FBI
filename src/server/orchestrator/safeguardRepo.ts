@@ -70,7 +70,9 @@ export class SafeguardRepo {
       if (!p) continue;
       const adds = a === '-' ? 0 : Number.parseInt(a, 10) || 0;
       const dels = d === '-' ? 0 : Number.parseInt(d, 10) || 0;
-      const status: 'A' | 'M' = dels === 0 && adds > 0 ? 'A' : 'M';
+      const status: 'A' | 'M' | 'D' =
+        adds === 0 && dels > 0 ? 'D' :
+        dels === 0 && adds > 0 ? 'A' : 'M';
       out.push({ path: p, status, additions: adds, deletions: dels });
     }
     return out;
