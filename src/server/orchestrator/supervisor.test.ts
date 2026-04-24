@@ -84,6 +84,29 @@ esac
     { mode: 0o755 },
   );
 
+  // Stub resume-restore.sh (deliberately omits the `fbi-` prefix so the
+  // `/fbi\b` path rewrite below doesn't clobber it). A fresh run has no WIP
+  // snapshot to restore, so the stub always succeeds (exit 0) as a no-op.
+  const resumeStub = path.join(bin, 'resume-restore-stub.sh');
+  fs.writeFileSync(
+    resumeStub,
+    `#!/bin/sh
+exit 0
+`,
+    { mode: 0o755 },
+  );
+
+  // Stub snapshot.sh (deliberately omits the `fbi-` prefix). Called by the
+  // snapshot daemon. Just succeeds.
+  const snapshotStub = path.join(bin, 'snapshot-stub.sh');
+  fs.writeFileSync(
+    snapshotStub,
+    `#!/bin/sh
+exit 0
+`,
+    { mode: 0o755 },
+  );
+
   // Stub the finalize-branch helper — supervisor.sh delegates the post-
   // claude commit+push+result.json write to it. We just write a minimal
   // result.json so the tests' existing assertions pass. Stub filename
@@ -107,6 +130,8 @@ exit 0
   // paths first.
   const src = fs.readFileSync(SUPERVISOR_SRC, 'utf8');
   const patched = src
+    .replace(/\/usr\/local\/bin\/fbi-resume-restore\.sh/g, resumeStub)
+    .replace(/\/usr\/local\/bin\/fbi-wip-snapshot\.sh/g, snapshotStub)
     .replace(/\/usr\/local\/bin\/fbi-finalize-branch\.sh/g, finalizeStub)
     .replace(/\/tmp\/prompt\.txt\b/g, path.join(tmpOut, 'prompt.txt'))
     .replace(/\/tmp\/result\.json\b/g, path.join(tmpOut, 'result.json'))

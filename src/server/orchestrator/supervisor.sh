@@ -75,6 +75,22 @@ git remote add fbi-wip /fbi-wip.git 2>/dev/null \
   || git remote set-url fbi-wip /fbi-wip.git \
   || { echo "[fbi] fatal: could not register fbi-wip remote"; exit 14; }
 
+# If this is a resume, restore the WIP snapshot. The script no-ops when
+# there's nothing to restore (fresh run) and exits non-zero with a
+# structured /tmp/result.json when the restore can't apply cleanly.
+if [ -n "${FBI_RESUME_SESSION_ID:-}" ]; then
+  FBI_WORKSPACE=/workspace \
+  FBI_AGENT_BRANCH="$AGENT_BRANCH" \
+  FBI_RESULT_PATH=/tmp/result.json \
+  FBI_RUN_ID="$RUN_ID" \
+  /usr/local/bin/fbi-resume-restore.sh
+  RESTORE_EXIT=$?
+  if [ "$RESTORE_EXIT" != "0" ]; then
+    echo "[fbi] resume restore failed (exit $RESTORE_EXIT); see /tmp/result.json"
+    exit "$RESTORE_EXIT"
+  fi
+fi
+
 # Snapshot daemon. Captures working-tree state every 30s and pushes to
 # fbi-wip/wip. Non-fatal on failure. Killed by the trap below at exit.
 (
