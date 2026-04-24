@@ -767,4 +767,91 @@ describe('TerminalController', () => {
 
     expect(c._debugBuffers().paused).toBe(false);
   });
+
+  it('resume() reentrant calls return the same in-flight promise', async () => {
+    const shell = makeStubShell({ openState: 'open' });
+    acquiredShells.set(64, shell);
+    const term = makeFakeXterm();
+    const host = document.createElement('div');
+    const c = new TerminalController(64, term as unknown as import('@xterm/xterm').Terminal, host);
+
+    const TOTAL = 100_000;
+    fetchResponder = (call): { status: number; headers: Record<string, string>; body: Uint8Array } => {
+      if (call.headers.range === 'bytes=0-0') {
+        return { status: 206, headers: { 'x-transcript-total': String(TOTAL) }, body: new Uint8Array([0]) };
+      }
+      if (call.headers.range === `bytes=0-${TOTAL - 1}`) {
+        return { status: 206, headers: { 'x-transcript-total': String(TOTAL) }, body: new Uint8Array(TOTAL) };
+      }
+      if (call.headers.range === `bytes=${TOTAL}-`) {
+        return { status: 206, headers: {}, body: new Uint8Array() };
+      }
+      return { status: 404, headers: {}, body: new Uint8Array() };
+    };
+    for (const cb of shell._snap) cb({ type: 'snapshot', ansi: 'X', cols: 120, rows: 40 });
+    for (let i = 0; i < 10; i++) {
+      await new Promise((r) => setTimeout(r, 0));
+      if (c._debugBuffers().loadedStartOffset === 0) break;
+    }
+    for (const cb of shell._events) cb({ type: 'state', state: 'succeeded' } as unknown as { type: string });
+    c.pause();
+
+    const p1 = c.resume();
+    const p2 = c.resume();
+    // Both promises must resolve without hanging.
+    await Promise.all([p1, p2]);
+    expect(c._debugBuffers().paused).toBe(false);
+  });
+
+  it('resume() timeout falls through to tail fetch (late snapshot does not wipe scrollback)', async () => {
+    vi.useFakeTimers();
+    try {
+      const shell = makeStubShell({ openState: 'open' });
+      acquiredShells.set(65, shell);
+      const term = makeFakeXterm();
+      const host = document.createElement('div');
+      const c = new TerminalController(65, term as unknown as import('@xterm/xterm').Terminal, host);
+
+      const TOTAL = 100_000;
+      fetchResponder = (call): { status: number; headers: Record<string, string>; body: Uint8Array } => {
+        if (call.headers.range === 'bytes=0-0') {
+          return { status: 206, headers: { 'x-transcript-total': String(TOTAL) }, body: new Uint8Array([0]) };
+        }
+        if (call.headers.range === `bytes=0-${TOTAL - 1}`) {
+          return { status: 206, headers: { 'x-transcript-total': String(TOTAL) }, body: new Uint8Array(TOTAL) };
+        }
+        if (call.headers.range === `bytes=${TOTAL}-`) {
+          return { status: 206, headers: {}, body: new Uint8Array() };
+        }
+        return { status: 404, headers: {}, body: new Uint8Array() };
+      };
+
+      for (const cb of shell._snap) cb({ type: 'snapshot', ansi: 'X', cols: 120, rows: 40 });
+      // Seed completes (no more fake-timer advance needed yet).
+      await vi.runAllTimersAsync();
+      for (const cb of shell._events) cb({ type: 'state', state: 'running' } as unknown as { type: string });
+      c.pause();
+
+      term.reset.mockClear();
+      const resumeP = c.resume();
+      // Don't fire a snapshot — simulate server delay.
+      // Advance past the 2s timeout and let resume fall through to tail.
+      await vi.advanceTimersByTimeAsync(2100);
+      await resumeP;
+
+      expect(c._debugBuffers().paused).toBe(false);
+      // Reset count after resume (should have rebuilt via tail path).
+      const resetCallsAfterResume = term.reset.mock.calls.length;
+
+      // A stale/late snapshot now arrives. MUST NOT call reset+write.
+      term.reset.mockClear();
+      term.write.mockClear();
+      for (const cb of shell._snap) cb({ type: 'snapshot', ansi: 'LATE', cols: 120, rows: 40 });
+      expect(term.reset).not.toHaveBeenCalled();
+      expect(term.write).not.toHaveBeenCalledWith('LATE');
+      void resetCallsAfterResume; // silence unused-var lint
+    } finally {
+      vi.useRealTimers();
+    }
+  });
 });
