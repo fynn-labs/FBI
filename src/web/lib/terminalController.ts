@@ -3,6 +3,7 @@ import { acquireShell, releaseShell, getLastSnapshot } from './shellRegistry.js'
 import { publishUsage, publishState, publishTitle, publishChanges } from '../features/runs/usageBus.js';
 import { record as traceRecord, strPreview } from './terminalTrace.js';
 import type { ShellHandle } from './ws.js';
+import { apiBase } from './api.js';
 import type {
   UsageSnapshot,
   RunWsStateMessage,
@@ -437,7 +438,7 @@ export class TerminalController {
         let tail: Uint8Array | null = null;
         if (!freshSnap) {
           try {
-            const res = await fetch(`/api/runs/${this.runId}/transcript`, {
+            const res = await fetch(apiBase() + `/api/runs/${this.runId}/transcript`, {
               headers: { Range: `bytes=${this.liveOffset}-` },
             });
             if (!this.disposed && (res.ok || res.status === 206)) {
@@ -513,7 +514,7 @@ export class TerminalController {
       }
       const start = Math.max(0, headerTotal - CHUNK_SIZE);
       const end = headerTotal - 1;
-      const res = await fetch(`/api/runs/${this.runId}/transcript`, {
+      const res = await fetch(apiBase() + `/api/runs/${this.runId}/transcript`, {
         headers: { Range: `bytes=${start}-${end}` },
       });
       if (this.disposed) return;
@@ -547,7 +548,7 @@ export class TerminalController {
 
   /** HEAD-less total: make a 1-byte Range request to read X-Transcript-Total. */
   private async fetchTranscriptMeta(): Promise<number> {
-    const res = await fetch(`/api/runs/${this.runId}/transcript`, {
+    const res = await fetch(apiBase() + `/api/runs/${this.runId}/transcript`, {
       headers: { Range: 'bytes=0-0' },
     });
     if (this.disposed) return 0;
@@ -582,7 +583,7 @@ export class TerminalController {
     const promise = (async () => {
       this.setChunkState('loading');
       try {
-        const res = await fetch(`/api/runs/${this.runId}/transcript`, {
+        const res = await fetch(apiBase() + `/api/runs/${this.runId}/transcript`, {
           headers: { Range: `bytes=${start}-${end}` },
           signal: abort.signal,
         });

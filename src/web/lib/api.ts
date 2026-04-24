@@ -9,6 +9,10 @@ export function setApiBaseUrl(url: string): void {
   _baseUrl = url.replace(/\/$/, '');
 }
 
+export function apiBase(): string {
+  return _baseUrl;
+}
+
 export function wsBase(): string {
   if (_baseUrl) {
     return _baseUrl.replace(/^http/, 'ws');
