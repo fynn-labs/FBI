@@ -7,7 +7,7 @@
     "frontendDist": "../dist/web",
     "devUrl": "http://localhost:5173",
     "beforeDevCommand": "cd .. && npm run dev:web",
-    "beforeBuildCommand": "cd .. && npm run build:web"
+    "beforeBuildCommand": "npm run build:web"
   },
   "app": {
     "windows": [

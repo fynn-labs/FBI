@@ -27,8 +27,14 @@ jobs:
       - name: Install npm dependencies
         run: npm ci
 
+      - name: Expose tauri CLI on PATH
+        run: echo "$GITHUB_WORKSPACE/node_modules/.bin" >> $GITHUB_PATH
+
+      - name: Build web frontend
+        run: npm run build:web
+
       - name: Build macOS desktop app
-        run: npx tauri build
+        run: tauri build
         working-directory: desktop
 
       - name: Upload macOS artifacts
@@ -70,8 +76,14 @@ jobs:
       - name: Install npm dependencies
         run: npm ci
 
+      - name: Expose tauri CLI on PATH
+        run: echo "$GITHUB_WORKSPACE/node_modules/.bin" >> $GITHUB_PATH
+
+      - name: Build web frontend
+        run: npm run build:web
+
       - name: Build Linux desktop app
-        run: npx tauri build
+        run: tauri build
         working-directory: desktop
 
       - name: Upload Linux artifacts
