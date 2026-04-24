@@ -10,7 +10,8 @@ import Config
 config :fbi,
   namespace: FBI,
   ecto_repos: [FBI.Repo],
-  generators: [timestamp_type: :utc_datetime]
+  generators: [timestamp_type: :utc_datetime],
+  credentials_path: Path.expand("~/.claude/.credentials.json")
 
 # Configure the endpoint
 config :fbi, FBIWeb.Endpoint,

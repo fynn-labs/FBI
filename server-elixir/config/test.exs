@@ -1,5 +1,9 @@
 import Config
 
+# Disable usage children in test to avoid conflicts with individually
+# supervised test processes and to keep the test suite side-effect free.
+config :fbi, credentials_path: false
+
 # Configure your database
 #
 # The MIX_TEST_PARTITION environment variable can be used
