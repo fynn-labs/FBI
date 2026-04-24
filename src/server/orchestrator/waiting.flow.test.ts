@@ -79,7 +79,8 @@ describe('waiting flow (stubbed Docker)', () => {
       project_id: p.id, prompt: 'x',
       log_path_tmpl: (id) => path.join(os.tmpdir(), `wflow-${id}.log`),
     });
-    runs.markStarted(run.id, 'c1');
+    runs.markStartingFromQueued(run.id, 'c1');
+    runs.markRunning(run.id);
     runs.markWaiting(run.id);
     expect(runs.get(run.id)!.state).toBe('waiting');
     runs.markAwaitingResume(run.id, { next_resume_at: Date.now() + 60_000, last_limit_reset_at: null });
@@ -92,7 +93,8 @@ describe('waiting flow (stubbed Docker)', () => {
       project_id: p.id, prompt: 'x',
       log_path_tmpl: (id) => path.join(os.tmpdir(), `wflow-rec-${id}.log`),
     });
-    runs.markStarted(run.id, 'stub-container-id');
+    runs.markStartingFromQueued(run.id, 'stub-container-id');
+    runs.markRunning(run.id);
     runs.markWaiting(run.id);
 
     // Minimal stub: getContainer returns something whose .inspect() resolves.

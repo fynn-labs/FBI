@@ -31,7 +31,7 @@ import type { RateLimitStateRepo } from '../db/rateLimitState.js';
 import type { UsageRepo } from '../db/usage.js';
 import { UsageTailer } from './usageTailer.js';
 import { LimitMonitor } from './limitMonitor.js';
-import { WaitingWatcher } from './waitingWatcher.js';
+import { RuntimeStateWatcher, type DerivedRuntimeState } from './runtimeStateWatcher.js';
 import { GitStateWatcher } from './gitStateWatcher.js';
 import { dockerExec, type DockerExecOptions, type DockerExecResult } from './dockerExec.js';
 import { nudgeClaudeToExit } from './nudgeClaude.js';
@@ -306,7 +306,7 @@ export class Orchestrator {
     let tailer: UsageTailer | null = null;
     let titleWatcher: TitleWatcher | null = null;
     let limitMonitor: LimitMonitor | null = null;
-    let waitingWatcher: WaitingWatcher | null = null;
+    let runtimeWatcher: RuntimeStateWatcher | null = null;
     let gitWatcher: GitStateWatcher | null = null;
 
     try {
@@ -335,16 +335,16 @@ export class Orchestrator {
         stream: true, stdin: true, stdout: true, stderr: true, hijack: true,
       });
       limitMonitor = this.makeLimitMonitor(runId, container, attach, onBytes);
-      waitingWatcher = this.makeWaitingWatcher(runId);
+      runtimeWatcher = this.makeRuntimeStateWatcher(runId);
       attach.on('data', (c: Buffer) => {
         limitMonitor!.feedLog(c);
         onBytes(c);
       });
       await container.start();
       limitMonitor.start();
-      waitingWatcher.start();
+      runtimeWatcher.start();
       this.active.set(runId, { container, attachStream: attach });
-      this.deps.runs.markStarted(runId, container.id);
+      this.deps.runs.markStartingFromQueued(runId, container.id);
       this.publishState(runId);
 
       const events = this.deps.streams.getOrCreateEvents(runId);
@@ -399,7 +399,7 @@ export class Orchestrator {
       if (tailer) await tailer.stop();
       if (titleWatcher) await titleWatcher.stop();
       if (limitMonitor) limitMonitor.stop();
-      if (waitingWatcher) waitingWatcher.stop();
+      if (runtimeWatcher) runtimeWatcher.stop();
       if (gitWatcher) await gitWatcher.stop();
     }
   }
@@ -719,16 +719,23 @@ export class Orchestrator {
     });
   }
 
-  private makeWaitingWatcher(runId: number): WaitingWatcher {
-    return new WaitingWatcher({
-      path: `${this.stateDirFor(runId)}/waiting`,
-      onEnter: () => {
-        this.deps.runs.markWaiting(runId);
-        this.publishState(runId);
-      },
-      onExit: () => {
-        this.deps.runs.markRunningFromWaiting(runId);
-        this.publishState(runId);
+  private makeRuntimeStateWatcher(runId: number): RuntimeStateWatcher {
+    const stateDir = this.stateDirFor(runId);
+    return new RuntimeStateWatcher({
+      waitingPath: `${stateDir}/waiting`,
+      promptedPath: `${stateDir}/prompted`,
+      onChange: (state: DerivedRuntimeState) => {
+        // 'starting' is set explicitly at launch sites — the watcher only
+        // needs to drive the running/waiting transitions. The DB guards on
+        // markRunning / markWaiting allow them from 'starting' too, so
+        // there's no separate "first transition out of starting" branch.
+        if (state === 'running') {
+          this.deps.runs.markRunning(runId);
+          this.publishState(runId);
+        } else if (state === 'waiting') {
+          this.deps.runs.markWaiting(runId);
+          this.publishState(runId);
+        }
       },
     });
   }
