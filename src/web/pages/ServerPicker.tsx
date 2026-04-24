@@ -88,7 +88,7 @@ export function ServerPicker({ onConnect }: { onConnect: (url: string) => void }
                 onClick={() => setInput(s.url)}
               >
                 <span className="font-medium">{s.name}</span>
-                <span className="text-text-dim ml-2 after:content-[attr(data-url)]" data-url={s.url} />
+                <span className="text-text-dim ml-2">{s.url}</span>
               </button>
             ))}
           </div>
