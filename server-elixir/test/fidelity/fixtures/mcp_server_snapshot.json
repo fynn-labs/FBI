@@ -1,0 +1,11 @@
+{
+  "id": 1,
+  "project_id": null,
+  "name": "",
+  "type": "stdio",
+  "command": null,
+  "args": [],
+  "url": null,
+  "env": {},
+  "created_at": 0
+}
