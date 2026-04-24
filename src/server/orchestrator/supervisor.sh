@@ -68,7 +68,7 @@ fi
 # Register the safeguard remote. Idempotent.
 git remote add safeguard /safeguard 2>/dev/null \
     || git remote set-url safeguard /safeguard \
-    || { echo "[fbi] fatal: could not register safeguard remote"; exit 14; }
+    || { _fbi_fatal "could not register safeguard remote"; exit 14; }
 
 # Checkout the primary branch. Resume mode prefers safeguard; fresh mode
 # prefers origin; both fall back to creating the branch locally.
