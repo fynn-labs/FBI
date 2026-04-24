@@ -1,4 +1,7 @@
-# FBI
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="media/banner-dark.png">
+  <img src="media/banner-light.png" alt="FBI" width="460" />
+</picture>
 
 A personal web tool that runs `claude --dangerously-skip-permissions` inside ephemeral Docker containers, with an interactive in-browser terminal and per-run branch push.
 
