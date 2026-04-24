@@ -64,6 +64,7 @@ export class TerminalController {
   private loadedBytes: Uint8Array = new Uint8Array();
   private loadedStartOffset = 0;
   private paused = false;
+  private rebuilding = false;
   private seeded = false;
   private pendingChunk: { abort: AbortController; promise: Promise<void> } | null = null;
   private pendingResumeSnapshot: ((snap: RunWsSnapshotMessage) => void) | null = null;
@@ -142,7 +143,11 @@ export class TerminalController {
 
     this.unsubBytes = this.shell.onBytes((data) => {
       if (this.disposed) return;
-      if (this.paused) return; // drop while paused — no xterm write, no liveTailBytes append
+      // Drop while paused OR rebuilding: no xterm write, no liveTailBytes append.
+      // Paused blocks user-visible live updates; rebuilding blocks recursive
+      // writes from an onBytes handler firing mid-rebuild (which would race
+      // with rebuildXterm's own writes and double-write the same bytes).
+      if (this.paused || this.rebuilding) return;
       this.term.write(data);
       // Retain the live tail so pause/chunk-load/resume rebuilds can replay
       // it. Grows unbounded by design — see spec Q8 (no cap in v1).
@@ -327,7 +332,7 @@ export class TerminalController {
    * - nearTop + paused + startOffset > 0 → prefetch next chunk.
    */
   onScroll(s: { atBottom: boolean; nearTop: boolean }): void {
-    if (this.disposed) return;
+    if (this.disposed || this.rebuilding) return;
     if (!this.paused && !s.atBottom) {
       this.pause();
       return;
@@ -462,19 +467,18 @@ export class TerminalController {
       this.loadedBytes = concat([seedBytes, snapBytes]);
       this.loadedStartOffset = start;
       this.liveOffset = headerTotal;
-      // Gate onBytes during the rebuild so live WS bytes arriving in
-      // the rebuild window aren't double-written (once via onBytes and
-      // again when the rebuild loop writes liveTailBytes). Bytes that
-      // arrive while gated are dropped; Claude's next redraw recovers
-      // any visible state they would have affected. Task 8/9 rebuilds
-      // are already gated because they run while this.paused === true.
-      const wasPaused = this.paused;
-      this.paused = true;
+      // Gate onBytes and onScroll during the rebuild so live WS bytes
+      // aren't double-written and xterm's transient scroll events
+      // (term.reset(), write() autoscroll) don't trigger spurious
+      // pause/resume/loadOlderChunk dispatches. Distinct from `paused`:
+      // the user never paused — this is a purely internal reentrancy
+      // guard that must not fire `emitPauseChange` or affect the banner.
+      this.rebuilding = true;
       try {
         await this.rebuildXterm([this.loadedBytes, this.liveTailBytes]);
         this.term.scrollToBottom();
       } finally {
-        this.paused = wasPaused;
+        this.rebuilding = false;
       }
       traceRecord('controller.seed.complete', { bytes: seedBytes.byteLength });
     } catch (err) {
@@ -564,7 +568,7 @@ export class TerminalController {
   }
 
   /** @internal — for tests only. */
-  _debugBuffers(): { liveTailBytes: Uint8Array; liveOffset: number; latestState: RunState; loadedBytes: Uint8Array; loadedStartOffset: number; paused: boolean } {
+  _debugBuffers(): { liveTailBytes: Uint8Array; liveOffset: number; latestState: RunState; loadedBytes: Uint8Array; loadedStartOffset: number; paused: boolean; rebuilding: boolean } {
     return {
       liveTailBytes: this.liveTailBytes,
       liveOffset: this.liveOffset,
@@ -572,6 +576,7 @@ export class TerminalController {
       loadedBytes: this.loadedBytes,
       loadedStartOffset: this.loadedStartOffset,
       paused: this.paused,
+      rebuilding: this.rebuilding,
     };
   }
 

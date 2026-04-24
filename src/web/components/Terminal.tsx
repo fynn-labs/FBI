@@ -143,7 +143,7 @@ export function Terminal({ runId, interactive }: Props) {
 
   return (
     <div className="relative h-full w-full bg-surface-sunken">
-      {!ready && !paused && (
+      {!ready && (
         <div className="pointer-events-none absolute inset-0 z-20 flex items-center justify-center bg-surface-sunken text-text-dim text-[12px]">
           <span>Loading terminal…</span>
         </div>

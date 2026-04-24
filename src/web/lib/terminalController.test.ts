@@ -877,4 +877,24 @@ describe('TerminalController', () => {
     c.onScroll({ atBottom: false, nearTop: true });
     expect(loadSpy).toHaveBeenCalledTimes(1);
   });
+
+  it('onScroll is a no-op while rebuilding (seed rebuild does not trigger spurious resume)', async () => {
+    const shell = makeStubShell({ openState: 'open' });
+    acquiredShells.set(73, shell);
+    const term = makeFakeXterm();
+    const host = document.createElement('div');
+    const c = new TerminalController(73, term as unknown as import('@xterm/xterm').Terminal, host);
+    // Drive controller into rebuilding state by directly setting the flag
+    // (simulating the seed-rebuild bracket).
+    (c as unknown as { rebuilding: boolean }).rebuilding = true;
+    const pauseSpy = vi.spyOn(c, 'pause');
+    const resumeSpy = vi.spyOn(c, 'resume').mockResolvedValue();
+    // Simulate xterm scroll events that WOULD dispatch pause/resume if
+    // rebuilding were not guarded.
+    c.onScroll({ atBottom: false, nearTop: false });
+    c.onScroll({ atBottom: true, nearTop: false });
+    c.onScroll({ atBottom: false, nearTop: true });
+    expect(pauseSpy).not.toHaveBeenCalled();
+    expect(resumeSpy).not.toHaveBeenCalled();
+  });
 });
