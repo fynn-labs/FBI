@@ -28,7 +28,8 @@ defmodule FBI.Application do
          repos: Application.fetch_env!(:fbi, :ecto_repos), skip: skip_migrations?()},
         {DNSCluster, query: Application.get_env(:fbi, :dns_cluster_query) || :ignore},
         {Phoenix.PubSub, name: FBI.PubSub},
-        FBI.Github.StatusCache
+        FBI.Github.StatusCache,
+        FBI.Housekeeping.DraftUploadsGc
       ] ++
         usage_children ++
         [
