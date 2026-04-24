@@ -217,7 +217,7 @@ run_mirror_rebase() {
         exit 0
     fi
     rebased=$(git rev-parse HEAD)
-    if ! out=$(git push --force origin "HEAD:refs/heads/$FBI_BRANCH" 2>&1); then
+    if ! out=$(git push --force-with-lease origin "HEAD:refs/heads/$FBI_BRANCH" 2>&1); then
         emit_fail gh-error "push agent branch failed: $out"
         exit 0
     fi
