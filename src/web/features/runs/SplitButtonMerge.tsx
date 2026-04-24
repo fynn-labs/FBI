@@ -1,5 +1,6 @@
 import { useState, useRef, useEffect } from 'react';
 import { useMergeStrategy } from './useMergeStrategy.js';
+import { ChevronDownIcon } from '@ui/primitives/Icons.js';
 import type { MergeStrategy } from '@shared/types.js';
 
 const LABEL: Record<MergeStrategy, string> = {
@@ -62,9 +63,9 @@ export function SplitButtonMerge({ busy, disabled, disabledReason, onMerge, proj
         aria-label="Choose strategy"
         onClick={() => setOpen((v) => !v)}
         disabled={busy}
-        className="px-2 py-1.5 text-[13px] text-bg bg-accent hover:bg-accent-strong border border-l-0 border-accent border-l-bg/30 disabled:opacity-50 rounded-r-md"
+        className="px-2 py-1.5 inline-flex items-center justify-center text-bg bg-accent hover:bg-accent-strong border border-l-0 border-accent border-l-bg/30 disabled:opacity-50 rounded-r-md"
       >
-        ▾
+        <ChevronDownIcon size={14} />
       </button>
       {open && (
         <div role="menu" className="absolute top-full left-0 mt-1 z-[var(--z-palette)] min-w-[240px] bg-surface-raised border border-border-strong rounded-md shadow-popover py-1">
