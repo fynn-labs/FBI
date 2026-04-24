@@ -20,6 +20,7 @@ import type {
 import type { ChangesPayload, ChangeCommit } from '../../shared/types.js';
 import type { ParsedOpResult } from '../orchestrator/historyOp.js';
 import { parseUnifiedDiff } from '../diffParse.js';
+import { SafeguardRepo } from '../orchestrator/safeguardRepo.js';
 
 interface GhDeps {
   available(): Promise<boolean>;
@@ -100,7 +101,9 @@ function parseNumstat(raw: string): import('../../shared/types.js').FilesHeadEnt
     if (!p) continue;
     const adds = a === '-' ? 0 : Number.parseInt(a, 10) || 0;
     const dels = d === '-' ? 0 : Number.parseInt(d, 10) || 0;
-    const status: 'A' | 'M' = dels === 0 && adds > 0 ? 'A' : 'M';
+    const status: 'A' | 'M' | 'D' =
+      adds === 0 && dels > 0 ? 'D' :
+      dels === 0 && adds > 0 ? 'A' : 'M';
     out.push({ path: p, status, additions: adds, deletions: dels });
   }
   return out;
@@ -351,10 +354,15 @@ export function registerRunsRoutes(app: FastifyInstance, deps: Deps): void {
     const baseBranch = project?.default_branch ?? 'main';
     const repo = project ? parseGitHubRepo(project.repo_url) : null;
     const ghAvail = await deps.gh.available();
-    const live = deps.orchestrator.getLastFiles(runId);
 
     const commits: ChangeCommit[] = [];
     let ghPayload: ChangesPayload['integrations']['github'] | undefined;
+
+    // Read commits from the safeguard bare repo. These are not-yet-pushed
+    // from GitHub's POV until we hear back from gh; we set pushed=false for
+    // everything from the safeguard and flip to true for those gh reports.
+    const safeguard = new SafeguardRepo(path.join(deps.runsDir, String(runId), 'wip.git'));
+    const safeguardCommits = run.branch_name ? safeguard.listCommits(run.branch_name, '') : [];
 
     if (repo && ghAvail && run.branch_name) {
       const [pr, checks, ghCommits] = await Promise.all([
@@ -362,8 +370,15 @@ export function registerRunsRoutes(app: FastifyInstance, deps: Deps): void {
         deps.gh.prChecks(repo, run.branch_name).catch(() => [] as Check[]),
         deps.gh.commitsOnBranch(repo, run.branch_name).catch(() => []),
       ]);
+      const ghShas = new Set(ghCommits.map((c) => c.sha));
       for (const c of ghCommits) {
-        commits.push({ sha: c.sha, subject: c.subject, committed_at: c.committed_at, pushed: true, files: [], files_loaded: false, submodule_bumps: [] });
+        commits.push({
+          sha: c.sha, subject: c.subject, committed_at: c.committed_at,
+          pushed: true, files: [], files_loaded: false, submodule_bumps: [],
+        });
+      }
+      for (const c of safeguardCommits) {
+        if (!ghShas.has(c.sha)) commits.push(c);
       }
       const passed = checks.filter((c) => c.conclusion === 'success').length;
       const failed = checks.filter((c) => c.conclusion === 'failure').length;
@@ -379,48 +394,15 @@ export function registerRunsRoutes(app: FastifyInstance, deps: Deps): void {
           items: checks.map((c) => ({ name: c.name, status: c.status, conclusion: c.conclusion, duration_ms: null })),
         },
       };
+    } else {
+      for (const c of safeguardCommits) commits.push(c);
     }
 
-    // If we have a live head commit that isn't in the gh list, prepend it as pushed:false.
-    if (live?.head) {
-      if (!commits.some((c) => c.sha === live.head!.sha)) {
-        commits.unshift({
-          sha: live.head.sha,
-          subject: live.head.subject,
-          committed_at: Math.floor(Date.now() / 1000),
-          pushed: false,
-          files: live.headFiles,
-          files_loaded: true,
-          submodule_bumps: [],
-        });
-      }
-    }
-
-    // Populate submodule_bumps for each commit via git show --submodule=log.
-    for (const c of commits) {
-      c.submodule_bumps = [];
-      try {
-        const r = await deps.orchestrator.execInContainer(runId, [
-          'git', '-C', '/workspace', 'show', c.sha, '--submodule=log', '--no-color',
-        ], { timeoutMs: 3000 });
-        if (r.exitCode === 0) {
-          const raw = parseSubmoduleLog(r.stdout);
-          c.submodule_bumps = raw.map((b): SubmoduleBump => ({
-            path: b.path,
-            url: null,
-            from: b.from,
-            to: b.to,
-            commits: b.subjects.slice(0, 20).map((s) => ({
-              sha: s.sha, subject: s.subject, committed_at: 0, pushed: false,
-              files: [], files_loaded: false, submodule_bumps: [],
-            })),
-            commits_truncated: b.subjects.length > 20,
-          }));
-        }
-      } catch { /* live container gone; skip bumps for this commit */ }
-    }
-
-    const dirty_submodules: SubmoduleDirty[] = live?.dirty_submodules ?? [];
+    // Submodule bumps: under the safeguard model this data is not surfaced
+    // in the real-time path (container may be gone; reading from safeguard
+    // would require submodule objects we don't store there). Ship with
+    // empty arrays.
+    for (const c of commits) c.submodule_bumps = [];
 
     const children: ChildRunSummary[] = deps.runs.listByParent(runId).map((r) => ({
       id: r.id,
@@ -429,21 +411,13 @@ export function registerRunsRoutes(app: FastifyInstance, deps: Deps): void {
       created_at: r.created_at,
     }));
 
-    // Compute branch_base using run.base_branch in preference to project.default_branch.
-    // When live data is available, override the base field so it reflects the run's
-    // actual base branch rather than the watcher's initialisation-time default.
-    const liveBranchBase = live?.branchBase ?? null;
-    const branchBase = liveBranchBase
-      ? { ...liveBranchBase, base: baseBranch }
-      : null;
-
     const payload: ChangesPayload = {
       branch_name: run.branch_name || null,
-      branch_base: branchBase,
+      branch_base: null,  // UI no longer depends on this in safeguard mode
       commits,
-      uncommitted: live?.dirty ?? [],
+      uncommitted: [],  // scope A — no uncommitted
       integrations: ghPayload ? { github: ghPayload } : {},
-      dirty_submodules,
+      dirty_submodules: [],
       children,
     };
     setChangesCached(runId, payload);
