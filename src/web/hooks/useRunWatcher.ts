@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { api } from '../lib/api.js';
+import { api, wsBase } from '../lib/api.js';
 import {
   notifyComplete, notifyWaiting, clearWaitingBadge, installFocusReset,
 } from '../lib/notifications.js';
@@ -54,8 +54,7 @@ const isTerminal = (s: RunState) =>
   s === 'succeeded' || s === 'failed' || s === 'cancelled';
 
 function statesUrl(): string {
-  const proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
-  return `${proto}//${location.host}/api/ws/states`;
+  return `${wsBase()}/api/ws/states`;
 }
 
 function publishCountsFromMap(runs: Map<number, { state: RunState; project_id: number }>) {

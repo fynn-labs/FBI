@@ -9,11 +9,18 @@ const snapshot: UsageState = {
   pacing: { five_hour: { delta: 0, zone: 'on_track' } },
 };
 
+// Mock api to provide getUsage and wsBase
+vi.mock('../../lib/api.js', () => ({
+  api: {
+    getUsage: vi.fn(async () => snapshot),
+  },
+  wsBase: vi.fn(() => 'ws://localhost'),
+}));
+
 describe('useUsage', () => {
   beforeEach(() => { __resetUsageStoreForTest(); vi.restoreAllMocks(); });
 
   it('resolves to initial REST snapshot before WS opens', async () => {
-    vi.stubGlobal('fetch', vi.fn(async () => new Response(JSON.stringify(snapshot), { status: 200 })));
     class FakeWS {
       addEventListener() {}
       removeEventListener() {}
@@ -36,7 +43,6 @@ describe('useUsage', () => {
       send() {}
     }
     vi.stubGlobal('WebSocket', FakeWS);
-    vi.stubGlobal('fetch', vi.fn(async () => new Response(JSON.stringify(snapshot), { status: 200 })));
     const { result } = renderHook(() => useUsage());
     await waitFor(() => expect(result.current?.plan).toBe('max'));
     act(() => handlers.message?.(new MessageEvent('message', {

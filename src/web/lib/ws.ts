@@ -1,4 +1,5 @@
 import type { RunWsSnapshotMessage } from '@shared/types.js';
+import { wsBase } from './api.js';
 import { record, bytesPreview, strPreview } from './terminalTrace.js';
 
 export interface ShellHandle {
@@ -15,8 +16,7 @@ export interface ShellHandle {
 const RECONNECT_DELAY_MS = 500;
 
 export function openShell(runId: number): ShellHandle {
-  const proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
-  const url = `${proto}//${location.host}/api/runs/${runId}/shell`;
+  const url = `${wsBase()}/api/runs/${runId}/shell`;
 
   // Subscriber arrays live across reconnects so the controller's
   // onBytes/onSnapshot/onOpen handlers wired once at mount keep firing

@@ -23,6 +23,7 @@ vi.mock('../lib/api.js', () => ({
       created_at: 0, updated_at: 0,
     })),
   },
+  wsBase: vi.fn(() => 'ws://localhost'),
 }));
 
 // Fake WebSocket to capture the instance and drive messages.
