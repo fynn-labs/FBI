@@ -6,6 +6,7 @@ import { App } from './App.js';
 import { ServerPicker } from './pages/ServerPicker.js';
 import { getServerUrl } from './lib/serverConfig.js';
 import { setApiBaseUrl } from './lib/api.js';
+import { applyTheme, getStoredTheme, subscribeSystemTheme } from './ui/theme.js';
 import './index.css';
 
 function Root() {
@@ -16,6 +17,12 @@ function Root() {
       setApiBaseUrl(url);
       setServerUrlState(url);
     }).catch(() => setServerUrlState(''));
+  }, []);
+
+  useEffect(() => {
+    return subscribeSystemTheme((theme) => {
+      if (!getStoredTheme()) applyTheme(theme);
+    });
   }, []);
 
   if (serverUrl === null) return null;
