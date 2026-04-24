@@ -1017,7 +1017,6 @@ function uniq(xs: string[]): string[] {
   return [...new Set(xs)];
 }
 
-// ~/.claude/settings.json injected into every run container. `hooks` wires
 // Claude Code's Stop and UserPromptSubmit events to two /fbi-state/ sentinel
 // files that RuntimeStateWatcher polls. Stop creates /fbi-state/waiting
 // (turn ended). UserPromptSubmit removes /fbi-state/waiting (user replied)
