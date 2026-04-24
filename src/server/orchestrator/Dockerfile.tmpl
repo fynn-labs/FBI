@@ -11,4 +11,16 @@ RUN apt-get update && \
     apt-get install -y --no-install-recommends ca-certificates curl gnupg __APT_PACKAGES__ && \
     rm -rf /var/lib/apt/lists/*
 
+# Clipboard shims: forward pbcopy/xclip/xsel stdin to the host via OSC 52
+# (terminal clipboard protocol). The escape sequence rides the existing PTY
+# stream; xterm.js picks it up and writes to the user's real clipboard.
+RUN { \
+    echo '#!/bin/sh'; \
+    echo "data=\$(cat | base64 | tr -d '\\n')"; \
+    echo "printf '\\033]52;c;%s\\007' \"\$data\" >/dev/tty"; \
+    } > /usr/local/bin/pbcopy && \
+    cp /usr/local/bin/pbcopy /usr/local/bin/xclip && \
+    cp /usr/local/bin/pbcopy /usr/local/bin/xsel && \
+    chmod +x /usr/local/bin/pbcopy /usr/local/bin/xclip /usr/local/bin/xsel
+
 __ENV_EXPORTS__
