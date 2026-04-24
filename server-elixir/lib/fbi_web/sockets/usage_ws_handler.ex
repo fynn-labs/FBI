@@ -22,15 +22,6 @@ defmodule FBIWeb.Sockets.UsageWSHandler do
 
   @behaviour WebSock
 
-  import Plug.Conn
-
-  @doc "Plug-compatible entry point that performs the WS upgrade and hands off to this WebSock handler."
-  def upgrade(conn, _opts) do
-    conn
-    |> WebSockAdapter.upgrade(__MODULE__, %{}, timeout: 60_000)
-    |> halt()
-  end
-
   @impl true
   def init(_state) do
     Phoenix.PubSub.subscribe(FBI.PubSub, "usage")

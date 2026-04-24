@@ -16,8 +16,8 @@ defmodule FBIWeb.Router do
   # WebSocket upgrade routes must not go through the :api pipeline — the
   # `accepts ["json"]` plug rejects connections that don't carry a JSON
   # Content-Type header, which a WS upgrade request never does.
-  scope "/api" do
-    get "/ws/usage", FBIWeb.Sockets.UsageWSHandler, :upgrade
+  scope "/api", FBIWeb do
+    get "/ws/usage", UsageSocketController, :upgrade
   end
 
   # Enable LiveDashboard in development
