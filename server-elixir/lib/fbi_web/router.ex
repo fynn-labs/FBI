@@ -56,6 +56,11 @@ defmodule FBIWeb.Router do
     get "/runs/:id/transcript", TranscriptController, :show
     get "/runs/:id/files", FilesController, :show
 
+    get "/runs/:id/changes", ChangesController, :show
+    get "/runs/:id/commits/:sha/files", ChangesController, :commit_files
+    get "/runs/:id/submodule/*path", ChangesController, :submodule_files
+    get "/runs/:id/file-diff", FileDiffController, :show
+
     get "/runs/:id/github", GithubController, :show
     post "/runs/:id/github/pr", GithubController, :create_pr
     post "/runs/:id/github/merge", GithubController, :merge
