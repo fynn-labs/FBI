@@ -18,6 +18,7 @@ import type { ListeningPort } from '@shared/types.js';
 import { useKeyBinding } from '@ui/shell/KeyMap.js';
 import { subscribeState, subscribeTitle, subscribeChanges } from '../features/runs/usageBus.js';
 import { UploadTray, type UploadTrayFile } from '../components/UploadTray.js';
+import { ContinueRunDialog } from '../components/ContinueRunDialog.js';
 import { acquireShell, releaseShell } from '../lib/shellRegistry.js';
 
 export function RunDetailPage() {
@@ -35,6 +36,7 @@ export function RunDetailPage() {
   const [error, setError] = useState<string | null>(null);
   const [ports, setPorts] = useState<ListeningPort[]>([]);
   const [attached, setAttached] = useState<UploadTrayFile[]>([]);
+  const [continueOpen, setContinueOpen] = useState(false);
   const terminalPaneRef = useRef<HTMLDivElement | null>(null);
   const { height, setHeight } = useBottomPaneHeight();
 
@@ -198,7 +200,7 @@ export function RunDetailPage() {
 
   if (error) return <ErrorState message={error} />;
   if (!run) return <LoadingState label="Loading run…" />;
-  const interactive = run.state === 'running' || run.state === 'queued' || run.state === 'waiting';
+  const interactive = run.state === 'running' || run.state === 'queued' || run.state === 'waiting' || run.state === 'starting';
 
   async function cancel() {
     if (!confirm('Cancel this run?')) return;
@@ -209,10 +211,20 @@ export function RunDetailPage() {
     try { await api.deleteRun(runId); nav(-1); } catch { /* ignore */ }
   }
 
-  async function kontinue() {
+  function openContinueDialog(): void {
     if (!run) return;
-    try { await api.continueRun(run.id); }
-    catch (e) {
+    setContinueOpen(true);
+  }
+
+  async function onContinueConfirm(params: {
+    model: string | null;
+    effort: string | null;
+    subagent_model: string | null;
+  }): Promise<void> {
+    if (!run) return;
+    try {
+      await api.continueRun(run.id, params);
+    } catch (e) {
       const raw = e instanceof Error ? e.message : String(e);
       const m = raw.match(/^HTTP \d+:\s*(.+)$/);
       let shown = raw;
@@ -247,7 +259,7 @@ export function RunDetailPage() {
 
   return (
     <div className="h-full flex flex-col min-h-0">
-      <RunHeader run={run} onCancel={cancel} onDelete={remove} onContinue={kontinue} onRenamed={setRun} />
+      <RunHeader run={run} onCancel={cancel} onDelete={remove} onContinue={openContinueDialog} onRenamed={setRun} />
       <div className="flex-1 min-h-0 flex flex-col">
         <div
           ref={terminalPaneRef}
@@ -302,6 +314,14 @@ export function RunDetailPage() {
           }
         </RunDrawer>
       </div>
+      {run && (
+        <ContinueRunDialog
+          run={run}
+          open={continueOpen}
+          onClose={() => setContinueOpen(false)}
+          onSubmit={onContinueConfirm}
+        />
+      )}
     </div>
   );
 }

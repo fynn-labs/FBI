@@ -6,6 +6,7 @@ import { Checkbox } from '@ui/primitives/Checkbox.js';
 import { cn } from '@ui/cn.js';
 
 const ORDER: readonly { state: RunState; label: string }[] = [
+  { state: 'starting',        label: 'starting'  },
   { state: 'running',         label: 'running'   },
   { state: 'waiting',         label: 'waiting'   },
   { state: 'awaiting_resume', label: 'awaiting'  },
@@ -16,6 +17,7 @@ const ORDER: readonly { state: RunState; label: string }[] = [
 ];
 
 const DOT_TONE: Record<RunState, string> = {
+  starting:        'bg-run',
   running:         'bg-run',
   waiting:         'bg-attn',
   awaiting_resume: 'bg-warn',

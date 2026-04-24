@@ -13,7 +13,7 @@ export function ProjectList({ projects, runs }: ProjectListProps) {
     <div className="flex flex-col">
       <h2 className="px-3 pt-2 pb-1 text-[12px] font-semibold uppercase tracking-[0.08em] text-text-faint">Projects</h2>
       {projects.map((p) => {
-        const hasRunning = runs.some((r) => r.project_id === p.id && r.state === 'running');
+        const hasRunning = runs.some((r) => r.project_id === p.id && (r.state === 'running' || r.state === 'starting'));
         const hasWaiting = runs.some((r) => r.project_id === p.id && r.state === 'waiting');
         const count = runs.filter((r) => r.project_id === p.id).length;
         return (

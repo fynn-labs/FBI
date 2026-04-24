@@ -149,6 +149,10 @@ chmod +x .git/hooks/post-commit
 set +e
 if [ -n "${FBI_RESUME_SESSION_ID:-}" ]; then
     echo "[fbi] resuming claude session $FBI_RESUME_SESSION_ID"
+    # claude --resume presents '>' immediately and waits for user input. Signal
+    # 'waiting' state so the host watcher leaves 'starting' before any hook fires.
+    # The Stop hook touches the same file, so this is just an early signal.
+    touch /fbi-state/waiting
     claude --resume "$FBI_RESUME_SESSION_ID" --dangerously-skip-permissions
     CLAUDE_EXIT=$?
 else
@@ -161,6 +165,10 @@ else
     done
     [ -f /fbi/prompt.txt ] || { echo "prompt.txt not found in /fbi"; exit 12; }
     cat /fbi/prompt.txt >> /tmp/prompt.txt
+    # Fresh launch: a prompt is being submitted via stdin pipe. Signal 'running'
+    # so the host watcher leaves 'starting'. Claude Code does not fire
+    # UserPromptSubmit for stdin-piped input, so we have to signal it ourselves.
+    touch /fbi-state/prompted
     claude --dangerously-skip-permissions < /tmp/prompt.txt
     CLAUDE_EXIT=$?
 fi

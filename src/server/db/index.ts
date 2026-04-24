@@ -119,6 +119,15 @@ export function migrate(db: DB): void {
     db.exec('ALTER TABLE runs ADD COLUMN parent_run_id INTEGER REFERENCES runs(id) ON DELETE SET NULL');
     db.exec('CREATE INDEX IF NOT EXISTS idx_runs_parent ON runs(parent_run_id)');
   }
+  if (!runCols.has('model')) {
+    db.exec('ALTER TABLE runs ADD COLUMN model TEXT');
+  }
+  if (!runCols.has('effort')) {
+    db.exec('ALTER TABLE runs ADD COLUMN effort TEXT');
+  }
+  if (!runCols.has('subagent_model')) {
+    db.exec('ALTER TABLE runs ADD COLUMN subagent_model TEXT');
+  }
 
   // Project column: default_merge_strategy. Existing projects default to
   // 'merge' (preserves today's PR-merge-commit semantics); new projects get

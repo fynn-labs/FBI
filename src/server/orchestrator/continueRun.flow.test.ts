@@ -54,7 +54,7 @@ function makeSuccessContainer(): Docker.Container {
     attach: async () => attachStream,
     start: async () => {
       resultTar = await makeResultTar(0, 0, 'cafe', 'feat/keep-going');
-      attachStream.push(Buffer.from('[fbi] run succeeded\n'));
+      attachStream.push(Buffer.from('CONTINUE-OUTPUT-MARKER\n'));
       attachStream.push(null);
     },
     wait: async () => ({ StatusCode: 0 }),
@@ -104,7 +104,8 @@ describe('Orchestrator.continueRun', () => {
       log_path_tmpl: (id) => path.join(os.tmpdir(), `cont-${id}.log`),
     });
     // Walk the run through a full failure cycle.
-    runs.markStarted(run.id, 'c1');
+    runs.markStartingFromQueued(run.id, 'c1');
+    runs.markRunning(run.id);
     runs.setClaudeSessionId(run.id, 'sess-xyz');
     runs.markFinished(run.id, { state: 'failed', error: 'OOM' });
     // Plant the session JSONL on disk so eligibility passes.
@@ -121,6 +122,7 @@ describe('Orchestrator.continueRun', () => {
     } as unknown as Docker;
 
     const orch = makeOrchestrator(mockDocker);
+    runs.markStartingForContinueRequest(run.id);
     await orch.continueRun(run.id);
 
     const final = runs.get(run.id)!;
@@ -137,16 +139,44 @@ describe('Orchestrator.continueRun', () => {
     expect(binds).toContainEqual(`${runUploadsDir(dir, run.id)}:/fbi/uploads:ro`);
   });
 
-  it('rejects a run without a captured session id', async () => {
-    const { runs, p, makeOrchestrator } = setup();
+  it('feeds continue-emitted bytes through ScreenState so a resync during the continue would show them', async () => {
+    const { dir, runs, p, streams, makeOrchestrator } = setup();
     const run = runs.create({
-      project_id: p.id, prompt: 'x',
+      project_id: p.id, prompt: 'keep going',
+      branch_hint: 'feat/keep-going',
       log_path_tmpl: (id) => path.join(os.tmpdir(), `cont-${id}.log`),
     });
-    runs.markStarted(run.id, 'c1');
-    runs.markFinished(run.id, { state: 'failed' });
-    const orch = makeOrchestrator({ createContainer: vi.fn() } as unknown as Docker);
-    await expect(orch.continueRun(run.id)).rejects.toThrow(/no_session/);
+    runs.markStartingFromQueued(run.id, 'c1');
+    runs.markRunning(run.id);
+    runs.setClaudeSessionId(run.id, 'sess-xyz');
+    runs.markFinished(run.id, { state: 'failed', error: 'OOM' });
+    const sessDir = runMountDir(dir, run.id);
+    fs.mkdirSync(sessDir, { recursive: true });
+    fs.writeFileSync(path.join(sessDir, 'sess-xyz.jsonl'), '{"x":1}\n');
+
+    // Capture the screen the orchestrator creates for this run so we can
+    // inspect it after the run ends (streams.release disposes the real one).
+    const captured: { screen: ReturnType<typeof streams.getOrCreateScreen> | null } = { screen: null };
+    const origGetOrCreate = streams.getOrCreateScreen.bind(streams);
+    vi.spyOn(streams, 'getOrCreateScreen').mockImplementation((id, cols, rows) => {
+      const s = origGetOrCreate(id, cols, rows);
+      if (id === run.id) captured.screen = s;
+      return s;
+    });
+
+    const mockDocker = {
+      createContainer: vi.fn().mockResolvedValue(makeSuccessContainer()),
+    } as unknown as Docker;
+    const orch = makeOrchestrator(mockDocker);
+    runs.markStartingForContinueRequest(run.id);
+    await orch.continueRun(run.id);
+    // Let the headless xterm parser finish consuming any queued writes.
+    await new Promise((r) => setTimeout(r, 20));
+
+    expect(captured.screen).not.toBeNull();
+    const ansi = captured.screen!.serialize();
+    expect(ansi).toContain('continuing from session');
+    expect(ansi).toContain('CONTINUE-OUTPUT-MARKER');
   });
 
   it('revives a succeeded run (continuation is allowed after success)', async () => {
@@ -156,7 +186,8 @@ describe('Orchestrator.continueRun', () => {
       branch_hint: 'feat/done',
       log_path_tmpl: (id) => path.join(os.tmpdir(), `cont-${id}.log`),
     });
-    runs.markStarted(run.id, 'c1');
+    runs.markStartingFromQueued(run.id, 'c1');
+    runs.markRunning(run.id);
     runs.setClaudeSessionId(run.id, 'sess-ok');
     runs.markFinished(run.id, { state: 'succeeded' });
     const sessDir = runMountDir(dir, run.id);
@@ -167,6 +198,7 @@ describe('Orchestrator.continueRun', () => {
       createContainer: vi.fn().mockResolvedValue(makeSuccessContainer()),
     } as unknown as Docker;
     const orch = makeOrchestrator(mockDocker);
+    runs.markStartingForContinueRequest(run.id);
     await orch.continueRun(run.id);
     expect(runs.get(run.id)!.state).toBe('succeeded');
   });
@@ -179,5 +211,47 @@ describe('Orchestrator.continueRun', () => {
     });
     const orch = makeOrchestrator({ createContainer: vi.fn() } as unknown as Docker);
     await expect(orch.continueRun(run.id)).rejects.toThrow(/wrong_state/);
+  });
+
+  it('clears stale runtime sentinels so markStartingContainer sees state=starting', async () => {
+    const { dir, runs, p, makeOrchestrator } = setup();
+    const run = runs.create({
+      project_id: p.id, prompt: 'x',
+      branch_hint: 'feat/x',
+      log_path_tmpl: (id) => path.join(os.tmpdir(), `cont-stale-${id}.log`),
+    });
+    runs.markStartingFromQueued(run.id, 'c1');
+    runs.markRunning(run.id);
+    runs.setClaudeSessionId(run.id, 'sess-stale');
+    runs.markFinished(run.id, { state: 'succeeded' });
+    const sessDir = runMountDir(dir, run.id);
+    fs.mkdirSync(sessDir, { recursive: true });
+    fs.writeFileSync(path.join(sessDir, 'sess-stale.jsonl'), '{"x":1}\n');
+
+    // Plant a stale `prompted` sentinel from the previous run.
+    const { runStateDir } = await import('./sessionId.js');
+    const stateDir = runStateDir(dir, run.id);
+    fs.mkdirSync(stateDir, { recursive: true });
+    fs.writeFileSync(path.join(stateDir, 'prompted'), '');
+
+    const mockDocker = {
+      createContainer: vi.fn().mockResolvedValue(makeSuccessContainer()),
+    } as unknown as Docker;
+    const orch = makeOrchestrator(mockDocker);
+    runs.markStartingForContinueRequest(run.id);
+
+    // Intercept markStartingContainer to capture the DB state at call time.
+    const statesAtCall: string[] = [];
+    const origFn = runs.markStartingContainer.bind(runs);
+    vi.spyOn(runs, 'markStartingContainer').mockImplementation((id, containerId) => {
+      statesAtCall.push(runs.get(id)?.state ?? 'not-found');
+      origFn(id, containerId);
+    });
+
+    await orch.continueRun(run.id);
+
+    // Without clearRuntimeSentinels, the stale `prompted` sentinel fires markRunning first,
+    // which flips state to 'running' before markStartingContainer is called — guard fails.
+    expect(statesAtCall).toEqual(['starting']);
   });
 });

@@ -10,6 +10,7 @@ import type { RunStreamRegistry } from '../logs/registry.js';
 import { checkContinueEligibility } from '../orchestrator/continueEligibility.js';
 import { promoteDraft } from '../uploads/promote.js';
 import { isDraftToken } from '../uploads/token.js';
+import { validateModelParams } from './modelParams.js';
 import type {
   FilesPayload, FilesHeadEntry,
   GithubPayload, HistoryOp, HistoryResult, MergeStrategy,
@@ -59,6 +60,7 @@ interface Deps {
   cancel: (runId: number) => Promise<void>;
   fireResumeNow: (runId: number) => void;
   continueRun: (runId: number) => Promise<void>;
+  markStartingForContinueRequest: (runId: number) => void;  // NEW
   orchestrator: OrchestratorDep;
   wipRepo: WipRepoDep;
 }
@@ -164,17 +166,35 @@ export function registerRunsRoutes(app: FastifyInstance, deps: Deps): void {
 
   app.post('/api/projects/:id/runs', async (req, reply) => {
     const { id } = req.params as { id: string };
-    const body = req.body as { prompt: string; branch?: string; draft_token?: string };
+    const body = req.body as {
+      prompt: string;
+      branch?: string;
+      draft_token?: string;
+      model?: string | null;
+      effort?: string | null;
+      subagent_model?: string | null;
+    };
     const hint = (body.branch ?? '').trim();
     const token = typeof body.draft_token === 'string' ? body.draft_token : '';
     if (token.length > 0 && !isDraftToken(token)) {
       return reply.code(400).send({ error: 'invalid_token' });
+    }
+    const verdict = validateModelParams({
+      model: body.model,
+      effort: body.effort,
+      subagent_model: body.subagent_model,
+    });
+    if (!verdict.ok) {
+      return reply.code(400).send({ error: verdict.message });
     }
     const run = deps.runs.create({
       project_id: Number(id),
       prompt: body.prompt,
       branch_hint: hint === '' ? undefined : hint,
       log_path_tmpl: (rid) => path.join(deps.runsDir, `${rid}.log`),
+      model: body.model ?? null,
+      effort: body.effort ?? null,
+      subagent_model: body.subagent_model ?? null,
     });
     if (token.length > 0) {
       try {
@@ -251,14 +271,37 @@ export function registerRunsRoutes(app: FastifyInstance, deps: Deps): void {
 
   app.post('/api/runs/:id/continue', async (req, reply) => {
     const { id } = req.params as { id: string };
+    const body = (req.body ?? {}) as {
+      model?: string | null;
+      effort?: string | null;
+      subagent_model?: string | null;
+    };
     const run = deps.runs.get(Number(id));
     if (!run) return reply.code(404).send({ error: 'not found' });
-    // Synchronous eligibility check so 409s don't pay the latency of the
-    // orchestrator's full container-start sequence.
     const verdict = checkContinueEligibility(run, deps.runsDir);
     if (!verdict.ok) {
       return reply.code(409).send({ code: verdict.code, message: verdict.message });
     }
+    const valid = validateModelParams({
+      model: body.model,
+      effort: body.effort,
+      subagent_model: body.subagent_model,
+    });
+    if (!valid.ok) {
+      return reply.code(400).send({ error: valid.message });
+    }
+    // Continue is "the dialog is source of truth": always overwrite. The UI
+    // pre-fills the dialog from the current run so unchanged fields round-trip.
+    deps.runs.updateModelParams(run.id, {
+      model: body.model ?? null,
+      effort: body.effort ?? null,
+      subagent_model: body.subagent_model ?? null,
+    });
+    // Flip to 'starting' synchronously so the UI's WS state message lands
+    // within milliseconds of the click — before Docker is even called.
+    // continueEligibility's source-state check rejects 'starting', so a
+    // double-click is a clean 409.
+    deps.markStartingForContinueRequest(run.id);
     // Fire-and-forget: continueRun runs the entire container lifecycle, so
     // awaiting it would block the HTTP response for the duration of the run.
     void deps.continueRun(run.id).catch((err) => {

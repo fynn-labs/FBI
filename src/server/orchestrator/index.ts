@@ -25,18 +25,20 @@ import type { RateLimitSnapshot } from '../../shared/types.js';
 import { ResumeScheduler } from './resumeScheduler.js';
 import { scanSessionId, runMountDir, runStateDir, runUploadsDir, runScriptsDir } from './sessionId.js';
 import { snapshotScripts } from './snapshotScripts.js';
+import { modelParamEnvEntries } from './modelParamEnv.js';
 import { TitleWatcher } from './titleWatcher.js';
 import type { RateLimitStateRepo } from '../db/rateLimitState.js';
 import type { UsageRepo } from '../db/usage.js';
 import { UsageTailer } from './usageTailer.js';
 import { LimitMonitor } from './limitMonitor.js';
-import { WaitingWatcher } from './waitingWatcher.js';
+import { RuntimeStateWatcher, type DerivedRuntimeState } from './runtimeStateWatcher.js';
 import { GitStateWatcher } from './gitStateWatcher.js';
 import { dockerExec, type DockerExecOptions, type DockerExecResult } from './dockerExec.js';
 import { buildEnv, runHistoryOpInContainer, runHistoryOpInTransientContainer, type ParsedOpResult } from './historyOp.js';
 import type { HistoryOp } from '../../shared/types.js';
 import { nudgeClaudeToExit } from './nudgeClaude.js';
 import { checkContinueEligibility } from './continueEligibility.js';
+import { makeOnBytes } from '../logs/onBytes.js';
 import type { FilesPayload } from '../../shared/types.js';
 import { WipRepo } from './wipRepo.js';
 
@@ -172,6 +174,17 @@ export class Orchestrator {
     });
   }
 
+  /**
+   * Public wrapper for the API endpoint: synchronously flips a terminated
+   * run to `starting` and broadcasts the state change. The async
+   * continueRun lifecycle (container creation, etc.) is kicked off
+   * separately by the endpoint as fire-and-forget.
+   */
+  markStartingForContinueRequest(runId: number): void {
+    this.deps.runs.markStartingForContinueRequest(runId);
+    this.publishState(runId);
+  }
+
   private publishTitleUpdate(runId: number, title: string): void {
     this.deps.runs.updateTitle(runId, title, { respectLock: true });
     const after = this.deps.runs.get(runId);
@@ -205,7 +218,10 @@ export class Orchestrator {
     });
     onBytes(Buffer.from(`[fbi] image: ${imageTag}\n`));
 
-    const auth: GitAuth = new SshAgentForwarding(this.deps.config.hostSshAuthSock);
+    const auth: GitAuth = new SshAgentForwarding(
+      this.deps.config.hostSshAuthSock,
+      this.deps.config.hostBindSshAuthSock ?? this.deps.config.hostSshAuthSock,
+    );
     const projectSecrets = this.deps.secrets.decryptAll(project.id);
     const authorName = project.git_author_name ?? this.deps.config.gitAuthorName;
     const authorEmail = project.git_author_email ?? this.deps.config.gitAuthorEmail;
@@ -216,6 +232,14 @@ export class Orchestrator {
 
     const mountDir = this.ensureMountDir(runId);
     const scriptsDir = this.ensureScriptsDir(runId);
+    const toBindHost = (localPath: string): string => {
+      const { runsDir, hostRunsDir } = this.deps.config;
+      if (!hostRunsDir || hostRunsDir === runsDir) return localPath;
+      if (localPath.startsWith(runsDir)) {
+        return hostRunsDir + localPath.slice(runsDir.length);
+      }
+      return localPath;
+    };
 
     onBytes(Buffer.from(`[fbi] starting container\n`));
     const container = await this.deps.docker.createContainer({
@@ -236,6 +260,7 @@ export class Orchestrator {
         ...(opts.branchName ? [`FBI_CHECKOUT_BRANCH=${opts.branchName}`] : []),
         ...Object.entries(auth.env()).map(([k, v]) => `${k}=${v}`),
         ...Object.entries(projectSecrets).map(([k, v]) => `${k}=${v}`),
+        ...modelParamEnvEntries(run),
       ],
       Tty: true,
       OpenStdin: true,
@@ -247,20 +272,27 @@ export class Orchestrator {
         NanoCpus: Math.round(cpus * 1e9),
         PidsLimit: pids,
         Binds: [
-          `${path.join(scriptsDir, 'supervisor.sh')}:/usr/local/bin/supervisor.sh:ro`,
-          `${path.join(scriptsDir, 'finalizeBranch.sh')}:/usr/local/bin/fbi-finalize-branch.sh:ro`,
-          `${path.join(scriptsDir, 'fbi-history-op.sh')}:/usr/local/bin/fbi-history-op.sh:ro`,
-          `${path.join(scriptsDir, 'fbi-wip-snapshot.sh')}:/usr/local/bin/fbi-wip-snapshot.sh:ro`,
-          `${path.join(scriptsDir, 'fbi-resume-restore.sh')}:/usr/local/bin/fbi-resume-restore.sh:ro`,
-          `${this.wipRepo.path(runId)}:/fbi-wip.git:rw`,
-          `${mountDir}:/home/agent/.claude/projects/`,
-          `${this.ensureStateDir(runId)}:/fbi-state/`,
-          `${this.ensureUploadsDir(runId)}:/fbi/uploads:ro`,
-          ...claudeAuthMounts(this.deps.config.hostClaudeDir),
+          `${toBindHost(path.join(scriptsDir, 'supervisor.sh'))}:/usr/local/bin/supervisor.sh:ro`,
+          `${toBindHost(path.join(scriptsDir, 'finalizeBranch.sh'))}:/usr/local/bin/fbi-finalize-branch.sh:ro`,
+          `${toBindHost(path.join(scriptsDir, 'fbi-history-op.sh'))}:/usr/local/bin/fbi-history-op.sh:ro`,
+          `${toBindHost(path.join(scriptsDir, 'fbi-wip-snapshot.sh'))}:/usr/local/bin/fbi-wip-snapshot.sh:ro`,
+          `${toBindHost(path.join(scriptsDir, 'fbi-resume-restore.sh'))}:/usr/local/bin/fbi-resume-restore.sh:ro`,
+          `${toBindHost(this.wipRepo.path(runId))}:/fbi-wip.git:rw`,
+          `${toBindHost(mountDir)}:/home/agent/.claude/projects/`,
+          `${toBindHost(this.ensureStateDir(runId))}:/fbi-state/`,
+          `${toBindHost(this.ensureUploadsDir(runId))}:/fbi/uploads:ro`,
+          ...claudeAuthMounts(
+            this.deps.config.hostClaudeDir,
+            this.deps.config.hostBindClaudeDir ?? this.deps.config.hostClaudeDir,
+          ),
+          ...dockerSocketMounts(this.deps.config.hostDockerSocket),
           ...auth.mounts().map((m) =>
             `${m.source}:${m.target}${m.readOnly ? ':ro' : ''}`
           ),
         ],
+        ...(this.deps.config.hostDockerGid !== null
+          ? { GroupAdd: [String(this.deps.config.hostDockerGid)] }
+          : {}),
       },
     });
 
@@ -290,14 +322,7 @@ export class Orchestrator {
     const store = new LogStore(run.log_path);
     const broadcaster = this.deps.streams.getOrCreate(runId);
     const screen = this.deps.streams.getOrCreateScreen(runId);
-    const onBytes = (chunk: Uint8Array) => {
-      store.append(chunk);
-      broadcaster.publish(chunk);
-      // ScreenState.write returns a promise (parser is async). We don't
-      // await — ordering is preserved internally by xterm-headless, and
-      // snapshot callers tolerate "at most one frame stale."
-      void screen.write(chunk).catch(() => {});
-    };
+    const onBytes = makeOnBytes(store, broadcaster, screen);
 
     const preamble = [
       `You are working in /workspace on ${project.repo_url}.`,
@@ -315,7 +340,7 @@ export class Orchestrator {
     let tailer: UsageTailer | null = null;
     let titleWatcher: TitleWatcher | null = null;
     let limitMonitor: LimitMonitor | null = null;
-    let waitingWatcher: WaitingWatcher | null = null;
+    let runtimeWatcher: RuntimeStateWatcher | null = null;
     let gitWatcher: GitStateWatcher | null = null;
 
     try {
@@ -344,16 +369,16 @@ export class Orchestrator {
         stream: true, stdin: true, stdout: true, stderr: true, hijack: true,
       });
       limitMonitor = this.makeLimitMonitor(runId, container, attach, onBytes);
-      waitingWatcher = this.makeWaitingWatcher(runId);
+      runtimeWatcher = this.makeRuntimeStateWatcher(runId);
       attach.on('data', (c: Buffer) => {
         limitMonitor!.feedLog(c);
         onBytes(c);
       });
       await container.start();
       limitMonitor.start();
-      waitingWatcher.start();
+      runtimeWatcher.start();
       this.active.set(runId, { container, attachStream: attach });
-      this.deps.runs.markStarted(runId, container.id);
+      this.deps.runs.markStartingFromQueued(runId, container.id);
       this.publishState(runId);
 
       const events = this.deps.streams.getOrCreateEvents(runId);
@@ -422,7 +447,7 @@ export class Orchestrator {
       if (tailer) await tailer.stop();
       if (titleWatcher) await titleWatcher.stop();
       if (limitMonitor) limitMonitor.stop();
-      if (waitingWatcher) waitingWatcher.stop();
+      if (runtimeWatcher) runtimeWatcher.stop();
       if (gitWatcher) await gitWatcher.stop();
     }
   }
@@ -579,11 +604,7 @@ export class Orchestrator {
     const store = new LogStore(run.log_path);
     const broadcaster = this.deps.streams.getOrCreate(runId);
     const screen = this.deps.streams.getOrCreateScreen(runId);
-    const onBytes = (chunk: Uint8Array) => {
-      store.append(chunk);
-      broadcaster.publish(chunk);
-      void screen.write(chunk).catch(() => {});
-    };
+    const onBytes = makeOnBytes(store, broadcaster, screen);
 
     onBytes(Buffer.from(
       `\n[fbi] resuming (attempt ${run.resume_attempts} of ${this.deps.settings.get().auto_resume_max_attempts})\n`,
@@ -637,13 +658,14 @@ export class Orchestrator {
         stream: true, stdin: true, stdout: true, stderr: true, hijack: true,
       });
       const limitMonitor = this.makeLimitMonitor(runId, container, attach, onBytes);
-      const waitingWatcher = this.makeWaitingWatcher(runId);
+      const runtimeWatcher = this.makeRuntimeStateWatcher(runId);
       attach.on('data', (c: Buffer) => { limitMonitor.feedLog(c); onBytes(c); });
       await container.start();
       limitMonitor.start();
-      waitingWatcher.start();
+      this.clearRuntimeSentinels(runId);
+      runtimeWatcher.start();
       this.active.set(runId, { container, attachStream: attach });
-      this.deps.runs.markResuming(runId, container.id);
+      this.deps.runs.markStartingForResume(runId, container.id);
       this.publishState(runId);
 
       const titleWatcher = new TitleWatcher({
@@ -659,7 +681,7 @@ export class Orchestrator {
       } finally {
         await titleWatcher.stop();
         limitMonitor.stop();
-        waitingWatcher.stop();
+        runtimeWatcher.stop();
       }
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
@@ -674,12 +696,19 @@ export class Orchestrator {
   async continueRun(runId: number): Promise<void> {
     const run = this.deps.runs.get(runId);
     if (!run) throw new Error(`run ${runId} not found`);
-    const verdict = checkContinueEligibility(run, this.deps.config.runsDir);
-    if (!verdict.ok) throw new ContinueNotEligibleError(verdict.code, verdict.message);
+    // API endpoint has already validated eligibility and flipped to 'starting'.
+    // Bail defensively if state is no longer 'starting' (e.g., a cancel raced us).
+    if (run.state !== 'starting') {
+      throw new ContinueNotEligibleError(
+        'wrong_state',
+        `continueRun: expected state 'starting' (set by API), got '${run.state}'`,
+      );
+    }
 
     const store = new LogStore(run.log_path);
     const broadcaster = this.deps.streams.getOrCreate(runId);
-    const onBytes = (chunk: Uint8Array) => { store.append(chunk); broadcaster.publish(chunk); };
+    const screen = this.deps.streams.getOrCreateScreen(runId);
+    const onBytes = makeOnBytes(store, broadcaster, screen);
     onBytes(Buffer.from(`\n[fbi] continuing from session ${run.claude_session_id}\n`));
 
     try {
@@ -706,13 +735,14 @@ export class Orchestrator {
         stream: true, stdin: true, stdout: true, stderr: true, hijack: true,
       });
       const limitMonitor = this.makeLimitMonitor(runId, container, attach, onBytes);
-      const waitingWatcher = this.makeWaitingWatcher(runId);
+      const runtimeWatcher = this.makeRuntimeStateWatcher(runId);
       attach.on('data', (c: Buffer) => { limitMonitor.feedLog(c); onBytes(c); });
       await container.start();
       limitMonitor.start();
-      waitingWatcher.start();
+      this.clearRuntimeSentinels(runId);
+      runtimeWatcher.start();
       this.active.set(runId, { container, attachStream: attach });
-      this.deps.runs.markContinuing(runId, container.id);
+      this.deps.runs.markStartingContainer(runId, container.id);
       this.publishState(runId);
 
       const titleWatcher = new TitleWatcher({
@@ -728,7 +758,7 @@ export class Orchestrator {
       } finally {
         await titleWatcher.stop();
         limitMonitor.stop();
-        waitingWatcher.stop();
+        runtimeWatcher.stop();
       }
     } catch (err) {
       if (err instanceof ContinueNotEligibleError) throw err;
@@ -770,16 +800,29 @@ export class Orchestrator {
     });
   }
 
-  private makeWaitingWatcher(runId: number): WaitingWatcher {
-    return new WaitingWatcher({
-      path: `${this.stateDirFor(runId)}/waiting`,
-      onEnter: () => {
-        this.deps.runs.markWaiting(runId);
-        this.publishState(runId);
-      },
-      onExit: () => {
-        this.deps.runs.markRunningFromWaiting(runId);
-        this.publishState(runId);
+  private clearRuntimeSentinels(runId: number): void {
+    const dir = this.stateDirFor(runId);
+    fs.rmSync(path.join(dir, 'waiting'), { force: true });
+    fs.rmSync(path.join(dir, 'prompted'), { force: true });
+  }
+
+  private makeRuntimeStateWatcher(runId: number): RuntimeStateWatcher {
+    const stateDir = this.stateDirFor(runId);
+    return new RuntimeStateWatcher({
+      waitingPath: `${stateDir}/waiting`,
+      promptedPath: `${stateDir}/prompted`,
+      onChange: (state: DerivedRuntimeState) => {
+        // 'starting' is set explicitly at launch sites — the watcher only
+        // needs to drive the running/waiting transitions. The DB guards on
+        // markRunning / markWaiting allow them from 'starting' too, so
+        // there's no separate "first transition out of starting" branch.
+        if (state === 'running') {
+          this.deps.runs.markRunning(runId);
+          this.publishState(runId);
+        } else if (state === 'waiting') {
+          this.deps.runs.markWaiting(runId);
+          this.publishState(runId);
+        }
       },
     });
   }
@@ -925,6 +968,7 @@ export class Orchestrator {
    */
   async recover(): Promise<void> {
     const live = [
+      ...this.deps.runs.listByState('starting'),
       ...this.deps.runs.listByState('running'),
       ...this.deps.runs.listByState('waiting'),
     ];
@@ -964,11 +1008,7 @@ export class Orchestrator {
     const store = new LogStore(run.log_path);
     const broadcaster = this.deps.streams.getOrCreate(runId);
     const screen = this.deps.streams.getOrCreateScreen(runId);
-    const onBytes = (chunk: Uint8Array) => {
-      store.append(chunk);
-      broadcaster.publish(chunk);
-      void screen.write(chunk).catch(() => {});
-    };
+    const onBytes = makeOnBytes(store, broadcaster, screen);
 
     onBytes(Buffer.from(`\n[fbi] reattached after orchestrator restart\n`));
 
@@ -989,7 +1029,7 @@ export class Orchestrator {
     // same LimitMonitor used by fresh launches so a pre-existing container
     // stuck on the in-TUI rate-limit message also gets nudged out.
     const limitMonitor = this.makeLimitMonitor(runId, container, attachStream, onBytes);
-    const waitingWatcher = this.makeWaitingWatcher(runId);
+    const runtimeWatcher = this.makeRuntimeStateWatcher(runId);
     const sinceSec = Math.floor((run.started_at ?? Date.now()) / 1000);
     const logsStream = (await container.logs({
       follow: true,
@@ -999,7 +1039,7 @@ export class Orchestrator {
     })) as unknown as NodeJS.ReadableStream;
     logsStream.on('data', (c: Buffer) => { limitMonitor.feedLog(c); onBytes(c); });
     limitMonitor.start();
-    waitingWatcher.start();
+    runtimeWatcher.start();
     const events = this.deps.streams.getOrCreateEvents(runId);
     const tailer = new UsageTailer({
       dir: claudeProjectsDir,
@@ -1115,7 +1155,7 @@ export class Orchestrator {
       await titleWatcher.stop();
       await gitWatcher.stop();
       limitMonitor.stop();
-      waitingWatcher.stop();
+      runtimeWatcher.stop();
       events.end();
       this.active.delete(runId); this.lastFiles.delete(runId);
       this.lastRateLimit.delete(runId);
@@ -1160,10 +1200,20 @@ function renderSubRunPrompt(kind: 'merge-conflict' | 'polish', args: Record<stri
 // Bind-mount OAuth tokens. On Linux they live in ~/.claude/.credentials.json;
 // macOS uses Keychain so nothing to mount. ~/.claude.json is injected separately
 // (see buildContainerClaudeJson) so we can strip host-specific fields.
-function claudeAuthMounts(hostClaudeDir: string): string[] {
-  const hostCreds = path.join(hostClaudeDir, '.credentials.json');
-  return fs.existsSync(hostCreds)
-    ? [`${hostCreds}:/home/agent/.claude/.credentials.json`]
+function claudeAuthMounts(hostClaudeDir: string, hostBindClaudeDir: string): string[] {
+  const localCreds = path.join(hostClaudeDir, '.credentials.json');
+  if (!fs.existsSync(localCreds)) return [];
+  const bindSource = path.join(hostBindClaudeDir, '.credentials.json');
+  return [`${bindSource}:/home/agent/.claude/.credentials.json`];
+}
+
+// Forward the host docker socket so agents can run docker/compose commands.
+// Paired with HostConfig.GroupAdd on the host's docker GID so the non-root
+// `agent` user in the container has rw access without running as root.
+function dockerSocketMounts(hostSocket: string): string[] {
+  if (!hostSocket) return [];
+  return fs.existsSync(hostSocket)
+    ? [`${hostSocket}:/var/run/docker.sock`]
     : [];
 }
 
@@ -1171,12 +1221,14 @@ function uniq(xs: string[]): string[] {
   return [...new Set(xs)];
 }
 
-// ~/.claude/settings.json injected into every run container. `hooks` wires
-// Claude Code's Stop and UserPromptSubmit events to a /fbi-state/waiting
-// sentinel that WaitingWatcher polls; Stop means "turn ended, waiting for
-// user", UserPromptSubmit means "user replied". This replaces the old
-// TTY-scraping WaitingMonitor. `skipDangerousModePermissionPrompt` pairs
-// with supervisor.sh's --dangerously-skip-permissions.
+// Claude Code's Stop and UserPromptSubmit events to two /fbi-state/ sentinel
+// files that RuntimeStateWatcher polls. Stop creates /fbi-state/waiting
+// (turn ended). UserPromptSubmit removes /fbi-state/waiting (user replied)
+// AND creates /fbi-state/prompted (sticky — Claude has accepted at least
+// one prompt this container, so it's past the launch gap). Derived state:
+//   waiting present                  -> 'waiting'
+//   waiting absent, prompted present -> 'running'
+//   both absent                      -> 'starting'
 export function buildClaudeSettingsJson(): string {
   return JSON.stringify({
     skipDangerousModePermissionPrompt: true,
@@ -1185,7 +1237,11 @@ export function buildClaudeSettingsJson(): string {
         { hooks: [{ type: 'command', command: 'touch /fbi-state/waiting', timeout: 5 }] },
       ],
       UserPromptSubmit: [
-        { hooks: [{ type: 'command', command: 'rm -f /fbi-state/waiting', timeout: 5 }] },
+        { hooks: [{
+          type: 'command',
+          command: 'rm -f /fbi-state/waiting && touch /fbi-state/prompted',
+          timeout: 5,
+        }] },
       ],
     },
   });

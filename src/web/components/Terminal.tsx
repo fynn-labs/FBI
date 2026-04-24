@@ -2,35 +2,20 @@ import { useEffect, useRef, useState } from 'react';
 import { Terminal as Xterm } from '@xterm/xterm';
 import { FitAddon } from '@xterm/addon-fit';
 import '@xterm/xterm/css/xterm.css';
-import {
-  acquireShell,
-  releaseShell,
-  getLastSnapshot,
-  requestResync,
-} from '../lib/shellRegistry.js';
-import { publishUsage, publishState, publishTitle, publishChanges } from '../features/runs/usageBus.js';
+import { TerminalController } from '../lib/terminalController.js';
 import {
   record as traceRecord,
-  strPreview,
   isTracing,
   setTracing,
   subscribe as traceSubscribe,
   eventCount as traceEventCount,
   downloadTrace,
 } from '../lib/terminalTrace.js';
-import type {
-  UsageSnapshot,
-  RunWsStateMessage,
-  RunWsTitleMessage,
-  ChangesPayload,
-} from '@shared/types.js';
 
 interface Props {
   runId: number;
   interactive: boolean;
 }
-
-const WRITE_CHUNK = 16 * 1024;
 
 function readTheme() {
   const s = getComputedStyle(document.documentElement);
@@ -38,8 +23,6 @@ function readTheme() {
   return {
     background: bg,
     foreground: s.getPropertyValue('--text').trim() || '#e2e8f0',
-    // Paint xterm's cursor the same colour as the background so it never
-    // shows. Claude Code renders its own cursor inside the PTY output.
     cursor: bg,
     cursorAccent: bg,
   };
@@ -47,13 +30,16 @@ function readTheme() {
 
 export function Terminal({ runId, interactive }: Props) {
   const hostRef = useRef<HTMLDivElement>(null);
-  const loadFullRef = useRef<() => void>(() => {});
+  const historyHostRef = useRef<HTMLDivElement>(null);
+  const controllerRef = useRef<TerminalController | null>(null);
   const [historyMode, setHistoryMode] = useState(false);
-  const [loaded, setLoaded] = useState(false);
-  // Re-render the trace indicator whenever trace state or count changes.
+  // `ready` flips true after the opening snapshot has been parsed into xterm.
+  // Used to hide the first-load fast-forward (buffered bytes the server
+  // flushes right after the snapshot are noisy to the eye).
+  const [ready, setReady] = useState(false);
+
   const [, forceTraceRerender] = useState(0);
   useEffect(() => traceSubscribe(() => forceTraceRerender((n) => n + 1)), []);
-  // Ctrl+Shift+D toggles tracing globally for the whole app.
   useEffect(() => {
     const onKey = (e: KeyboardEvent): void => {
       if (e.ctrlKey && e.shiftKey && (e.key === 'D' || e.key === 'd')) {
@@ -79,152 +65,53 @@ export function Terminal({ runId, interactive }: Props) {
     const fit = new FitAddon();
     term.loadAddon(fit);
     term.open(host);
-    traceRecord('term.mount', { runId, interactive });
+    traceRecord('term.mount', { runId });
 
-    const safeFit = () => {
-      const rect = host.getBoundingClientRect();
-      if (rect.width < 4 || rect.height < 4) return false;
-      try {
-        fit.fit();
-        traceRecord('term.fit', { cols: term.cols, rows: term.rows });
-        return true;
-      } catch { return false; }
-    };
-
-    let disposed = false;
-
-    // Frame-paced write queue. All writes — snapshot replay, live bytes,
-    // history-mode load — go through this.
-    const writeQueue: Uint8Array[] = [];
-    let pumping = false;
-    const pump = () => {
-      if (disposed) { pumping = false; return; }
-      const chunk = writeQueue.shift();
-      if (!chunk) { pumping = false; return; }
-      term.write(chunk);
-      requestAnimationFrame(pump);
-    };
-    const enqueueWrite = (data: Uint8Array): void => {
-      if (data.byteLength === 0) return;
-      // Small writes (e.g. keystroke echoes from the PTY) bypass the rAF
-      // queue and write directly so input round-trip stays snappy.
-      // Otherwise every echo waits up to ~16ms for the next frame, which
-      // adds visible per-keystroke lag on top of network RTT. Only fall
-      // through to the queue if it's already pumping (preserves order)
-      // or the chunk is large (worth pacing across frames).
-      if (data.byteLength <= WRITE_CHUNK && writeQueue.length === 0 && !pumping) {
-        traceRecord('term.write', { len: data.byteLength, path: 'direct' });
-        term.write(data);
-        return;
-      }
-      traceRecord('term.write', { len: data.byteLength, path: 'queue' });
-      if (data.byteLength <= WRITE_CHUNK) {
-        writeQueue.push(data);
-      } else {
-        let offset = 0;
-        while (offset < data.byteLength) {
-          const end = Math.min(offset + WRITE_CHUNK, data.byteLength);
-          writeQueue.push(data.subarray(offset, end));
-          offset = end;
-        }
-      }
-      if (!pumping) {
-        pumping = true;
-        requestAnimationFrame(pump);
-      }
-    };
-
-    const clearQueue = () => { writeQueue.length = 0; };
-
-    const shell = acquireShell(runId);
-    let unsubBytes: (() => void) | null = null;
-    let unsubSnapshot: (() => void) | null = null;
-    let ready = false; // true once first snapshot has been applied
-
-    const applySnapshot = (snap: { ansi: string; cols: number; rows: number }) => {
-      // Non-interactive views don't drive the server's dims (an interactive
-      // tab owns the PTY size), so we adopt whatever the server sends rather
-      // than drop the snapshot. Resize before writing so the alt-screen
-      // reset and content land on a buffer of the correct shape.
-      if (!interactive && (snap.cols !== term.cols || snap.rows !== term.rows)) {
-        traceRecord('term.adoptSnapDims', {
-          fromCols: term.cols, fromRows: term.rows,
-          toCols: snap.cols, toRows: snap.rows,
-        });
-        term.resize(snap.cols, snap.rows);
-      }
-      traceRecord('term.applySnapshot', {
-        ansiLen: snap.ansi.length,
-        termCols: term.cols,
-        termRows: term.rows,
-        ansiPreview: strPreview(snap.ansi),
-      });
-      clearQueue();
-      // No pre-reset: the snapshot's leading modesAnsi takes care of
-      // buffer selection (?1049h/l), viewport clear, and scroll region.
-      // Previously this wrote \x1b[?1049l\x1b[?1049h to force alt-buffer,
-      // but Claude Code renders its TUI inline in the *main* buffer —
-      // forcing alt diverged the client from the server and the TUI's
-      // relative cursor moves landed on wrong rows.
-      //
-      // Snapshots are bounded by viewport size (scrollback:0 server-side),
-      // so write synchronously — going through the rAF queue makes the
-      // user see the snapshot drawn line-by-line on tab switch.
-      term.write(new TextEncoder().encode(snap.ansi));
-      ready = true;
-      if (!disposed) setLoaded(true);
-    };
-
-    // For interactive views we drop mismatched snapshots (e.g. the server's
-    // first auto-snapshot before our resize lands) to avoid a visible flash
-    // of mis-wrapped content — the server re-sends a matching snapshot after
-    // our resize reaches it. Non-interactive views always accept.
-    const shouldApply = (snap: { cols: number; rows: number }): boolean =>
-      !interactive || (snap.cols === term.cols && snap.rows === term.rows);
-
-    // If another component has already acquired the shell and cached a
-    // snapshot for this run, apply it synchronously on mount.
-    const cached = getLastSnapshot(runId);
-    if (cached && shouldApply(cached)) applySnapshot(cached);
-
-    unsubSnapshot = shell.onSnapshot((snap) => {
-      if (!shouldApply(snap)) {
-        traceRecord('term.dropSnapshot', {
-          reason: 'dimMismatch',
-          snapCols: snap.cols, snapRows: snap.rows,
-          termCols: term.cols, termRows: term.rows,
-        });
-        return;
-      }
-      applySnapshot(snap);
-    });
-
-    unsubBytes = shell.onBytes((data) => {
-      // Drop live bytes until the first snapshot has arrived; the snapshot
-      // encodes the initial state, and out-of-order pre-snapshot bytes would
-      // corrupt it. After ready=true, forward everything.
-      if (!ready) return;
-      enqueueWrite(data);
-    });
-
-    if (interactive) term.focus();
-
-    const observer = new MutationObserver(() => {
-      term.options.theme = readTheme();
-    });
+    const observer = new MutationObserver(() => { term.options.theme = readTheme(); });
     observer.observe(document.documentElement, { attributes: true, attributeFilter: ['class'] });
 
-    // Debounced resize — the fit addon's getBoundingClientRect can be
-    // expensive, and SplitPane/window drags fire continuously.
-    // Non-interactive views skip fit entirely: they adopt the server's
-    // dims via applySnapshot, and auto-fitting to container would fight
-    // that and can re-flow content that was absolute-positioned at the
-    // server's dims.
+    // Fit BEFORE constructing the controller. Otherwise xterm sits at its
+    // default 80×24 when the controller applies a cached snapshot (which
+    // was serialized at the real viewport dims, typically 133×30), and
+    // the snapshot reflows messily when the ResizeObserver fires the
+    // first real fit a moment later. Doing it up-front keeps the xterm
+    // at the real dims from the start.
+    const rect = host.getBoundingClientRect();
+    if (rect.width >= 4 && rect.height >= 4) {
+      try { fit.fit(); } catch { /* layout may still be transitioning */ }
+    }
+
+    const controller = new TerminalController(runId, term, host);
+    controllerRef.current = controller;
+    // Sync React state to controller's ready state. Cache-hit mounts are
+    // ready instantly (the controller wrote the cached snapshot in its
+    // constructor); fresh mounts need to wait for the silence+cap timers.
+    setReady(controller.isReady());
+    if (!controller.isReady()) {
+      controller.onReady(() => setReady(true));
+    }
+
+    // On tab-return, nudge Claude to repaint. A bare re-hello with the
+    // same dims doesn't always trigger a Claude redraw (the server's
+    // orchestrator.resize → Docker resize is a no-op for same dims).
+    // controller.requestRedraw() briefly perturbs the PTY rows by one
+    // and restores, forcing two SIGWINCHes and two Claude redraws. The
+    // second redraw's bytes include the cursor cell.
+    const onVisibility = () => {
+      if (!document.hidden) controller.requestRedraw();
+    };
+    document.addEventListener('visibilitychange', onVisibility);
+
+    const safeFit = (): boolean => {
+      const rect = host.getBoundingClientRect();
+      if (rect.width < 4 || rect.height < 4) return false;
+      try { fit.fit(); return true; } catch { return false; }
+    };
+
     let roTimer: ReturnType<typeof setTimeout> | null = null;
     const runFit = () => {
       roTimer = null;
-      if (!interactive) return;
-      if (safeFit()) shell.resize(term.cols, term.rows);
+      if (safeFit()) controller.resize(term.cols, term.rows);
     };
     const ro = new ResizeObserver(() => {
       if (roTimer !== null) clearTimeout(roTimer);
@@ -232,153 +119,68 @@ export function Terminal({ runId, interactive }: Props) {
     });
     ro.observe(host);
 
-    // Same debounce for window resize — user dragging the browser edge
-    // fires continuously; fit once after they stop.
     let winResizeTimer: ReturnType<typeof setTimeout> | null = null;
-    const onResize = () => {
-      if (!interactive) return;
+    const onWinResize = () => {
       if (winResizeTimer !== null) clearTimeout(winResizeTimer);
       winResizeTimer = setTimeout(() => {
         winResizeTimer = null;
-        if (safeFit()) shell.resize(term.cols, term.rows);
+        if (safeFit()) controller.resize(term.cols, term.rows);
       }, 120);
     };
-    window.addEventListener('resize', onResize);
-
-    const unsubEv = shell.onTypedEvent<{ type: string; snapshot?: unknown }>((msg) => {
-      if (msg.type === 'usage') publishUsage(runId, msg.snapshot as UsageSnapshot);
-      else if (msg.type === 'state') publishState(runId, msg as unknown as RunWsStateMessage);
-      else if (msg.type === 'title') publishTitle(runId, msg as unknown as RunWsTitleMessage);
-      else if (msg.type === 'changes') publishChanges(runId, msg as unknown as ChangesPayload);
-    });
-
-    // Focus/blur/visibility triggers the fast-forward fix. When the window
-    // has been blurred or the tab hidden, rAF has been throttled and the
-    // write queue may have filled with stale bytes. On return, drop the
-    // queue and ask the server for a fresh snapshot.
-    let stale = false;
-    const markStale = () => { stale = true; };
-    const refresh = () => {
-      if (!stale || unsubSnapshot === null) return;
-      stale = false;
-      clearQueue();
-      traceRecord('term.resync.request', { reason: 'focus' });
-      requestResync(runId);
-      // The next snapshot frame will land via unsubSnapshot → applySnapshot.
-    };
-    const onVisChange = () => {
-      if (document.hidden) markStale();
-      else refresh();
-    };
-    window.addEventListener('blur', markStale);
-    window.addEventListener('focus', refresh);
-    document.addEventListener('visibilitychange', onVisChange);
-
-    shell.onOpen(() => {
-      if (interactive && safeFit()) shell.resize(term.cols, term.rows);
-    });
-
-    // "Load full history": fetch the log file and render it instead of the
-    // live view. Exposed via loadFullRef so the JSX button can call it.
-    loadFullRef.current = async () => {
-      if (disposed) return;
-      traceRecord('term.history.start', { runId });
-      setHistoryMode(true);
-      setLoaded(false); // show loading while we fetch + write the transcript
-      if (unsubBytes) { unsubBytes(); unsubBytes = null; }
-      if (unsubSnapshot) { unsubSnapshot(); unsubSnapshot = null; }
-      clearQueue();
-      term.reset();
-      try {
-        const res = await fetch(`/api/runs/${runId}/transcript`);
-        if (disposed) return;
-        if (!res.ok) throw new Error(`status ${res.status}`);
-        const buf = new Uint8Array(await res.arrayBuffer());
-        if (disposed) return;
-        // Write atomically in 1 MB chunks chained via xterm's write callback.
-        // The rAF-paced queue would draw the transcript line-by-line, which is
-        // intensely jittery for big logs; xterm's internal parser handles
-        // large writes far faster than one rAF per 16 KB.
-        const HISTORY_CHUNK = 1024 * 1024;
-        for (let off = 0; off < buf.byteLength; off += HISTORY_CHUNK) {
-          if (disposed) return;
-          const end = Math.min(off + HISTORY_CHUNK, buf.byteLength);
-          await new Promise<void>((resolve) => term.write(buf.subarray(off, end), resolve));
-        }
-        if (!disposed) setLoaded(true);
-        traceRecord('term.history.end', { runId, bytes: buf.byteLength });
-      } catch {
-        if (disposed) return;
-        term.write(new TextEncoder().encode('\r\n[failed to load history]\r\n'));
-        setLoaded(true);
-        traceRecord('term.history.end', { runId, error: true });
-      }
-    };
-
-    const resumeLive = () => {
-      if (disposed) return;
-      setHistoryMode(false);
-      clearQueue();
-      term.reset();
-      ready = false;
-      setLoaded(false); // show loading until the resync snapshot lands
-      unsubSnapshot = shell.onSnapshot((snap) => {
-        if (!shouldApply(snap)) {
-          traceRecord('term.dropSnapshot', {
-            reason: 'dimMismatch.resume',
-            snapCols: snap.cols, snapRows: snap.rows,
-            termCols: term.cols, termRows: term.rows,
-          });
-          return;
-        }
-        applySnapshot(snap);
-      });
-      unsubBytes = shell.onBytes((data) => { if (ready) enqueueWrite(data); });
-      traceRecord('term.resync.request', { reason: 'resumeLive' });
-      requestResync(runId);
-    };
-    // Stash resumeLive on the ref so the JSX button can call it.
-    (loadFullRef as unknown as { resume?: () => void }).resume = resumeLive;
-
-    if (interactive) {
-      term.onData((d) => {
-        traceRecord('term.input', strPreview(d));
-        shell.send(new TextEncoder().encode(d));
-      });
-      host.addEventListener('click', () => term.focus());
-    }
+    window.addEventListener('resize', onWinResize);
 
     return () => {
-      disposed = true;
-      traceRecord('term.unmount', { runId });
       if (roTimer !== null) clearTimeout(roTimer);
       if (winResizeTimer !== null) clearTimeout(winResizeTimer);
       ro.disconnect();
       observer.disconnect();
-      window.removeEventListener('resize', onResize);
-      window.removeEventListener('blur', markStale);
-      window.removeEventListener('focus', refresh);
-      document.removeEventListener('visibilitychange', onVisChange);
-      if (unsubBytes) unsubBytes();
-      if (unsubSnapshot) unsubSnapshot();
-      unsubEv();
-      releaseShell(runId);
+      window.removeEventListener('resize', onWinResize);
+      document.removeEventListener('visibilitychange', onVisibility);
+      // Dispose order: controller first (its `disposed` flag neutralises
+      // the WS byte/snapshot callbacks), then term.dispose(). Reversing
+      // would risk term.write() being called on a disposed xterm from an
+      // in-flight byte callback before the controller unsubscribes.
+      controller.dispose();
+      controllerRef.current = null;
       term.dispose();
     };
-  }, [runId, interactive]);
+  }, [runId]);
+
+  // `runId` is in the dep list so this re-runs when the mount effect creates
+  // a new controller instance on run-switch. Without it, switching from
+  // run A to run B with the same `interactive` value would leave the new
+  // controller un-wired: no term.onData, no term.focus(), no host-click
+  // handler — the terminal renders but can't accept input and never
+  // receives focus.
+  useEffect(() => {
+    controllerRef.current?.setInteractive(interactive);
+  }, [interactive, runId]);
+
+  const onLoadHistory = async () => {
+    setHistoryMode(true);
+    await new Promise((r) => requestAnimationFrame(r));
+    if (historyHostRef.current && controllerRef.current) {
+      await controllerRef.current.enterHistory(historyHostRef.current);
+    }
+  };
+
+  const onResumeLive = () => {
+    controllerRef.current?.resumeLive();
+    setHistoryMode(false);
+  };
 
   return (
     <div className="relative h-full w-full bg-surface-sunken">
-      {!loaded && (
-        <div className="absolute inset-0 z-20 flex items-center justify-center bg-surface-sunken text-text-dim text-[12px]">
-          <span>{historyMode ? 'Loading history…' : 'Loading terminal…'}</span>
+      {!ready && !historyMode && (
+        <div className="pointer-events-none absolute inset-0 z-20 flex items-center justify-center bg-surface-sunken text-text-dim text-[12px]">
+          <span>Loading terminal…</span>
         </div>
       )}
       {!historyMode && (
         <div className="absolute top-1 right-2 z-10">
           <button
             type="button"
-            onClick={() => loadFullRef.current()}
+            onClick={onLoadHistory}
             className="text-[11px] text-text-dim hover:text-text transition-colors duration-fast ease-out"
           >
             Load full history
@@ -387,10 +189,10 @@ export function Terminal({ runId, interactive }: Props) {
       )}
       {historyMode && (
         <div className="absolute top-0 left-0 right-0 z-10 flex items-center gap-2 px-3 py-1 bg-surface border-b border-border text-[12px] text-text-dim">
-          <span>Viewing full history (live updates paused).</span>
+          <span>Viewing full history — live view continues in the background.</span>
           <button
             type="button"
-            onClick={() => (loadFullRef as unknown as { resume?: () => void }).resume?.()}
+            onClick={onResumeLive}
             className="text-accent hover:text-accent-strong transition-colors duration-fast ease-out"
           >
             Resume live
@@ -411,7 +213,14 @@ export function Terminal({ runId, interactive }: Props) {
           </button>
         </div>
       )}
-      <div ref={hostRef} className="h-full w-full" />
+      <div
+        ref={hostRef}
+        className="h-full w-full"
+        style={{ display: historyMode ? 'none' : 'block' }}
+      />
+      {historyMode && (
+        <div ref={historyHostRef} className="absolute inset-0 h-full w-full bg-surface-sunken" />
+      )}
     </div>
   );
 }

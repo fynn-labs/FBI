@@ -2,12 +2,14 @@ import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { Routes, Route, Navigate, useLocation, useNavigate } from 'react-router-dom';
 import { AppShell, Cheatsheet } from '@ui/shell/index.js';
 import { sidebarRegistry } from '@ui/shell/sidebarRegistry.js';
+import { PlayIcon, GearIcon } from '@ui/primitives/Icons.js';
 import { paletteRegistry } from '@ui/shell/paletteRegistry.js';
 import { statusRegistry } from '@ui/shell/statusRegistry.js';
 import { keymap } from '@ui/shell/KeyMap.js';
 import { toggleTheme } from '@ui/theme.js';
 import { api } from './lib/api.js';
 import { useRunWatcher } from './hooks/useRunWatcher.js';
+import { useConnectionState } from './lib/connectionState.js';
 import type { Project, Run } from '@shared/types.js';
 import { ProjectsPage } from './pages/Projects.js';
 import { NewProjectPage } from './pages/NewProject.js';
@@ -46,12 +48,22 @@ function Shell({ projects, runs, children }: { projects: Project[]; runs: Run[];
 }
 
 function StatusRegistrations({ active, waiting, today }: { active: number; waiting: number; today: number }) {
+  const conn = useConnectionState();
   useEffect(() => {
-    const off1 = statusRegistry.register({ id: 'conn', side: 'left', order: 0, render: () => <>● <span className="text-ok">connected</span></> });
+    const connRender = () => {
+      if (conn === 'connected') return <><span className="text-ok">●</span> <span className="text-ok">connected</span></>;
+      if (conn === 'disconnected') return <><span className="text-fail">●</span> <span className="text-fail">disconnected</span></>;
+      return <><span className="text-warn">●</span> <span className="text-warn">connecting…</span></>;
+    };
+    const off1 = statusRegistry.register({ id: 'conn', side: 'left', order: 0, render: connRender });
     const off2 = statusRegistry.register({ id: 'active', side: 'left', order: 1, render: () => <>{active} <span className="text-run">running</span></> });
     const off3 = statusRegistry.register({ id: 'today', side: 'left', order: 3, render: () => <>{today} today</> });
-    return () => { off1(); off2(); off3(); };
-  }, [active, today]);
+    const version = import.meta.env.VITE_VERSION as string | undefined;
+    const offVer = version
+      ? statusRegistry.register({ id: 'version', side: 'right', order: 100, render: () => <span className="text-text-faint normal-case">{version}</span> })
+      : null;
+    return () => { off1(); off2(); off3(); offVer?.(); };
+  }, [active, today, conn]);
 
   // Waiting item is mounted only when > 0 so the bar collapses its gap.
   useEffect(() => {
@@ -91,8 +103,8 @@ export function App() {
   dataRef.current = { projects, runs };
 
   useEffect(() => {
-    const offRuns = sidebarRegistry.register({ id: 'runs', group: 'views', label: 'All runs', route: '/runs', order: 10 });
-    const offSet = sidebarRegistry.register({ id: 'settings', group: 'views', label: 'Settings', route: '/settings', order: 20 });
+    const offRuns = sidebarRegistry.register({ id: 'runs', group: 'views', label: 'All runs', route: '/runs', order: 10, icon: <PlayIcon size={14} /> });
+    const offSet = sidebarRegistry.register({ id: 'settings', group: 'views', label: 'Settings', route: '/settings', order: 20, icon: <GearIcon size={14} /> });
 
     const offActions = paletteRegistry.register({
       id: 'actions',

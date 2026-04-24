@@ -1,3 +1,4 @@
+import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 
@@ -7,13 +8,46 @@ function required(name: string): string {
   return v;
 }
 
+// Look up the host system's "docker" group GID from /etc/group. Used to give
+// the in-container agent user supplementary group membership matching the
+// owner of the forwarded docker socket — otherwise `docker` calls from inside
+// the run container hit EACCES on /var/run/docker.sock.
+function lookupHostDockerGid(): number | null {
+  try {
+    const text = fs.readFileSync('/etc/group', 'utf8');
+    for (const line of text.split('\n')) {
+      const [name, , gidStr] = line.split(':');
+      if (name === 'docker') {
+        const n = Number.parseInt(gidStr ?? '', 10);
+        if (Number.isFinite(n) && n > 0) return n;
+      }
+    }
+  } catch { /* /etc/group unreadable — leave unset */ }
+  return null;
+}
+
 export interface Config {
   port: number;
   dbPath: string;
   runsDir: string;
+  // Bind-mount source prefix used when passing runsDir-derived paths to the
+  // Docker daemon. For a normal install this equals runsDir. For dev-in-
+  // container setups where the daemon sees a different path than the server
+  // process, set FBI_HOST_RUNS_DIR to the daemon's view. Optional — consumers
+  // fall back to runsDir when undefined.
+  hostRunsDir?: string;
   draftUploadsDir: string;
   hostSshAuthSock: string;
+  // Bind-mount source for the ssh-agent socket. Defaults to hostSshAuthSock;
+  // override with FBI_HOST_BIND_SSH_AUTH_SOCK for dev-in-container setups.
+  hostBindSshAuthSock?: string;
   hostClaudeDir: string;
+  // Bind-mount source prefix used when passing hostClaudeDir-derived paths
+  // to the Docker daemon. Defaults to hostClaudeDir; override with
+  // FBI_HOST_BIND_CLAUDE_DIR for dev-in-container setups.
+  hostBindClaudeDir?: string;
+  hostDockerSocket: string;
+  hostDockerGid: number | null;
   secretsKeyFile: string;
   gitAuthorName: string;
   gitAuthorEmail: string;
@@ -34,10 +68,22 @@ export function loadConfig(): Config {
     port: Number(process.env.PORT ?? 3000),
     dbPath: process.env.DB_PATH ?? '/var/lib/agent-manager/db.sqlite',
     runsDir: process.env.RUNS_DIR ?? '/var/lib/agent-manager/runs',
+    hostRunsDir: process.env.FBI_HOST_RUNS_DIR,
     draftUploadsDir:
       process.env.DRAFT_UPLOADS_DIR ?? '/var/lib/agent-manager/draft-uploads',
     hostSshAuthSock: process.env.HOST_SSH_AUTH_SOCK ?? process.env.SSH_AUTH_SOCK ?? '',
+    hostBindSshAuthSock: process.env.FBI_HOST_BIND_SSH_AUTH_SOCK,
     hostClaudeDir: process.env.HOST_CLAUDE_DIR ?? path.join(os.homedir(), '.claude'),
+    hostBindClaudeDir: process.env.FBI_HOST_BIND_CLAUDE_DIR,
+    hostDockerSocket: process.env.HOST_DOCKER_SOCKET ?? '/var/run/docker.sock',
+    hostDockerGid: (() => {
+      const override = process.env.HOST_DOCKER_GID;
+      if (override) {
+        const n = Number.parseInt(override, 10);
+        return Number.isFinite(n) && n >= 0 ? n : null;
+      }
+      return lookupHostDockerGid();
+    })(),
     secretsKeyFile: process.env.SECRETS_KEY_FILE ?? '/etc/agent-manager/secrets.key',
     gitAuthorName: required('GIT_AUTHOR_NAME'),
     gitAuthorEmail: required('GIT_AUTHOR_EMAIL'),

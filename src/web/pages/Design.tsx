@@ -3,7 +3,7 @@ import {
   Button, IconButton, Link, Kbd, Pill, StatusDot, Tag,
   Input, Textarea, Toggle, Checkbox, Select,
   Card, Section, Tabs, Dialog, Drawer, Menu, Tooltip, Table, THead, TR, TH, TD,
-  ExternalLink,
+  ExternalLink, PlayIcon, GearIcon,
 } from '@ui/primitives/index.js';
 import { FormRow, KeyboardHint, EmptyState, LoadingState, ErrorState, SplitPane } from '@ui/patterns/index.js';
 import { StatCard, ProgressBar, Sparkline, TimestampRelative, CodeBlock, FilterChip, DiffRow, DiffBlock } from '@ui/data/index.js';
@@ -42,9 +42,17 @@ export function DesignPage() {
         </div>
       </Section>
 
+      <Section title="Icons">
+        <div className="flex items-center gap-4 flex-wrap text-text-dim">
+          <span className="flex items-center gap-1"><PlayIcon /> play</span>
+          <span className="flex items-center gap-1"><GearIcon /> gear</span>
+        </div>
+      </Section>
+
       <Section title="Pills, Dots, Tags, Kbd, Code">
         <div className="flex items-center gap-2 flex-wrap">
           <Pill tone="ok">succeeded</Pill>
+          <Pill tone="run">starting</Pill>
           <Pill tone="run">running</Pill>
           <Pill tone="attn">waiting</Pill>
           <Pill tone="fail">failed</Pill>

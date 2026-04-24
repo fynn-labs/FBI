@@ -30,7 +30,10 @@ export function ChangesTab({ run, changes, wip }: ChangesTabProps) {
       {run.state === 'resume_failed' && (
         <ResumeFailedBanner
           patchHref={api.downloadRunWipPatch(run.id)}
-          onDiscard={async () => { await api.discardRunWip(run.id); await api.continueRun(run.id); }}
+          onDiscard={async () => {
+            await api.discardRunWip(run.id);
+            await api.continueRun(run.id, { model: null, effort: null, subagent_model: null });
+          }}
           onCancel={() => nav(-1)}
         />
       )}

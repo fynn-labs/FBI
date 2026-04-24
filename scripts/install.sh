@@ -62,6 +62,8 @@ GIT_AUTHOR_EMAIL=you@example.com
 # Optional overrides:
 # HOST_SSH_AUTH_SOCK=/run/user/1000/ssh-agent.sock
 # HOST_CLAUDE_DIR=/home/fbi/.claude
+# HOST_DOCKER_SOCKET=/var/run/docker.sock   # forwarded read-write into run containers
+# HOST_DOCKER_GID=995                       # override auto-detected docker group GID
 WEB_DIR=/opt/fbi/dist/web
 # Claude Code plugins installed in every run container.
 # Comma- or newline-separated. Projects can add more in the UI.

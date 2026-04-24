@@ -109,6 +109,7 @@ async function main() {
     cancel: (id) => orchestrator.cancel(id),
     fireResumeNow: (id) => orchestrator.fireResumeNow(id),
     continueRun: (id) => orchestrator.continueRun(id),
+    markStartingForContinueRequest: (id) => orchestrator.markStartingForContinueRequest(id),
     orchestrator: {
       writeStdin: (id, bytes) => orchestrator.writeStdin(id, bytes),
       getLastFiles: (id) => orchestrator.getLastFiles(id),

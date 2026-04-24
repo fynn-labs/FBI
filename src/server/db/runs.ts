@@ -9,6 +9,9 @@ export interface CreateRunInput {
   parent_run_id?: number;
   kind?: 'work' | 'merge-conflict' | 'polish';
   kind_args_json?: string;
+  model?: string | null;
+  effort?: string | null;
+  subagent_model?: string | null;
 }
 
 export interface ListFilteredInput {
@@ -36,8 +39,12 @@ export class RunsRepo {
       const branchHint = input.branch_hint ?? '';
       const stub = this.db
         .prepare(
-          `INSERT INTO runs (project_id, prompt, branch_name, state, log_path, created_at, state_entered_at, parent_run_id, kind, kind_args_json)
-           VALUES (?, ?, ?, 'queued', '', ?, ?, ?, ?, ?)`
+          `INSERT INTO runs
+             (project_id, prompt, branch_name, state, log_path,
+              created_at, state_entered_at,
+              parent_run_id, kind, kind_args_json,
+              model, effort, subagent_model)
+           VALUES (?, ?, ?, 'queued', '', ?, ?, ?, ?, ?, ?, ?, ?)`
         )
         .run(
           input.project_id,
@@ -48,6 +55,9 @@ export class RunsRepo {
           input.parent_run_id ?? null,
           input.kind ?? 'work',
           input.kind_args_json ?? null,
+          input.model ?? null,
+          input.effort ?? null,
+          input.subagent_model ?? null,
         );
       const id = Number(stub.lastInsertRowid);
       const logPath = input.log_path_tmpl(id);
@@ -56,6 +66,15 @@ export class RunsRepo {
         .run(logPath, id);
       return this.get(id)!;
     })();
+  }
+
+  updateModelParams(
+    id: number,
+    p: { model: string | null; effort: string | null; subagent_model: string | null },
+  ): void {
+    this.db
+      .prepare('UPDATE runs SET model = ?, effort = ?, subagent_model = ? WHERE id = ?')
+      .run(p.model, p.effort, p.subagent_model, id);
   }
 
   get(id: number): Run | undefined {
@@ -106,11 +125,21 @@ export class RunsRepo {
       }[];
   }
 
-  markStarted(id: number, containerId: string): void {
+  /**
+   * Fresh launch: queued -> starting. Records container id and started_at.
+   * RuntimeStateWatcher will later transition starting -> running once the
+   * `prompted` sentinel appears (Claude read the initial prompt).
+   */
+  markStartingFromQueued(id: number, containerId: string): void {
     const now = Date.now();
     this.db
       .prepare(
-        "UPDATE runs SET state='running', container_id=?, started_at=?, state_entered_at=? WHERE id=?"
+        `UPDATE runs
+            SET state='starting',
+                container_id=?,
+                started_at=?,
+                state_entered_at=?
+          WHERE id=? AND state='queued'`,
       )
       .run(containerId, now, now, id);
   }
@@ -128,54 +157,92 @@ export class RunsRepo {
                 last_limit_reset_at=?,
                 resume_attempts = resume_attempts + 1,
                 state_entered_at=?
-          WHERE id=? AND state IN ('running','waiting')`,
+          WHERE id=? AND state IN ('starting','running','waiting')`,
       )
       .run(p.next_resume_at, p.last_limit_reset_at, Date.now(), id);
   }
 
-  markResuming(id: number, containerId: string): void {
+  /**
+   * Auto-resume: awaiting_resume -> starting. Preserves resume_attempts
+   * (markAwaitingResume already incremented it).
+   */
+  markStartingForResume(id: number, containerId: string): void {
     const now = Date.now();
     this.db
       .prepare(
         `UPDATE runs
-            SET state='running',
+            SET state='starting',
                 container_id=?,
                 next_resume_at=NULL,
                 started_at=COALESCE(started_at, ?),
                 state_entered_at=?
-          WHERE id=?`,
+          WHERE id=? AND state='awaiting_resume'`,
       )
       .run(containerId, now, now, id);
   }
 
-  markContinuing(id: number, containerId: string): void {
+  /**
+   * User-initiated Continue, first call (from API endpoint). No container
+   * exists yet. Resets resume_attempts and clears terminal-run residue.
+   */
+  markStartingForContinueRequest(id: number): void {
     const now = Date.now();
     this.db
       .prepare(
         `UPDATE runs
-            SET state='running',
-                container_id=?,
+            SET state='starting',
                 resume_attempts=0,
                 next_resume_at=NULL,
                 finished_at=NULL,
                 exit_code=NULL,
                 error=NULL,
-                started_at=COALESCE(started_at, ?),
                 state_entered_at=?
           WHERE id=? AND state IN ('failed','cancelled','succeeded')`,
+      )
+      .run(now, id);
+  }
+
+  /**
+   * User-initiated Continue, second call (from orchestrator after the
+   * container exists). Records container id and refreshes state_entered_at.
+   * Source-state guard is 'starting' — markStartingForContinueRequest must
+   * have run first.
+   */
+  markStartingContainer(id: number, containerId: string): void {
+    const now = Date.now();
+    this.db
+      .prepare(
+        `UPDATE runs
+            SET container_id=?,
+                started_at=COALESCE(started_at, ?),
+                state_entered_at=?
+          WHERE id=? AND state='starting'`,
       )
       .run(containerId, now, now, id);
   }
 
   markWaiting(id: number): void {
     this.db
-      .prepare(`UPDATE runs SET state='waiting', state_entered_at=? WHERE id=? AND state='running'`)
+      .prepare(
+        `UPDATE runs
+            SET state='waiting', state_entered_at=?
+          WHERE id=? AND state IN ('starting','running')`,
+      )
       .run(Date.now(), id);
   }
 
-  markRunningFromWaiting(id: number): void {
+  /**
+   * RuntimeStateWatcher saw the `prompted` sentinel: Claude is processing
+   * a prompt. Allowed from 'starting' (initial launch) or 'waiting'
+   * (subsequent reply).
+   */
+  markRunning(id: number): void {
     this.db
-      .prepare(`UPDATE runs SET state='running', state_entered_at=? WHERE id=? AND state='waiting'`)
+      .prepare(
+        `UPDATE runs
+            SET state='running', state_entered_at=?
+          WHERE id=? AND state IN ('starting','waiting')`,
+      )
       .run(Date.now(), id);
   }
 

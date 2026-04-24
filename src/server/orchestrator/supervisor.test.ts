@@ -15,6 +15,7 @@ const SUPERVISOR_SRC = path.join(HERE, 'supervisor.sh');
 interface Sandbox {
   root: string;
   fbi: string;
+  fbiState: string;
   workspace: string;
   bin: string;
   tmpOut: string;
@@ -26,10 +27,11 @@ function makeSandbox(): Sandbox {
   // path rewrites below don't match the sandbox root path.
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'sup-test-'));
   const fbi = path.join(root, 'sbx-fbi');
+  const fbiState = path.join(root, 'sbx-fbi-state');
   const workspace = path.join(root, 'sbx-ws');
   const bin = path.join(root, 'bin');
   const tmpOut = path.join(root, 'tmpout');
-  for (const d of [fbi, workspace, bin, tmpOut]) {
+  for (const d of [fbi, fbiState, workspace, bin, tmpOut]) {
     fs.mkdirSync(d, { recursive: true });
   }
 
@@ -136,11 +138,12 @@ exit 0
     .replace(/\/tmp\/prompt\.txt\b/g, path.join(tmpOut, 'prompt.txt'))
     .replace(/\/tmp\/result\.json\b/g, path.join(tmpOut, 'result.json'))
     .replace(/\/workspace\b/g, workspace)
+    .replace(/\/fbi-state\b/g, fbiState)
     .replace(/\/fbi\b/g, fbi);
   const script = path.join(root, 'supervisor.sh');
   fs.writeFileSync(script, patched, { mode: 0o755 });
 
-  return { root, fbi, workspace, bin, tmpOut, script };
+  return { root, fbi, fbiState, workspace, bin, tmpOut, script };
 }
 
 function run(sb: Sandbox, env: Record<string, string>) {
@@ -221,5 +224,20 @@ describe('supervisor.sh', () => {
     // [0] DEFAULT_BRANCH, [1] agent branch (claude/run-7)
     expect(checkouts[0]).toBe('main');
     expect(checkouts[1]).toBe('claude/run-7');
+  });
+
+  it('fresh path touches /fbi-state/prompted so the host watcher leaves starting → running', () => {
+    fs.writeFileSync(path.join(sb.fbi, 'prompt.txt'), 'do the thing');
+    const res = run(sb, {});
+    expect(res.status).toBe(0);
+    expect(fs.existsSync(path.join(sb.fbiState, 'prompted'))).toBe(true);
+    expect(fs.existsSync(path.join(sb.fbiState, 'waiting'))).toBe(false);
+  });
+
+  it('resume path touches /fbi-state/waiting so the host watcher leaves starting → waiting', () => {
+    const res = run(sb, { FBI_RESUME_SESSION_ID: 'session-abc' });
+    expect(res.status).toBe(0);
+    expect(fs.existsSync(path.join(sb.fbiState, 'waiting'))).toBe(true);
+    expect(fs.existsSync(path.join(sb.fbiState, 'prompted'))).toBe(false);
   });
 });

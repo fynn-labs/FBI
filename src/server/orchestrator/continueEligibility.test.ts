@@ -76,6 +76,13 @@ describe('checkContinueEligibility', () => {
     if (!r.ok) expect(r.code).toBe('wrong_state');
   });
 
+  it('rejects runs already in starting state (double-click guard)', () => {
+    writeSession(42);
+    const r = checkContinueEligibility(baseRun({ state: 'starting' }), runsDir);
+    expect(r.ok).toBe(false);
+    if (!r.ok) expect(r.code).toBe('wrong_state');
+  });
+
   it('rejects when claude_session_id is null', () => {
     const r = checkContinueEligibility(
       baseRun({ claude_session_id: null }), runsDir,

@@ -1,9 +1,13 @@
+import type { ReactNode } from 'react';
+
 export interface SidebarView {
   id: string;
   group: 'views';
   label: string;
   route: string;
   order?: number;
+  /** Optional icon rendered in collapsed sidebar mode. Falls back to the first letter of `label`. */
+  icon?: ReactNode;
 }
 
 type Listener = () => void;

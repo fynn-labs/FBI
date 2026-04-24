@@ -10,7 +10,7 @@ vi.mock('./ws.js', () => {
 });
 
 import { openShell } from './ws.js';
-import { acquireShell, releaseShell, getLastSnapshot, requestResync, _reset } from './shellRegistry.js';
+import { acquireShell, releaseShell, getLastSnapshot, _reset } from './shellRegistry.js';
 
 function makeStubShell(): ShellHandle & {
   _bytesCbs: Array<(d: Uint8Array) => void>;
@@ -30,10 +30,10 @@ function makeStubShell(): ShellHandle & {
       snapshotCbs.push(cb);
       return () => { const i = snapshotCbs.indexOf(cb); if (i !== -1) snapshotCbs.splice(i, 1); };
     }),
-    onOpen: vi.fn(),
+    onOpen: vi.fn(() => () => {}),
     send: vi.fn(),
     resize: vi.fn(),
-    sendResync: vi.fn(),
+    sendHello: vi.fn(),
     close: vi.fn(),
   };
 }
@@ -182,19 +182,3 @@ describe('getLastSnapshot', () => {
   });
 });
 
-describe('requestResync', () => {
-  it('calls sendResync on the shell', () => {
-    const stub = makeStubShell();
-    mockedOpenShell.mockReturnValue(stub);
-
-    acquireShell(9);
-    requestResync(9);
-
-    expect(stub.sendResync).toHaveBeenCalledTimes(1);
-  });
-
-  it('is a no-op for unknown runId', () => {
-    // Should not throw.
-    expect(() => requestResync(999)).not.toThrow();
-  });
-});

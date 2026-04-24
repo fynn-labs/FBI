@@ -30,7 +30,8 @@ describe('auto-resume: classify + DB transitions', () => {
     const { runs, projectId } = setup();
     const r = runs.create({ project_id: projectId, prompt: 'fix it',
       log_path_tmpl: (id) => `/tmp/${id}.log` });
-    runs.markStarted(r.id, 'c1');
+    runs.markStartingFromQueued(r.id, 'c1');
+    runs.markRunning(r.id);
 
     const logTail = '[fbi] resolving image\n... normal output ...\nClaude usage limit reached|1776870000';
     const verdict = classify(logTail, null, FIXED_NOW);
@@ -61,16 +62,18 @@ describe('auto-resume: classify + DB transitions', () => {
     const { runs, projectId } = setup();
     const r = runs.create({ project_id: projectId, prompt: 'fix it',
       log_path_tmpl: (id) => `/tmp/${id}.log` });
-    runs.markStarted(r.id, 'c1');
+    runs.markStartingFromQueued(r.id, 'c1');
+    runs.markRunning(r.id);
 
-    // Exhaust the cap: cycle through markAwaitingResume + markResuming N times
+    // Exhaust the cap: cycle through markAwaitingResume + markStartingForResume + markRunning N times
     const maxAttempts = 3;
     for (let i = 0; i < maxAttempts; i++) {
       runs.markAwaitingResume(r.id, {
         next_resume_at: FIXED_NOW + 60_000,
         last_limit_reset_at: FIXED_NOW + 60_000,
       });
-      runs.markResuming(r.id, `c${i + 2}`);
+      runs.markStartingForResume(r.id, `c${i + 2}`);
+      runs.markRunning(r.id);
     }
 
     const run = runs.get(r.id)!;

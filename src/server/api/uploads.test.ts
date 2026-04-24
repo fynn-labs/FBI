@@ -43,12 +43,15 @@ function makeRun(
     log_path_tmpl: (rid) => path.join(app.runsDir, `${rid}.log`),
   });
   if (state === 'running') {
-    app.runs.markStarted(run.id, 'fake-container');
+    app.runs.markStartingFromQueued(run.id, 'fake-container');
+    app.runs.markRunning(run.id);
   } else if (state === 'waiting') {
-    app.runs.markStarted(run.id, 'fake-container');
+    app.runs.markStartingFromQueued(run.id, 'fake-container');
+    app.runs.markRunning(run.id);
     app.runs.markWaiting(run.id);
   } else if (state === 'succeeded') {
-    app.runs.markStarted(run.id, 'fake-container');
+    app.runs.markStartingFromQueued(run.id, 'fake-container');
+    app.runs.markRunning(run.id);
     app.runs.markFinished(run.id, { state: 'succeeded', exit_code: 0, branch_name: null, head_commit: null });
   }
   return app.runs.get(run.id)!;

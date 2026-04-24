@@ -45,7 +45,8 @@ describe('proxy integration (Docker-gated)', () => {
         project_id: p.id, prompt: 'hi',
         log_path_tmpl: (id) => path.join(dir, `${id}.log`),
       });
-      runs.markStarted(run.id, container.id);
+      runs.markStartingFromQueued(run.id, container.id);
+      runs.markRunning(run.id);
       streams.getOrCreateState(run.id).publish({
         type: 'state', state: 'running', state_entered_at: Date.now(),
         next_resume_at: null, resume_attempts: 0, last_limit_reset_at: null,

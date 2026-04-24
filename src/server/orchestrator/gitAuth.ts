@@ -15,7 +15,7 @@ export interface GitAuth {
  * container at /ssh-agent, and SSH_AUTH_SOCK is set accordingly in env().
  */
 export class SshAgentForwarding implements GitAuth {
-  constructor(private hostSocket: string) {
+  constructor(private hostSocket: string, private bindSource: string = hostSocket) {
     if (!hostSocket) {
       throw new Error(
         'HOST_SSH_AUTH_SOCK is empty; start an ssh-agent and load keys first.'
@@ -28,7 +28,7 @@ export class SshAgentForwarding implements GitAuth {
   }
 
   mounts(): GitAuthMount[] {
-    return [{ source: this.hostSocket, target: '/ssh-agent', readOnly: false }];
+    return [{ source: this.bindSource, target: '/ssh-agent', readOnly: false }];
   }
 
   env(): Record<string, string> {

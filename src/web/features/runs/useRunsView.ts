@@ -4,10 +4,10 @@ import type { Run, RunState } from '@shared/types.js';
 export const STORAGE_KEY = 'fbi.runs.view.v1';
 
 const ALL_STATES: readonly RunState[] = [
-  'running', 'waiting', 'awaiting_resume', 'queued', 'succeeded', 'failed', 'cancelled',
+  'starting', 'running', 'waiting', 'awaiting_resume', 'queued', 'succeeded', 'failed', 'cancelled',
 ];
 
-const ACTIVE_STATES = new Set<RunState>(['running', 'waiting', 'awaiting_resume', 'queued']);
+const ACTIVE_STATES = new Set<RunState>(['starting', 'running', 'waiting', 'awaiting_resume', 'queued']);
 
 const STATE_SET = new Set<string>(ALL_STATES);
 

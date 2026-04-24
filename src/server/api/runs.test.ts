@@ -71,6 +71,7 @@ function setup() {
     },
     fireResumeNow: (_id: number) => {},
     continueRun: async (_id: number) => {},
+    markStartingForContinueRequest: () => {},
     orchestrator: stubOrchestrator,
     wipRepo: stubWipRepo,
   });
@@ -105,6 +106,7 @@ function setupWithUploads() {
     cancel: async (_id: number) => {},
     fireResumeNow: (_id: number) => {},
     continueRun: async (_id: number) => {},
+    markStartingForContinueRequest: () => {},
     orchestrator: stubOrchestrator,
     wipRepo: stubWipRepo,
   });
@@ -128,6 +130,7 @@ function makeApp() {
     cancel: async (_id: number) => {},
     fireResumeNow: (_id: number) => {},
     continueRun: async (_id: number) => {},
+    markStartingForContinueRequest: () => {},
     orchestrator: stubOrchestrator,
     wipRepo: stubWipRepo,
   });
@@ -190,7 +193,8 @@ describe('runs routes', () => {
       log_path_tmpl: (id) => `/tmp/${id}.log` });
     runs.create({ project_id: p.id, prompt: 'other',
       log_path_tmpl: (id) => `/tmp/${id}.log` });
-    runs.markStarted(r1.id, 'c');
+    runs.markStartingFromQueued(r1.id, 'c');
+    runs.markRunning(r1.id);
     runs.markFinished(r1.id, { state: 'succeeded' });
 
     const res = await app.inject({ method: 'GET', url: '/api/runs?state=succeeded&q=login&limit=50&offset=0' });
@@ -225,7 +229,8 @@ describe('runs routes', () => {
       git_author_name: null, git_author_email: null });
     const r = runs.create({ project_id: p.id, prompt: 'x',
       log_path_tmpl: (id) => `/tmp/${id}.log` });
-    runs.markStarted(r.id, 'c1');
+    runs.markStartingFromQueued(r.id, 'c1');
+    runs.markRunning(r.id);
     runs.markAwaitingResume(r.id, { next_resume_at: Date.now() + 60_000, last_limit_reset_at: null });
     const fired: number[] = [];
     const app2 = Fastify();
@@ -238,6 +243,7 @@ describe('runs routes', () => {
       cancel: async (_id: number) => {},
       fireResumeNow: (id: number) => { fired.push(id); },
       continueRun: async (_id: number) => {},
+      markStartingForContinueRequest: () => {},
       orchestrator: stubOrchestrator,
       wipRepo: stubWipRepo,
     });
@@ -266,7 +272,8 @@ describe('runs routes', () => {
       project_id: proj.id, prompt: 'x',
       log_path_tmpl: (id) => path.join(dir, `${id}.log`),
     });
-    runs.markStarted(run.id, 'c1');
+    runs.markStartingFromQueued(run.id, 'c1');
+    runs.markRunning(run.id);
     runs.setClaudeSessionId(run.id, 'sess');
     runs.markFinished(run.id, { state: 'failed' });
     // Plant a session jsonl so the handler's eligibility check passes.
@@ -281,6 +288,7 @@ describe('runs routes', () => {
       launch: async () => {}, cancel: async () => {},
       fireResumeNow: () => {},
       continueRun: async (id: number) => { continued.push(id); },
+      markStartingForContinueRequest: () => {},
       orchestrator: stubOrchestrator,
       wipRepo: stubWipRepo,
     });
@@ -305,7 +313,8 @@ describe('runs routes', () => {
       project_id: proj.id, prompt: 'x',
       log_path_tmpl: (id) => path.join(dir, `${id}.log`),
     });
-    runs.markStarted(run.id, 'c1');
+    runs.markStartingFromQueued(run.id, 'c1');
+    runs.markRunning(run.id);
     runs.setClaudeSessionId(run.id, 'sess');
     runs.markFinished(run.id, { state: 'failed' });
     const sessDir = path.join(dir, String(run.id), 'claude-projects');
@@ -322,6 +331,7 @@ describe('runs routes', () => {
       launch: async () => {}, cancel: async () => {},
       fireResumeNow: () => {},
       continueRun: () => longContinue,
+      markStartingForContinueRequest: () => {},
       orchestrator: stubOrchestrator,
       wipRepo: stubWipRepo,
     });
@@ -385,7 +395,8 @@ describe('runs routes', () => {
       devcontainer_override_json: null, instructions: null,
       git_author_name: null, git_author_email: null });
     const r = runs.create({ project_id: p.id, prompt: 'x', branch_hint: 'feat/x', log_path_tmpl: (id) => `/tmp/${id}.log` });
-    runs.markStarted(r.id, 'c');
+    runs.markStartingFromQueued(r.id, 'c');
+    runs.markRunning(r.id);
 
     let ghCalls = 0;
     const app = Fastify();
@@ -393,6 +404,7 @@ describe('runs routes', () => {
       runs, projects, streams: new RunStreamRegistry(), runsDir: dir, draftUploadsDir: dir,
       launch: async () => {}, cancel: async () => {},
       fireResumeNow: () => {}, continueRun: async () => {},
+      markStartingForContinueRequest: () => {},
       gh: { ...stubGh, commitsOnBranch: async () => { ghCalls++; return []; } },
       orchestrator: stubOrchestrator,
       wipRepo: stubWipRepo,
@@ -417,6 +429,7 @@ describe('runs routes', () => {
       runs, projects, gh: stubGh, streams: new RunStreamRegistry(), runsDir: dir, draftUploadsDir: dir,
       launch: async () => {}, cancel: async () => {},
       fireResumeNow: () => {}, continueRun: async () => {},
+      markStartingForContinueRequest: () => {},
       orchestrator: {
         ...stubOrchestrator,
         execInContainer: async () => ({ stdout: '5\t2\tsrc/a.ts\n-\t-\timg.png\n', stderr: '', exitCode: 0 }),
@@ -441,7 +454,8 @@ describe('runs routes', () => {
       devcontainer_override_json: null, instructions: null,
       git_author_name: null, git_author_email: null });
     const r = runs.create({ project_id: p.id, prompt: 'x', branch_hint: 'feat/x', log_path_tmpl: (id) => `/tmp/${id}.log` });
-    runs.markStarted(r.id, 'c');
+    runs.markStartingFromQueued(r.id, 'c');
+    runs.markRunning(r.id);
     const run = runs.get(r.id)!;
 
     const app = Fastify();
@@ -450,6 +464,7 @@ describe('runs routes', () => {
       runsDir: dir, draftUploadsDir: dir,
       launch: async () => {}, cancel: async () => {},
       fireResumeNow: () => {}, continueRun: async () => {},
+      markStartingForContinueRequest: () => {},
       orchestrator: {
         ...stubOrchestrator,
         execInContainer: async () => ({ stdout: '3\t1\tfoo.ts\n', stderr: '', exitCode: 0 }),
@@ -479,7 +494,8 @@ describe('runs routes', () => {
       log_path_tmpl: (id) => path.join(dir, `${id}.log`),
     });
     // Run is `failed` but has no claude_session_id captured.
-    runs.markStarted(run.id, 'c1');
+    runs.markStartingFromQueued(run.id, 'c1');
+    runs.markRunning(run.id);
     runs.markFinished(run.id, { state: 'failed' });
     const app = Fastify();
     registerRunsRoutes(app, {
@@ -487,6 +503,7 @@ describe('runs routes', () => {
       launch: async () => {}, cancel: async () => {},
       fireResumeNow: () => {},
       continueRun: async () => { throw new Error('should not be called'); },
+      markStartingForContinueRequest: () => {},
       orchestrator: stubOrchestrator,
       wipRepo: stubWipRepo,
     });
@@ -507,7 +524,8 @@ describe('runs routes', () => {
         devcontainer_override_json: null, instructions: null,
         git_author_name: null, git_author_email: null });
       const r = runs.create({ project_id: p.id, prompt: 'x', branch_hint: 'feat/x', log_path_tmpl: (id) => `/tmp/${id}.log` });
-      runs.markStarted(r.id, 'c');
+      runs.markStartingFromQueued(r.id, 'c');
+      runs.markRunning(r.id);
       return { dir, projects, runs, run: runs.get(r.id)! };
     }
 
@@ -518,6 +536,7 @@ describe('runs routes', () => {
         runs, projects, streams: new RunStreamRegistry(), runsDir: dir, draftUploadsDir: dir,
         launch: async () => {}, cancel: async () => {},
         fireResumeNow: () => {}, continueRun: async () => {},
+        markStartingForContinueRequest: () => {},
         gh: stubGh,
         orchestrator: {
           ...stubOrchestrator,
@@ -538,6 +557,7 @@ describe('runs routes', () => {
         runs, projects, streams: new RunStreamRegistry(), runsDir: dir, draftUploadsDir: dir,
         launch: async () => {}, cancel: async () => {},
         fireResumeNow: () => {}, continueRun: async () => {},
+        markStartingForContinueRequest: () => {},
         gh: stubGh,
         orchestrator: {
           ...stubOrchestrator,
@@ -560,6 +580,7 @@ describe('runs routes', () => {
         runs, projects, streams: new RunStreamRegistry(), runsDir: dir, draftUploadsDir: dir,
         launch: async () => {}, cancel: async () => {},
         fireResumeNow: () => {}, continueRun: async () => {},
+        markStartingForContinueRequest: () => {},
         gh: stubGh,
         orchestrator: {
           ...stubOrchestrator,
@@ -582,6 +603,7 @@ describe('runs routes', () => {
         runsDir: dir, draftUploadsDir: dir,
         launch: async () => {}, cancel: async () => {},
         fireResumeNow: () => {}, continueRun: async () => {},
+        markStartingForContinueRequest: () => {},
         gh: stubGh,
         orchestrator: {
           ...stubOrchestrator,
@@ -704,7 +726,8 @@ describe('runs routes', () => {
     // won't collide with any module-level changesCache entry from other tests.
     runs.create({ project_id: p.id, prompt: 'throwaway', log_path_tmpl: (id) => `/tmp/${id}.log` });
     const r = runs.create({ project_id: p.id, prompt: 'x', branch_hint: 'feat/x', log_path_tmpl: (id) => `/tmp/${id}.log` });
-    runs.markStarted(r.id, 'c');
+    runs.markStartingFromQueued(r.id, 'c');
+    runs.markRunning(r.id);
 
     const showOutput =
       'commit abc123\nAuthor: x\n\n    feat: bump submodule\n\n' +
@@ -717,6 +740,7 @@ describe('runs routes', () => {
       runs, projects, streams: new RunStreamRegistry(), runsDir: dir, draftUploadsDir: dir,
       launch: async () => {}, cancel: async () => {},
       fireResumeNow: () => {}, continueRun: async () => {},
+      markStartingForContinueRequest: () => {},
       gh: {
         ...stubGh,
         commitsOnBranch: async () => [
@@ -793,6 +817,7 @@ describe('runs routes', () => {
         cancel: async () => {},
         fireResumeNow: () => {},
         continueRun: async () => {},
+        markStartingForContinueRequest: () => {},
         orchestrator: stubOrchestrator,
         wipRepo,
       });

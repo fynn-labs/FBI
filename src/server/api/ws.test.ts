@@ -29,7 +29,8 @@ async function setup() {
     log_path_tmpl: () => logPath,
   });
   // Mark it finished so the WS just replays the transcript.
-  runs.markStarted(run.id, 'c');
+  runs.markStartingFromQueued(run.id, 'c');
+  runs.markRunning(run.id);
   runs.markFinished(run.id, { state: 'succeeded', exit_code: 0, head_commit: 'abc' });
 
   const app = Fastify();
@@ -53,8 +54,10 @@ describe('WS shell', () => {
     const chunks: Buffer[] = [];
     ws.on('message', (d) => chunks.push(d as Buffer));
     await new Promise<void>((r) => ws.once('open', () => r()));
-    // Give the server a tick to send the replay payload.
-    await new Promise((r) => setTimeout(r, 100));
+    // Send hello so the server emits its opening snapshot.
+    ws.send(JSON.stringify({ type: 'hello', cols: 120, rows: 40 }));
+    // Wait for the snapshot to arrive (hello gate resolves immediately).
+    await new Promise((r) => setTimeout(r, 200));
     expect(Buffer.concat(chunks).toString()).toContain('past-output');
     // Socket must still be open — a subsequent Continue would publish into
     // the same broadcaster and the client must still be subscribed.
@@ -83,7 +86,8 @@ describe('WS shell', () => {
     const logPath = path.join(dir, 'run.log');
     fs.writeFileSync(logPath, 'old-transcript');
     const run = runs.create({ project_id: p.id, prompt: 'hi', log_path_tmpl: () => logPath });
-    runs.markStarted(run.id, 'c');
+    runs.markStartingFromQueued(run.id, 'c');
+    runs.markRunning(run.id);
     runs.markFinished(run.id, { state: 'failed', error: 'boom' });
 
     const app2 = Fastify();
@@ -100,7 +104,9 @@ describe('WS shell', () => {
     const chunks: Buffer[] = [];
     ws.on('message', (d) => chunks.push(d as Buffer));
     await new Promise<void>((r) => ws.once('open', () => r()));
-    await new Promise((r) => setTimeout(r, 50));
+    // Send hello so the server emits its opening snapshot and sets live=true.
+    ws.send(JSON.stringify({ type: 'hello', cols: 120, rows: 40 }));
+    await new Promise((r) => setTimeout(r, 200));
 
     // Simulate a Continue firing: publish into the run's broadcaster.
     streams.getOrCreate(run.id).publish(Buffer.from('\n[fbi] continuing from session x\n'));
@@ -130,7 +136,8 @@ describe('WS shell', () => {
     const logPath = path.join(dir, 'run2.log');
     fs.writeFileSync(logPath, '');
     const run = runs.create({ project_id: p.id, prompt: 'hi', log_path_tmpl: () => logPath });
-    runs.markStarted(run.id, 'c1');
+    runs.markStartingFromQueued(run.id, 'c1');
+    runs.markRunning(run.id);
     // run is now 'running'
 
     const app2 = Fastify();
@@ -247,7 +254,8 @@ describe('WS snapshot handshake', () => {
     const logPath = path.join(dir, 'run-snap.log');
     fs.writeFileSync(logPath, '');
     const run = runs.create({ project_id: p.id, prompt: 'hi', log_path_tmpl: () => logPath });
-    runs.markStarted(run.id, 'c1');
+    runs.markStartingFromQueued(run.id, 'c1');
+    runs.markRunning(run.id);
     // run is now 'running'
 
     // Pre-populate a ScreenState so the route has something to serialize.
@@ -283,75 +291,165 @@ describe('WS snapshot handshake', () => {
     await app.close();
   });
 
-  it('responds to a resync message with a fresh snapshot reflecting newly-written bytes', async () => {
+  it('does not send a snapshot frame in response to a resize message', async () => {
     const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'fbi-'));
     const db = openDb(path.join(dir, 'db.sqlite'));
     const projects = new ProjectsRepo(db);
     const runs = new RunsRepo(db);
     const streams = new RunStreamRegistry();
-
     const p = projects.create({
       name: 'p', repo_url: 'r', default_branch: 'main',
       devcontainer_override_json: null, instructions: null,
       git_author_name: null, git_author_email: null,
     });
-    const logPath = path.join(dir, 'run-resync.log');
+    const logPath = path.join(dir, 'run-noresize.log');
     fs.writeFileSync(logPath, '');
     const run = runs.create({ project_id: p.id, prompt: 'hi', log_path_tmpl: () => logPath });
-    runs.markStarted(run.id, 'c1');
+    runs.markStartingFromQueued(run.id, 'c1');
+    runs.markRunning(run.id);
     // run is now 'running'
 
     const screen = streams.getOrCreateScreen(run.id, 80, 24);
     await screen.write(new TextEncoder().encode('before\r\n'));
 
+    const orchestrator = { writeStdin: () => {}, resize: async () => {}, cancel: async () => {} };
     const app = Fastify();
     await app.register(fastifyWebsocket);
-    const orchestrator = { writeStdin: () => {}, resize: async () => {}, cancel: async () => {} };
     registerWsRoute(app, { runs, streams, orchestrator });
     await app.listen({ port: 0 });
     const address = app.server.address();
     if (!address || typeof address === 'string') throw new Error('no port');
 
     const ws = new WebSocket(`ws://127.0.0.1:${address.port}/api/runs/${run.id}/shell`);
-
-    // Collect all text messages in arrival order.
     const textFrames: string[] = [];
-    let frameWaiter: (() => void) | null = null;
     ws.on('message', (data, isBinary) => {
-      if (isBinary) return;
-      textFrames.push((data as Buffer).toString('utf8'));
-      frameWaiter?.();
-      frameWaiter = null;
+      if (!isBinary) textFrames.push((data as Buffer).toString('utf8'));
     });
+    await new Promise<void>((r) => ws.once('open', r));
+    ws.send(JSON.stringify({ type: 'hello', cols: 80, rows: 24 }));
 
-    // Wait until at least N text frames have arrived.
-    const waitForFrames = (n: number): Promise<void> =>
-      new Promise<void>((resolve, reject) => {
-        if (textFrames.length >= n) { resolve(); return; }
-        const t = setTimeout(() => reject(new Error(`timeout waiting for ${n} frames, got ${textFrames.length}`)), 2000);
-        const check = (): void => {
-          if (textFrames.length >= n) { clearTimeout(t); resolve(); return; }
-          frameWaiter = check;
-        };
-        frameWaiter = check;
+    // Wait for the opening snapshot (frame #1).
+    while (textFrames.length < 1) { await new Promise((r) => setTimeout(r, 20)); }
+    expect(JSON.parse(textFrames[0]).type).toBe('snapshot');
+
+    // Send a resize; wait 500 ms and assert no *additional* snapshot.
+    ws.send(JSON.stringify({ type: 'resize', cols: 100, rows: 30 }));
+    await new Promise((r) => setTimeout(r, 500));
+    expect(textFrames).toHaveLength(1);
+
+    ws.close();
+    await app.close();
+  });
+
+  it('defers the opening snapshot until the client sends hello', async () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'fbi-'));
+    const db = openDb(path.join(dir, 'db.sqlite'));
+    const projects = new ProjectsRepo(db);
+    const runs = new RunsRepo(db);
+    const streams = new RunStreamRegistry();
+    const p = projects.create({
+      name: 'p', repo_url: 'r', default_branch: 'main',
+      devcontainer_override_json: null, instructions: null,
+      git_author_name: null, git_author_email: null,
+    });
+    const logPath = path.join(dir, 'run-hello.log');
+    fs.writeFileSync(logPath, '');
+    const run = runs.create({ project_id: p.id, prompt: 'hi', log_path_tmpl: () => logPath });
+    runs.markStartingFromQueued(run.id, 'c1');
+    runs.markRunning(run.id);
+    // Pre-create a screen so sendSnapshot doesn't go down the rebuild path.
+    streams.getOrCreateScreen(run.id, 80, 24);
+
+    const resizeCalls: Array<{ cols: number; rows: number }> = [];
+    const orchestrator = {
+      writeStdin: () => {},
+      resize: async (_id: number, cols: number, rows: number) => {
+        resizeCalls.push({ cols, rows });
+      },
+      cancel: async () => {},
+    };
+
+    const app = Fastify();
+    await app.register(fastifyWebsocket);
+    registerWsRoute(app, { runs, streams, orchestrator });
+    await app.listen({ port: 0 });
+    const address = app.server.address();
+    if (!address || typeof address === 'string') throw new Error('no port');
+
+    const ws = new WebSocket(`ws://127.0.0.1:${address.port}/api/runs/${run.id}/shell`);
+    await new Promise<void>((r) => ws.once('open', r));
+
+    // Give the server 100 ms — if it were going to send a snapshot without
+    // hello, it would have done so by now.
+    const earlyFrames: string[] = [];
+    ws.on('message', (data, isBinary) => {
+      if (!isBinary) earlyFrames.push((data as Buffer).toString('utf8'));
+    });
+    await new Promise((r) => setTimeout(r, 100));
+    expect(earlyFrames).toHaveLength(0);
+
+    // Send hello. A snapshot should follow within 500 ms.
+    ws.send(JSON.stringify({ type: 'hello', cols: 100, rows: 30 }));
+    const snap = await new Promise<string>((resolve, reject) => {
+      const t = setTimeout(() => reject(new Error('snapshot did not arrive')), 500);
+      ws.on('message', (data, isBinary) => {
+        if (isBinary) return;
+        clearTimeout(t);
+        resolve((data as Buffer).toString('utf8'));
       });
+    });
+    const parsed = JSON.parse(snap) as { type: string; cols: number; rows: number };
+    expect(parsed.type).toBe('snapshot');
+    expect(parsed.cols).toBe(100);
+    expect(parsed.rows).toBe(30);
+    expect(resizeCalls).toContainEqual({ cols: 100, rows: 30 });
 
-    await new Promise<void>((resolve) => ws.once('open', resolve));
+    ws.close();
+    await app.close();
+  });
 
-    // Wait for the initial snapshot.
-    await waitForFrames(1);
-    const first = JSON.parse(textFrames[0]) as { type: string };
-    expect(first.type).toBe('snapshot');
+  it('falls back to a default-dims snapshot if hello never arrives within 1500 ms', async () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'fbi-'));
+    const db = openDb(path.join(dir, 'db.sqlite'));
+    const projects = new ProjectsRepo(db);
+    const runs = new RunsRepo(db);
+    const streams = new RunStreamRegistry();
+    const p = projects.create({
+      name: 'p', repo_url: 'r', default_branch: 'main',
+      devcontainer_override_json: null, instructions: null,
+      git_author_name: null, git_author_email: null,
+    });
+    const logPath = path.join(dir, 'run-fallback.log');
+    fs.writeFileSync(logPath, '');
+    const run = runs.create({ project_id: p.id, prompt: 'hi', log_path_tmpl: () => logPath });
+    runs.markStartingFromQueued(run.id, 'c1');
+    runs.markRunning(run.id);
+    streams.getOrCreateScreen(run.id, 120, 40); // default dims
 
-    // Write new bytes into the screen after the initial snapshot.
-    await screen.write(new TextEncoder().encode('after-resync\r\n'));
+    const orchestrator = { writeStdin: () => {}, resize: async () => {}, cancel: async () => {} };
+    const app = Fastify();
+    await app.register(fastifyWebsocket);
+    registerWsRoute(app, { runs, streams, orchestrator });
+    await app.listen({ port: 0 });
+    const address = app.server.address();
+    if (!address || typeof address === 'string') throw new Error('no port');
 
-    // Request a resync; expect a fresh snapshot frame.
-    ws.send(JSON.stringify({ type: 'resync' }));
-    await waitForFrames(2);
-    const second = JSON.parse(textFrames[1]) as { type: string; ansi: string };
-    expect(second.type).toBe('snapshot');
-    expect(second.ansi.includes('after-resync')).toBe(true);
+    const ws = new WebSocket(`ws://127.0.0.1:${address.port}/api/runs/${run.id}/shell`);
+    await new Promise<void>((r) => ws.once('open', r));
+
+    // Do NOT send hello. Wait for the fallback.
+    const snap = await new Promise<string>((resolve, reject) => {
+      const t = setTimeout(() => reject(new Error('fallback snapshot did not arrive')), 3000);
+      ws.on('message', (data, isBinary) => {
+        if (isBinary) return;
+        clearTimeout(t);
+        resolve((data as Buffer).toString('utf8'));
+      });
+    });
+    const parsed = JSON.parse(snap) as { type: string; cols: number; rows: number };
+    expect(parsed.type).toBe('snapshot');
+    expect(parsed.cols).toBe(120);
+    expect(parsed.rows).toBe(40);
 
     ws.close();
     await app.close();
@@ -376,7 +474,8 @@ describe('WS typed frames', () => {
     const run = runs.create({
       project_id: p.id, prompt: 'hi', log_path_tmpl: () => logPath,
     });
-    runs.markStarted(run.id, 'c');
+    runs.markStartingFromQueued(run.id, 'c');
+    runs.markRunning(run.id);
 
     const app = Fastify();
     await app.register(fastifyWebsocket);
