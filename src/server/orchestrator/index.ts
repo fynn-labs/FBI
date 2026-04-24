@@ -31,7 +31,7 @@ import type { RateLimitStateRepo } from '../db/rateLimitState.js';
 import type { UsageRepo } from '../db/usage.js';
 import { UsageTailer } from './usageTailer.js';
 import { LimitMonitor } from './limitMonitor.js';
-import { WaitingWatcher } from './waitingWatcher.js';
+import { RuntimeStateWatcher, type DerivedRuntimeState } from './runtimeStateWatcher.js';
 import { GitStateWatcher } from './gitStateWatcher.js';
 import { dockerExec, type DockerExecOptions, type DockerExecResult } from './dockerExec.js';
 import { nudgeClaudeToExit } from './nudgeClaude.js';
@@ -162,6 +162,17 @@ export class Orchestrator {
       run_id: runId,
       project_id: run.project_id,
     });
+  }
+
+  /**
+   * Public wrapper for the API endpoint: synchronously flips a terminated
+   * run to `starting` and broadcasts the state change. The async
+   * continueRun lifecycle (container creation, etc.) is kicked off
+   * separately by the endpoint as fire-and-forget.
+   */
+  markStartingForContinueRequest(runId: number): void {
+    this.deps.runs.markStartingForContinueRequest(runId);
+    this.publishState(runId);
   }
 
   private publishTitleUpdate(runId: number, title: string): void {
@@ -306,7 +317,7 @@ export class Orchestrator {
     let tailer: UsageTailer | null = null;
     let titleWatcher: TitleWatcher | null = null;
     let limitMonitor: LimitMonitor | null = null;
-    let waitingWatcher: WaitingWatcher | null = null;
+    let runtimeWatcher: RuntimeStateWatcher | null = null;
     let gitWatcher: GitStateWatcher | null = null;
 
     try {
@@ -335,16 +346,16 @@ export class Orchestrator {
         stream: true, stdin: true, stdout: true, stderr: true, hijack: true,
       });
       limitMonitor = this.makeLimitMonitor(runId, container, attach, onBytes);
-      waitingWatcher = this.makeWaitingWatcher(runId);
+      runtimeWatcher = this.makeRuntimeStateWatcher(runId);
       attach.on('data', (c: Buffer) => {
         limitMonitor!.feedLog(c);
         onBytes(c);
       });
       await container.start();
       limitMonitor.start();
-      waitingWatcher.start();
+      runtimeWatcher.start();
       this.active.set(runId, { container, attachStream: attach });
-      this.deps.runs.markStarted(runId, container.id);
+      this.deps.runs.markStartingFromQueued(runId, container.id);
       this.publishState(runId);
 
       const events = this.deps.streams.getOrCreateEvents(runId);
@@ -399,7 +410,7 @@ export class Orchestrator {
       if (tailer) await tailer.stop();
       if (titleWatcher) await titleWatcher.stop();
       if (limitMonitor) limitMonitor.stop();
-      if (waitingWatcher) waitingWatcher.stop();
+      if (runtimeWatcher) runtimeWatcher.stop();
       if (gitWatcher) await gitWatcher.stop();
     }
   }
@@ -585,13 +596,14 @@ export class Orchestrator {
         stream: true, stdin: true, stdout: true, stderr: true, hijack: true,
       });
       const limitMonitor = this.makeLimitMonitor(runId, container, attach, onBytes);
-      const waitingWatcher = this.makeWaitingWatcher(runId);
+      const runtimeWatcher = this.makeRuntimeStateWatcher(runId);
       attach.on('data', (c: Buffer) => { limitMonitor.feedLog(c); onBytes(c); });
       await container.start();
       limitMonitor.start();
-      waitingWatcher.start();
+      this.clearRuntimeSentinels(runId);
+      runtimeWatcher.start();
       this.active.set(runId, { container, attachStream: attach });
-      this.deps.runs.markResuming(runId, container.id);
+      this.deps.runs.markStartingForResume(runId, container.id);
       this.publishState(runId);
 
       const titleWatcher = new TitleWatcher({
@@ -607,7 +619,7 @@ export class Orchestrator {
       } finally {
         await titleWatcher.stop();
         limitMonitor.stop();
-        waitingWatcher.stop();
+        runtimeWatcher.stop();
       }
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
@@ -622,8 +634,14 @@ export class Orchestrator {
   async continueRun(runId: number): Promise<void> {
     const run = this.deps.runs.get(runId);
     if (!run) throw new Error(`run ${runId} not found`);
-    const verdict = checkContinueEligibility(run, this.deps.config.runsDir);
-    if (!verdict.ok) throw new ContinueNotEligibleError(verdict.code, verdict.message);
+    // API endpoint has already validated eligibility and flipped to 'starting'.
+    // Bail defensively if state is no longer 'starting' (e.g., a cancel raced us).
+    if (run.state !== 'starting') {
+      throw new ContinueNotEligibleError(
+        'wrong_state',
+        `continueRun: expected state 'starting' (set by API), got '${run.state}'`,
+      );
+    }
 
     const store = new LogStore(run.log_path);
     const broadcaster = this.deps.streams.getOrCreate(runId);
@@ -655,13 +673,14 @@ export class Orchestrator {
         stream: true, stdin: true, stdout: true, stderr: true, hijack: true,
       });
       const limitMonitor = this.makeLimitMonitor(runId, container, attach, onBytes);
-      const waitingWatcher = this.makeWaitingWatcher(runId);
+      const runtimeWatcher = this.makeRuntimeStateWatcher(runId);
       attach.on('data', (c: Buffer) => { limitMonitor.feedLog(c); onBytes(c); });
       await container.start();
       limitMonitor.start();
-      waitingWatcher.start();
+      this.clearRuntimeSentinels(runId);
+      runtimeWatcher.start();
       this.active.set(runId, { container, attachStream: attach });
-      this.deps.runs.markContinuing(runId, container.id);
+      this.deps.runs.markStartingContainer(runId, container.id);
       this.publishState(runId);
 
       const titleWatcher = new TitleWatcher({
@@ -677,7 +696,7 @@ export class Orchestrator {
       } finally {
         await titleWatcher.stop();
         limitMonitor.stop();
-        waitingWatcher.stop();
+        runtimeWatcher.stop();
       }
     } catch (err) {
       if (err instanceof ContinueNotEligibleError) throw err;
@@ -719,16 +738,29 @@ export class Orchestrator {
     });
   }
 
-  private makeWaitingWatcher(runId: number): WaitingWatcher {
-    return new WaitingWatcher({
-      path: `${this.stateDirFor(runId)}/waiting`,
-      onEnter: () => {
-        this.deps.runs.markWaiting(runId);
-        this.publishState(runId);
-      },
-      onExit: () => {
-        this.deps.runs.markRunningFromWaiting(runId);
-        this.publishState(runId);
+  private clearRuntimeSentinels(runId: number): void {
+    const dir = this.stateDirFor(runId);
+    fs.rmSync(path.join(dir, 'waiting'), { force: true });
+    fs.rmSync(path.join(dir, 'prompted'), { force: true });
+  }
+
+  private makeRuntimeStateWatcher(runId: number): RuntimeStateWatcher {
+    const stateDir = this.stateDirFor(runId);
+    return new RuntimeStateWatcher({
+      waitingPath: `${stateDir}/waiting`,
+      promptedPath: `${stateDir}/prompted`,
+      onChange: (state: DerivedRuntimeState) => {
+        // 'starting' is set explicitly at launch sites — the watcher only
+        // needs to drive the running/waiting transitions. The DB guards on
+        // markRunning / markWaiting allow them from 'starting' too, so
+        // there's no separate "first transition out of starting" branch.
+        if (state === 'running') {
+          this.deps.runs.markRunning(runId);
+          this.publishState(runId);
+        } else if (state === 'waiting') {
+          this.deps.runs.markWaiting(runId);
+          this.publishState(runId);
+        }
       },
     });
   }
@@ -813,6 +845,7 @@ export class Orchestrator {
    */
   async recover(): Promise<void> {
     const live = [
+      ...this.deps.runs.listByState('starting'),
       ...this.deps.runs.listByState('running'),
       ...this.deps.runs.listByState('waiting'),
     ];
@@ -873,7 +906,7 @@ export class Orchestrator {
     // same LimitMonitor used by fresh launches so a pre-existing container
     // stuck on the in-TUI rate-limit message also gets nudged out.
     const limitMonitor = this.makeLimitMonitor(runId, container, attachStream, onBytes);
-    const waitingWatcher = this.makeWaitingWatcher(runId);
+    const runtimeWatcher = this.makeRuntimeStateWatcher(runId);
     const sinceSec = Math.floor((run.started_at ?? Date.now()) / 1000);
     const logsStream = (await container.logs({
       follow: true,
@@ -883,7 +916,7 @@ export class Orchestrator {
     })) as unknown as NodeJS.ReadableStream;
     logsStream.on('data', (c: Buffer) => { limitMonitor.feedLog(c); onBytes(c); });
     limitMonitor.start();
-    waitingWatcher.start();
+    runtimeWatcher.start();
     const events = this.deps.streams.getOrCreateEvents(runId);
     const tailer = new UsageTailer({
       dir: claudeProjectsDir,
@@ -975,7 +1008,7 @@ export class Orchestrator {
       await titleWatcher.stop();
       await gitWatcher.stop();
       limitMonitor.stop();
-      waitingWatcher.stop();
+      runtimeWatcher.stop();
       events.end();
       this.active.delete(runId); this.lastFiles.delete(runId);
       this.lastRateLimit.delete(runId);
@@ -1010,12 +1043,14 @@ function uniq(xs: string[]): string[] {
   return [...new Set(xs)];
 }
 
-// ~/.claude/settings.json injected into every run container. `hooks` wires
-// Claude Code's Stop and UserPromptSubmit events to a /fbi-state/waiting
-// sentinel that WaitingWatcher polls; Stop means "turn ended, waiting for
-// user", UserPromptSubmit means "user replied". This replaces the old
-// TTY-scraping WaitingMonitor. `skipDangerousModePermissionPrompt` pairs
-// with supervisor.sh's --dangerously-skip-permissions.
+// Claude Code's Stop and UserPromptSubmit events to two /fbi-state/ sentinel
+// files that RuntimeStateWatcher polls. Stop creates /fbi-state/waiting
+// (turn ended). UserPromptSubmit removes /fbi-state/waiting (user replied)
+// AND creates /fbi-state/prompted (sticky — Claude has accepted at least
+// one prompt this container, so it's past the launch gap). Derived state:
+//   waiting present                  -> 'waiting'
+//   waiting absent, prompted present -> 'running'
+//   both absent                      -> 'starting'
 export function buildClaudeSettingsJson(): string {
   return JSON.stringify({
     skipDangerousModePermissionPrompt: true,
@@ -1024,7 +1059,11 @@ export function buildClaudeSettingsJson(): string {
         { hooks: [{ type: 'command', command: 'touch /fbi-state/waiting', timeout: 5 }] },
       ],
       UserPromptSubmit: [
-        { hooks: [{ type: 'command', command: 'rm -f /fbi-state/waiting', timeout: 5 }] },
+        { hooks: [{
+          type: 'command',
+          command: 'rm -f /fbi-state/waiting && touch /fbi-state/prompted',
+          timeout: 5,
+        }] },
       ],
     },
   });

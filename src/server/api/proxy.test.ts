@@ -71,7 +71,8 @@ describe('GET /api/runs/:id/listening-ports', () => {
   it('returns the parsed LISTEN ports for a running container', async () => {
     const { runs, make } = setupRunsRepo();
     const run = make();
-    runs.markStarted(run.id, 'cid');
+    runs.markStartingFromQueued(run.id, 'cid');
+    runs.markRunning(run.id);
     const container: Container = {
       inspect: async () => ({
         State: { Pid: 12345 },
@@ -135,7 +136,9 @@ describe('WS /api/runs/:id/proxy/:port', () => {
     });
 
     const { runs, make } = setupRunsRepo();
-    const run = make(); runs.markStarted(run.id, 'cid');
+    const run = make();
+    runs.markStartingFromQueued(run.id, 'cid');
+    runs.markRunning(run.id);
     const streams = new RunStreamRegistry();
     streams.getOrCreateState(run.id).publish({ type: 'state', state: 'running', state_entered_at: Date.now(), next_resume_at: null, resume_attempts: 0, last_limit_reset_at: null });
     const container: Container = {
@@ -165,7 +168,9 @@ describe('WS /api/runs/:id/proxy/:port', () => {
 
   it('closes WS with 1011 when upstream connect fails', async () => {
     const { runs, make } = setupRunsRepo();
-    const run = make(); runs.markStarted(run.id, 'cid');
+    const run = make();
+    runs.markStartingFromQueued(run.id, 'cid');
+    runs.markRunning(run.id);
     const streams = new RunStreamRegistry();
     streams.getOrCreateState(run.id).publish({ type: 'state', state: 'running', state_entered_at: Date.now(), next_resume_at: null, resume_attempts: 0, last_limit_reset_at: null });
     const container: Container = {
@@ -192,7 +197,9 @@ describe('WS /api/runs/:id/proxy/:port', () => {
       });
     });
     const { runs, make } = setupRunsRepo();
-    const run = make(); runs.markStarted(run.id, 'cid');
+    const run = make();
+    runs.markStartingFromQueued(run.id, 'cid');
+    runs.markRunning(run.id);
     const streams = new RunStreamRegistry();
     streams.getOrCreateState(run.id).publish({ type: 'state', state: 'running', state_entered_at: Date.now(), next_resume_at: null, resume_attempts: 0, last_limit_reset_at: null });
     const container: Container = {
@@ -221,7 +228,9 @@ describe('WS /api/runs/:id/proxy/:port', () => {
       });
     });
     const { runs, make } = setupRunsRepo();
-    const run = make(); runs.markStarted(run.id, 'cid');
+    const run = make();
+    runs.markStartingFromQueued(run.id, 'cid');
+    runs.markRunning(run.id);
     const streams = new RunStreamRegistry();
     streams.getOrCreateState(run.id).publish({ type: 'state', state: 'running', state_entered_at: Date.now(), next_resume_at: null, resume_attempts: 0, last_limit_reset_at: null });
     const container: Container = {
@@ -269,7 +278,9 @@ describe('WS /api/runs/:id/proxy/:port', () => {
       });
     });
     const { runs, make } = setupRunsRepo();
-    const run = make(); runs.markStarted(run.id, 'cid');
+    const run = make();
+    runs.markStartingFromQueued(run.id, 'cid');
+    runs.markRunning(run.id);
     const streams = new RunStreamRegistry();
     streams.getOrCreateState(run.id).publish({ type: 'state', state: 'running', state_entered_at: Date.now(), next_resume_at: null, resume_attempts: 0, last_limit_reset_at: null });
     const container: Container = {
@@ -298,7 +309,9 @@ describe('WS /api/runs/:id/proxy/:port', () => {
       });
     });
     const { runs, make } = setupRunsRepo();
-    const run = make(); runs.markStarted(run.id, 'cid');
+    const run = make();
+    runs.markStartingFromQueued(run.id, 'cid');
+    runs.markRunning(run.id);
     const streams = new RunStreamRegistry();
     // Publish a non-running frame BEFORE the WS connects, so the synchronous
     // replay during subscribe should fire closeBoth and uninstall the listener.
