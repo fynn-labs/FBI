@@ -577,25 +577,49 @@ export class TerminalController {
         const oldViewportY = this.term.buffer.active.viewportY;
 
         const newLoaded = concat([chunk, this.loadedBytes]);
-        await this.rebuildXterm([newLoaded, this.liveTailBytes]);
-        if (this.disposed) return;
-        if (abort.signal.aborted) { this.setChunkState('idle'); return; }
+        // Gate onScroll (and onBytes, though paused already covers that)
+        // during the rebuild + scroll-restore. Without this, term.reset()
+        // and the subsequent writes emit DOM scroll events that our
+        // .xterm-viewport listener forwards to onScroll; with paused=true
+        // but rebuilding=false those events trigger resume() or another
+        // loadOlderChunk(), thrashing the user's scroll position.
+        this.rebuilding = true;
+        try {
+          await this.rebuildXterm([newLoaded, this.liveTailBytes]);
+          if (this.disposed) return;
+          if (abort.signal.aborted) { this.setChunkState('idle'); return; }
 
-        const newBaseY = this.term.buffer.active.baseY;
-        const addedLines = newBaseY - oldBaseY;
-        this.term.scrollToLine(oldViewportY + addedLines);
+          const newBaseY = this.term.buffer.active.baseY;
+          const addedLines = newBaseY - oldBaseY;
+          this.term.scrollToLine(oldViewportY + addedLines);
 
-        this.loadedBytes = newLoaded;
-        this.loadedStartOffset = start;
-        if (start === 0 && !this.startMarkerWritten) {
-          this.startMarkerWritten = true;
-          this.term.write(new TextEncoder().encode('\r\n\x1b[2;37m── start of run ──\x1b[0m\r\n'));
+          this.loadedBytes = newLoaded;
+          this.loadedStartOffset = start;
+          if (start === 0 && !this.startMarkerWritten) {
+            this.startMarkerWritten = true;
+            this.term.write(new TextEncoder().encode('\r\n\x1b[2;37m── start of run ──\x1b[0m\r\n'));
+          }
+          this.setChunkState('idle');
+          traceRecord('controller.chunk.rebuild', {
+            addedBytes: chunk.byteLength,
+            addedLines,
+          });
+        } finally {
+          // Hold rebuilding=true through one animation frame so any
+          // rAF-throttled DOM scroll events emitted during the rebuild
+          // have their callback fire before we drop the gate. Otherwise
+          // a stale scroll would see paused=true + atBottom/nearTop and
+          // trigger resume() or another chunk load. Falls back to
+          // setTimeout(0) for non-browser environments (tests).
+          await new Promise<void>((r) => {
+            if (typeof requestAnimationFrame === 'function') {
+              requestAnimationFrame(() => r());
+            } else {
+              setTimeout(r, 0);
+            }
+          });
+          this.rebuilding = false;
         }
-        this.setChunkState('idle');
-        traceRecord('controller.chunk.rebuild', {
-          addedBytes: chunk.byteLength,
-          addedLines,
-        });
       } catch (err) {
         if (abort.signal.aborted) {
           this.setChunkState('idle'); // aborted by resume — not a user-facing error
