@@ -35,7 +35,16 @@ type EventKind =
   | 'term.history.start'
   | 'term.history.end'
   | 'term.resync.request'
-  | 'term.interactiveFit';
+  | 'term.interactiveFit'
+  | 'controller.mount'
+  | 'controller.dispose'
+  | 'controller.hello'
+  | 'controller.snapshot'
+  | 'controller.snapshot.cached'
+  | 'controller.input'
+  | 'controller.history.start'
+  | 'controller.history.end'
+  | 'controller.resumeLive';
 
 interface TraceEvent {
   t: number; // ms since trace start
