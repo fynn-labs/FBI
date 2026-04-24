@@ -39,7 +39,7 @@ describe('/api/runs/:id/changes', () => {
       launch: async () => {}, cancel: async () => {}, fireResumeNow: () => {},
       continueRun: async () => {}, markStartingForContinueRequest: () => {},
       orchestrator: {
-        writeStdin: () => {}, getLastFiles: () => null,
+        writeStdin: () => {},
         execInContainer: async () => ({ stdout: '', stderr: '', exitCode: 127 }),
         execHistoryOp: async () => ({ kind: 'gh-error', message: '' }),
         spawnSubRun: async () => 0, deleteRun: () => {}, initSafeguard: () => {},

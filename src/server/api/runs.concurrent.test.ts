@@ -23,7 +23,7 @@ describe('POST /api/projects/:id/runs — concurrent-branch guard', () => {
       launch: async () => {}, cancel: async () => {}, fireResumeNow: () => {},
       continueRun: async () => {}, markStartingForContinueRequest: () => {},
       orchestrator: {
-        writeStdin: () => {}, getLastFiles: () => null,
+        writeStdin: () => {},
         execInContainer: async () => ({ stdout: '', stderr: '', exitCode: 0 }),
         execHistoryOp: async () => ({ kind: 'complete', sha: '' }),
         spawnSubRun: async () => 0, deleteRun: () => {}, initSafeguard: () => {},

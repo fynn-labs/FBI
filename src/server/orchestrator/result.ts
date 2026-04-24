@@ -1,5 +1,5 @@
 export type ResultClassification =
-  | { kind: 'completed'; exit_code: number; push_exit: number; head_sha: string; branch: string; wip_sha: string }
+  | { kind: 'completed'; exit_code: number; push_exit: number; head_sha: string; branch: string }
   | { kind: 'resume_failed'; error: string; parent_sha?: string; snapshot_sha?: string; origin_tip?: string }
   | { kind: 'unparseable'; raw: string };
 
@@ -22,7 +22,6 @@ export function classifyResultJson(raw: string): ResultClassification {
         push_exit: (j.push_exit as number) ?? 0,
         head_sha: (j.head_sha as string) ?? '',
         branch: (j.branch as string) ?? '',
-        wip_sha: (j.wip_sha as string) ?? '',
       };
     }
     return { kind: 'unparseable', raw };

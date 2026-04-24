@@ -11,7 +11,7 @@ describe('classifyResultJson', () => {
   });
   it('returns completed for normal finalize', () => {
     const r = classifyResultJson(JSON.stringify({
-      exit_code: 0, push_exit: 0, head_sha: 'h', branch: 'claude/run-1', wip_sha: '',
+      exit_code: 0, push_exit: 0, head_sha: 'h', branch: 'claude/run-1',
     }));
     expect(r.kind).toBe('completed');
   });

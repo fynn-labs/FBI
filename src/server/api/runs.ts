@@ -33,7 +33,6 @@ interface GhDeps {
 
 interface OrchestratorDep {
   writeStdin(runId: number, bytes: Uint8Array): void;
-  getLastFiles(runId: number): FilesPayload | null;
   execInContainer(runId: number, cmd: string[], opts?: { timeoutMs?: number }): Promise<{ stdout: string; stderr: string; exitCode: number }>;
   execHistoryOp(runId: number, op: HistoryOp): Promise<ParsedOpResult>;
   spawnSubRun(parentRunId: number, kind: 'merge-conflict' | 'polish', argsJson: string): Promise<number>;
@@ -349,15 +348,6 @@ export function registerRunsRoutes(app: FastifyInstance, deps: Deps): void {
 
     const cached = getChangesCached(runId);
     if (cached) return cached;
-
-    // Self-heal for runs that got stamped with claude/run-N by an earlier
-    // broken handler while their base_branch still carries the user's
-    // originally typed branch. Restore branch_name to the intended value.
-    const claudeBranch = `claude/run-${runId}`;
-    if (run.branch_name === claudeBranch && run.base_branch && run.base_branch !== claudeBranch) {
-      deps.runs.setBranchName(runId, run.base_branch);
-      run.branch_name = run.base_branch;
-    }
 
     const project = deps.projects.get(run.project_id);
     // Base branch = what we compute ahead/behind against and what Ship-tab

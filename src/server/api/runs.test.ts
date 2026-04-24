@@ -25,7 +25,6 @@ const stubGh = {
 
 const stubOrchestrator = {
   writeStdin: (_runId: number, _bytes: Uint8Array) => { /* noop */ },
-  getLastFiles: (_runId: number) => null,
   execInContainer: async (_runId: number, _cmd: string[], _opts?: { timeoutMs?: number }) => {
     throw new Error('container not active');
   },

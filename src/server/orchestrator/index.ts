@@ -308,9 +308,10 @@ export class Orchestrator {
    * Preamble lines about the run branch for inclusion in prompts.
    * Used by both launch() and resume().
    */
-  private branchPreambleLines(runId: number): string[] {
+  private branchPreambleLines(runId: number, branchName: string | null): string[] {
+    const branch = branchName && branchName.length > 0 ? branchName : `claude/run-${runId}`;
     return [
-      `You are working on branch \`claude/run-${runId}\`. Make all commits here.`,
+      `You are working on branch \`${branch}\`. Make all commits here.`,
       `Do NOT push to or modify any other branch.`,
     ];
   }
@@ -331,7 +332,7 @@ export class Orchestrator {
     const preamble = [
       `You are working in /workspace on ${project.repo_url}.`,
       `Its default branch is ${project.default_branch}. Do NOT commit to ${project.default_branch}.`,
-      ...this.branchPreambleLines(run.id),
+      ...this.branchPreambleLines(run.id, run.branch_name),
       '',
       'As soon as you understand the task, write a short name (4–8 words,',
       'imperative, no trailing punctuation) describing this session to',
@@ -593,20 +594,6 @@ export class Orchestrator {
     if (!run) throw new Error(`run ${runId} not found`);
     if (run.state !== 'awaiting_resume') return;
 
-    // Migrate legacy runs (branch_name is not claude/run-N) to agent-owned branch policy.
-    if (run.branch_name && !run.branch_name.startsWith('claude/run-')) {
-      const oldBranch = run.branch_name;
-      const newBranch = `claude/run-${runId}`;
-      this.deps.runs.setBaseBranch(runId, oldBranch);
-      this.deps.runs.setBranchName(runId, newBranch);
-      run.branch_name = newBranch;
-      const migStore = new LogStore(run.log_path);
-      migStore.append(Buffer.from(
-        `\n[fbi] migrating run to agent-owned branch ${newBranch}; original branch "${oldBranch}" kept as mirror target\n`,
-      ));
-      migStore.close();
-    }
-
     // Reuse the existing log store and broadcaster.
     const store = new LogStore(run.log_path);
     const broadcaster = this.deps.streams.getOrCreate(runId);
@@ -632,7 +619,7 @@ export class Orchestrator {
         const preamble = [
           `You are working in /workspace on ${project.repo_url}.`,
           `Its default branch is ${project.default_branch}. Do NOT commit to ${project.default_branch}.`,
-          ...this.branchPreambleLines(run.id),
+          ...this.branchPreambleLines(run.id, run.branch_name),
           '',
           'As soon as you understand the task, write a short name (4–8 words,',
           'imperative, no trailing punctuation) describing this session to',
