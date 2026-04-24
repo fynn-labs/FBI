@@ -52,6 +52,7 @@ export function DesignPage() {
       <Section title="Pills, Dots, Tags, Kbd, Code">
         <div className="flex items-center gap-2 flex-wrap">
           <Pill tone="ok">succeeded</Pill>
+          <Pill tone="run">starting</Pill>
           <Pill tone="run">running</Pill>
           <Pill tone="attn">waiting</Pill>
           <Pill tone="fail">failed</Pill>
