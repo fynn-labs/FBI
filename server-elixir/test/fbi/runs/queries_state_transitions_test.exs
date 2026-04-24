@@ -9,6 +9,7 @@ defmodule FBI.Runs.QueriesStateTransitionsTest do
   # Build a minimal run row for testing state transitions.
   defp insert_run(project_id, attrs \\ %{}) do
     now = System.os_time(:millisecond)
+
     defaults = %{
       project_id: project_id,
       prompt: "test prompt",
@@ -19,10 +20,12 @@ defmodule FBI.Runs.QueriesStateTransitionsTest do
       state_entered_at: now,
       kind: "work"
     }
+
     {:ok, run} =
       %Run{}
       |> Run.changeset(Map.merge(defaults, attrs))
       |> Repo.insert()
+
     run
   end
 
@@ -70,7 +73,12 @@ defmodule FBI.Runs.QueriesStateTransitionsTest do
     test "transitions running -> awaiting_resume", %{project_id: pid} do
       run = insert_run(pid, %{state: "running"})
       now = System.os_time(:millisecond)
-      Queries.mark_awaiting_resume(run.id, %{next_resume_at: now + 60_000, last_limit_reset_at: now})
+
+      Queries.mark_awaiting_resume(run.id, %{
+        next_resume_at: now + 60_000,
+        last_limit_reset_at: now
+      })
+
       updated = Repo.get!(Run, run.id)
       assert updated.state == "awaiting_resume"
       assert updated.resume_attempts == 1
@@ -91,7 +99,15 @@ defmodule FBI.Runs.QueriesStateTransitionsTest do
   describe "mark_finished/2" do
     test "sets terminal state", %{project_id: pid} do
       run = insert_run(pid, %{state: "running"})
-      Queries.mark_finished(run.id, %{state: "succeeded", exit_code: 0, head_commit: "abc123", branch_name: nil, error: nil})
+
+      Queries.mark_finished(run.id, %{
+        state: "succeeded",
+        exit_code: 0,
+        head_commit: "abc123",
+        branch_name: nil,
+        error: nil
+      })
+
       updated = Repo.get!(Run, run.id)
       assert updated.state == "succeeded"
       assert updated.exit_code == 0

@@ -92,9 +92,13 @@ defmodule FBI.Runs.Queries do
   @spec update_title(integer(), String.t(), boolean()) :: {:ok, decoded()} | :not_found
   def update_title(id, title, lock \\ false) do
     case Repo.get(Run, id) do
-      nil -> :not_found
+      nil ->
+        :not_found
+
       r ->
-        attrs = if lock, do: %{title: title, title_locked: 1}, else: %{title: title, title_locked: 0}
+        attrs =
+          if lock, do: %{title: title, title_locked: 1}, else: %{title: title, title_locked: 0}
+
         updated = r |> Run.changeset(attrs) |> Repo.update!()
         {:ok, decode(updated)}
     end
@@ -134,18 +138,24 @@ defmodule FBI.Runs.Queries do
   @spec mark_starting_from_queued(integer(), String.t()) :: :ok
   def mark_starting_from_queued(id, container_id) do
     now = now_ms()
+
     Repo.update_all(
       from(r in Run,
         where: r.id == ^id and r.state == "queued"
       ),
       set: [state: "starting", container_id: container_id, started_at: now, state_entered_at: now]
     )
+
     :ok
   end
 
-  @spec mark_awaiting_resume(integer(), %{next_resume_at: integer(), last_limit_reset_at: integer() | nil}) :: :ok
+  @spec mark_awaiting_resume(integer(), %{
+          next_resume_at: integer(),
+          last_limit_reset_at: integer() | nil
+        }) :: :ok
   def mark_awaiting_resume(id, %{next_resume_at: next_at, last_limit_reset_at: last_reset}) do
     now = now_ms()
+
     Repo.update_all(
       from(r in Run,
         where: r.id == ^id and r.state in ["starting", "running", "waiting"]
@@ -159,12 +169,14 @@ defmodule FBI.Runs.Queries do
         state_entered_at: now
       ]
     )
+
     :ok
   end
 
   @spec mark_starting_for_resume(integer(), String.t()) :: :ok
   def mark_starting_for_resume(id, container_id) do
     now = now_ms()
+
     Repo.update_all(
       from(r in Run,
         where: r.id == ^id and r.state == "awaiting_resume"
@@ -176,16 +188,19 @@ defmodule FBI.Runs.Queries do
         state_entered_at: now
       ]
     )
+
     Repo.update_all(
       from(r in Run, where: r.id == ^id and is_nil(r.started_at)),
       set: [started_at: now]
     )
+
     :ok
   end
 
   @spec mark_starting_for_continue_request(integer()) :: :ok
   def mark_starting_for_continue_request(id) do
     now = now_ms()
+
     Repo.update_all(
       from(r in Run,
         where: r.id == ^id and r.state in ["failed", "cancelled", "succeeded"]
@@ -200,20 +215,24 @@ defmodule FBI.Runs.Queries do
         state_entered_at: now
       ]
     )
+
     :ok
   end
 
   @spec mark_starting_container(integer(), String.t()) :: :ok
   def mark_starting_container(id, container_id) do
     now = now_ms()
+
     Repo.update_all(
       from(r in Run, where: r.id == ^id and r.state == "starting"),
       set: [container_id: container_id, state_entered_at: now]
     )
+
     Repo.update_all(
       from(r in Run, where: r.id == ^id and is_nil(r.started_at)),
       set: [started_at: now]
     )
+
     :ok
   end
 
@@ -223,6 +242,7 @@ defmodule FBI.Runs.Queries do
       from(r in Run, where: r.id == ^id and r.state in ["starting", "running"]),
       set: [state: "waiting", state_entered_at: now_ms()]
     )
+
     :ok
   end
 
@@ -232,33 +252,38 @@ defmodule FBI.Runs.Queries do
       from(r in Run, where: r.id == ^id and r.state in ["starting", "waiting"]),
       set: [state: "running", state_entered_at: now_ms()]
     )
+
     :ok
   end
 
   @type finish_params :: %{
-    state: String.t(),
-    exit_code: integer() | nil,
-    head_commit: String.t() | nil,
-    branch_name: String.t() | nil,
-    error: String.t() | nil
-  }
+          state: String.t(),
+          exit_code: integer() | nil,
+          head_commit: String.t() | nil,
+          branch_name: String.t() | nil,
+          error: String.t() | nil
+        }
 
   @spec mark_finished(integer(), finish_params()) :: :ok
   def mark_finished(id, params) do
     now = now_ms()
+
     base_set = [
       state: params.state,
+      container_id: nil,
       exit_code: params.exit_code,
       head_commit: params.head_commit,
       error: params.error,
       finished_at: now,
       state_entered_at: now
     ]
+
     updates =
       case params[:branch_name] do
         nil -> base_set
         branch -> [{:branch_name, branch} | base_set]
       end
+
     Repo.update_all(from(r in Run, where: r.id == ^id), set: updates)
     :ok
   end
@@ -266,16 +291,27 @@ defmodule FBI.Runs.Queries do
   @spec mark_resume_failed(integer(), String.t()) :: :ok
   def mark_resume_failed(id, error) do
     now = now_ms()
+
     Repo.update_all(
       from(r in Run, where: r.id == ^id),
-      set: [state: "failed", error: error, finished_at: now, state_entered_at: now]
+      set: [
+        state: "resume_failed",
+        container_id: nil,
+        error: error,
+        finished_at: now,
+        state_entered_at: now
+      ]
     )
+
     :ok
   end
 
   @spec set_claude_session_id(integer(), String.t()) :: :ok
   def set_claude_session_id(id, session_id) do
-    Repo.update_all(from(r in Run, where: r.id == ^id), set: [claude_session_id: session_id])
+    Repo.update_all(from(r in Run, where: r.id == ^id and is_nil(r.claude_session_id)),
+      set: [claude_session_id: session_id]
+    )
+
     :ok
   end
 
@@ -297,12 +333,17 @@ defmodule FBI.Runs.Queries do
     :ok
   end
 
-  @spec update_model_params(integer(), %{model: String.t() | nil, effort: String.t() | nil, subagent_model: String.t() | nil}) :: :ok
+  @spec update_model_params(integer(), %{
+          model: String.t() | nil,
+          effort: String.t() | nil,
+          subagent_model: String.t() | nil
+        }) :: :ok
   def update_model_params(id, params) do
     Repo.update_all(
       from(r in Run, where: r.id == ^id),
       set: [model: params.model, effort: params.effort, subagent_model: params.subagent_model]
     )
+
     :ok
   end
 
@@ -316,8 +357,9 @@ defmodule FBI.Runs.Queries do
   @spec list_active_by_branch(integer(), String.t()) :: [decoded()]
   def list_active_by_branch(project_id, branch) do
     from(r in Run,
-      where: r.project_id == ^project_id and r.branch_name == ^branch
-        and r.state in ["queued", "starting", "running", "waiting"]
+      where:
+        r.project_id == ^project_id and r.branch_name == ^branch and
+          r.state in ["queued", "starting", "running", "waiting"]
     )
     |> Repo.all()
     |> Enum.map(&decode/1)
@@ -342,16 +384,23 @@ defmodule FBI.Runs.Queries do
   @spec create(map()) :: decoded()
   def create(attrs) do
     now = now_ms()
-    params = Map.merge(%{
-      state: "queued",
-      created_at: now,
-      state_entered_at: now,
-      kind: "work"
-    }, attrs)
+
+    params =
+      Map.merge(
+        %{
+          state: "queued",
+          created_at: now,
+          state_entered_at: now,
+          kind: "work"
+        },
+        attrs
+      )
+
     run =
       %Run{}
       |> Run.changeset(params)
       |> Repo.insert!()
+
     decode(run)
   end
 
