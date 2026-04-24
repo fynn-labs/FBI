@@ -12,7 +12,11 @@ config :fbi, credentials_path: false
 config :fbi, FBI.Repo,
   database: Path.expand("../fbi_test.db", __DIR__),
   pool_size: 5,
-  pool: Ecto.Adapters.SQL.Sandbox
+  pool: Ecto.Adapters.SQL.Sandbox,
+  # Retry instead of erroring on writer contention; SQLite WAL handles the
+  # concurrency at this load but the sandbox can race when async tests share
+  # the file briefly during checkout.
+  busy_timeout: 5_000
 
 # We don't run a server during test. If one is required,
 # you can enable the server option below.
