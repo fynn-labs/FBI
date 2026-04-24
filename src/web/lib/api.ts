@@ -3,10 +3,24 @@ import type {
   UsageState, FilesPayload, FileDiffPayload, GithubPayload, MergeResponse,
 } from '@shared/types.js';
 
+let _baseUrl = '';
+
+export function setApiBaseUrl(url: string): void {
+  _baseUrl = url;
+}
+
+export function wsBase(): string {
+  if (_baseUrl) {
+    return _baseUrl.replace(/^http/, 'ws');
+  }
+  const proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
+  return `${proto}//${location.host}`;
+}
+
 function xhrUploadJson<T>(url: string, file: File, onProgress?: (pct: number) => void): Promise<T> {
   return new Promise<T>((resolve, reject) => {
     const xhr = new XMLHttpRequest();
-    xhr.open('POST', url);
+    xhr.open('POST', _baseUrl + url);
     xhr.responseType = 'text';
     if (onProgress) {
       xhr.upload.onprogress = (e) => {
@@ -40,7 +54,7 @@ function xhrUploadJson<T>(url: string, file: File, onProgress?: (pct: number) =>
 async function request<T>(url: string, init?: RequestInit): Promise<T> {
   let res: Response;
   try {
-    res = await fetch(url, {
+    res = await fetch(_baseUrl + url, {
       ...init,
       headers: {
         ...(init?.body != null ? { 'content-type': 'application/json' } : {}),
