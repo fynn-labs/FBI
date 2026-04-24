@@ -153,10 +153,57 @@ export function migrate(db: DB): void {
   if (!runsCols.has('base_branch')) {
     db.exec('ALTER TABLE runs ADD COLUMN base_branch TEXT');
   }
-  // CHECK constraint omitted: SQLite ALTER TABLE ADD COLUMN cannot carry a CHECK
-  // clause. Enforced at the application layer via the MirrorStatus type.
   if (!runsCols.has('mirror_status')) {
     db.exec("ALTER TABLE runs ADD COLUMN mirror_status TEXT");
+  }
+  // The mirror_status CHECK constraint cannot be altered in place (SQLite
+  // ALTER TABLE does not support widening a CHECK). Detect the narrow shape
+  // (no 'local_only' allowed) by attempting a write-with-rollback, and do
+  // a column rebuild via a temp table if the narrow shape is present.
+  try {
+    db.exec("BEGIN; UPDATE runs SET mirror_status = 'local_only' WHERE 0; ROLLBACK;");
+    const probe = db.prepare(
+      "SELECT sql FROM sqlite_master WHERE type='table' AND name='runs'",
+    ).get() as { sql: string } | undefined;
+    if (probe && probe.sql.includes("'ok','diverged')") && !probe.sql.includes('local_only')) {
+      db.exec(`BEGIN;
+        CREATE TABLE runs_new AS SELECT * FROM runs;
+        DROP TABLE runs;
+        CREATE TABLE runs (
+          id INTEGER PRIMARY KEY,
+          project_id INTEGER NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+          prompt TEXT NOT NULL,
+          branch_name TEXT NOT NULL,
+          state TEXT NOT NULL,
+          container_id TEXT,
+          log_path TEXT NOT NULL,
+          exit_code INTEGER,
+          error TEXT,
+          head_commit TEXT,
+          started_at INTEGER,
+          finished_at INTEGER,
+          created_at INTEGER NOT NULL,
+          state_entered_at INTEGER NOT NULL DEFAULT 0,
+          parent_run_id INTEGER REFERENCES runs(id) ON DELETE SET NULL,
+          kind TEXT NOT NULL DEFAULT 'work'
+            CHECK (kind IN ('work','merge-conflict','polish')),
+          kind_args_json TEXT,
+          base_branch TEXT,
+          mirror_status TEXT
+            CHECK (mirror_status IS NULL OR mirror_status IN ('ok','diverged','local_only')),
+          model TEXT,
+          effort TEXT,
+          subagent_model TEXT
+        );
+        INSERT INTO runs SELECT * FROM runs_new;
+        DROP TABLE runs_new;
+        CREATE INDEX IF NOT EXISTS idx_runs_project ON runs(project_id);
+        CREATE INDEX IF NOT EXISTS idx_runs_state ON runs(state);
+        COMMIT;`);
+    }
+  } catch {
+    // If probing fails for an unrelated reason, leave the column as-is; the
+    // runtime will surface any actual constraint error.
   }
 
   // --- TokenEater usage migration ---

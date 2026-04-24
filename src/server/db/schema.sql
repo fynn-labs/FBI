@@ -48,7 +48,7 @@ CREATE TABLE IF NOT EXISTS runs (
   kind_args_json TEXT,
   base_branch TEXT,
   mirror_status TEXT
-    CHECK (mirror_status IS NULL OR mirror_status IN ('ok','diverged')),
+    CHECK (mirror_status IS NULL OR mirror_status IN ('ok','diverged','local_only')),
   model TEXT,
   effort TEXT,
   subagent_model TEXT

@@ -614,6 +614,16 @@ describe('base_branch and mirror_status', () => {
     expect(fresh.base_branch).toBe('feat/x');
     expect(fresh.mirror_status).toBe('diverged');
   });
+
+  it('accepts local_only as a valid mirror_status', () => {
+    const { runs, projectId: project_id } = makeRepos();
+    const r = runs.create({
+      project_id, prompt: 'x',
+      log_path_tmpl: (id) => `/tmp/${id}.log`,
+    });
+    runs.setMirrorStatus(r.id, 'local_only');
+    expect(runs.get(r.id)!.mirror_status).toBe('local_only');
+  });
 });
 
 describe('waiting-state transitions', () => {

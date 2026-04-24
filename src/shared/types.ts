@@ -9,7 +9,7 @@ export type RunState =
   | 'cancelled'
   | 'resume_failed';
 
-export type MirrorStatus = 'ok' | 'diverged' | null;
+export type MirrorStatus = 'ok' | 'diverged' | 'local_only' | null;
 
 export interface Project {
   id: number;
