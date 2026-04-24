@@ -10,6 +10,7 @@ import type {
   RunWsStateMessage,
   RunWsTitleMessage,
   FilesPayload,
+  RunState,
 } from '@shared/types.js';
 
 /**
@@ -49,6 +50,13 @@ export class TerminalController {
   // class is unusable; monotonic.
   private disposed = false;
 
+  private liveTailBytes: Uint8Array = new Uint8Array();
+  private liveOffset = 0;
+  private latestState: RunState = 'queued';
+  private loadedBytes: Uint8Array = new Uint8Array();
+  private loadedStartOffset = 0;
+  private paused = false;
+
   // Fires once after the first snapshot is written to xterm AND the
   // byte stream has settled (or after a hard cap). Consumers use this to
   // drop a "Loading…" overlay without flashing fast-forward content while
@@ -66,10 +74,13 @@ export class TerminalController {
     this.shell = acquireShell(runId);
     traceRecord('controller.mount', { runId });
 
-    this.unsubEvents = this.shell.onTypedEvent<{ type: string; snapshot?: unknown }>((msg) => {
+    this.unsubEvents = this.shell.onTypedEvent<{ type: string; snapshot?: unknown; state?: RunState }>((msg) => {
       if (this.disposed) return;
       if (msg.type === 'usage') publishUsage(runId, msg.snapshot as UsageSnapshot);
-      else if (msg.type === 'state') publishState(runId, msg as unknown as RunWsStateMessage);
+      else if (msg.type === 'state') {
+        if (msg.state) this.latestState = msg.state;
+        publishState(runId, msg as unknown as RunWsStateMessage);
+      }
       else if (msg.type === 'title') publishTitle(runId, msg as unknown as RunWsTitleMessage);
       else if (msg.type === 'files') publishFiles(runId, msg as unknown as FilesPayload);
     });
@@ -94,6 +105,13 @@ export class TerminalController {
     this.unsubBytes = this.shell.onBytes((data) => {
       if (this.disposed) return;
       this.term.write(data);
+      // Retain the live tail so pause/chunk-load/resume rebuilds can replay
+      // it. Grows unbounded by design — see spec Q8 (no cap in v1).
+      const next = new Uint8Array(this.liveTailBytes.byteLength + data.byteLength);
+      next.set(this.liveTailBytes);
+      next.set(data, this.liveTailBytes.byteLength);
+      this.liveTailBytes = next;
+      this.liveOffset += data.byteLength;
       // Reset the byte-silence timer on every byte arrival. Ready fires
       // when the stream has been quiet for a short window after the
       // snapshot has been parsed.
@@ -279,6 +297,18 @@ export class TerminalController {
     if (this.historyTerm) { this.historyTerm.dispose(); this.historyTerm = null; }
     this.term.focus();
     traceRecord('controller.resumeLive', { runId: this.runId });
+  }
+
+  /** @internal — for tests only. */
+  _debugBuffers(): { liveTailBytes: Uint8Array; liveOffset: number; latestState: RunState; loadedBytes: Uint8Array; loadedStartOffset: number; paused: boolean } {
+    return {
+      liveTailBytes: this.liveTailBytes,
+      liveOffset: this.liveOffset,
+      latestState: this.latestState,
+      loadedBytes: this.loadedBytes,
+      loadedStartOffset: this.loadedStartOffset,
+      paused: this.paused,
+    };
   }
 
   dispose(): void {
