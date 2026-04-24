@@ -164,6 +164,17 @@ export class Orchestrator {
     });
   }
 
+  /**
+   * Public wrapper for the API endpoint: synchronously flips a terminated
+   * run to `starting` and broadcasts the state change. The async
+   * continueRun lifecycle (container creation, etc.) is kicked off
+   * separately by the endpoint as fire-and-forget.
+   */
+  markStartingForContinueRequest(runId: number): void {
+    this.deps.runs.markStartingForContinueRequest(runId);
+    this.publishState(runId);
+  }
+
   private publishTitleUpdate(runId: number, title: string): void {
     this.deps.runs.updateTitle(runId, title, { respectLock: true });
     const after = this.deps.runs.get(runId);
