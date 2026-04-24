@@ -29,7 +29,8 @@ async function setup() {
     log_path_tmpl: () => logPath,
   });
   // Mark it finished so the WS just replays the transcript.
-  runs.markStarted(run.id, 'c');
+  runs.markStartingFromQueued(run.id, 'c');
+  runs.markRunning(run.id);
   runs.markFinished(run.id, { state: 'succeeded', exit_code: 0, head_commit: 'abc' });
 
   const app = Fastify();
@@ -83,7 +84,8 @@ describe('WS shell', () => {
     const logPath = path.join(dir, 'run.log');
     fs.writeFileSync(logPath, 'old-transcript');
     const run = runs.create({ project_id: p.id, prompt: 'hi', log_path_tmpl: () => logPath });
-    runs.markStarted(run.id, 'c');
+    runs.markStartingFromQueued(run.id, 'c');
+    runs.markRunning(run.id);
     runs.markFinished(run.id, { state: 'failed', error: 'boom' });
 
     const app2 = Fastify();
@@ -130,7 +132,8 @@ describe('WS shell', () => {
     const logPath = path.join(dir, 'run2.log');
     fs.writeFileSync(logPath, '');
     const run = runs.create({ project_id: p.id, prompt: 'hi', log_path_tmpl: () => logPath });
-    runs.markStarted(run.id, 'c1');
+    runs.markStartingFromQueued(run.id, 'c1');
+    runs.markRunning(run.id);
     // run is now 'running'
 
     const app2 = Fastify();
@@ -247,7 +250,8 @@ describe('WS snapshot handshake', () => {
     const logPath = path.join(dir, 'run-snap.log');
     fs.writeFileSync(logPath, '');
     const run = runs.create({ project_id: p.id, prompt: 'hi', log_path_tmpl: () => logPath });
-    runs.markStarted(run.id, 'c1');
+    runs.markStartingFromQueued(run.id, 'c1');
+    runs.markRunning(run.id);
     // run is now 'running'
 
     // Pre-populate a ScreenState so the route has something to serialize.
@@ -298,7 +302,8 @@ describe('WS snapshot handshake', () => {
     const logPath = path.join(dir, 'run-resync.log');
     fs.writeFileSync(logPath, '');
     const run = runs.create({ project_id: p.id, prompt: 'hi', log_path_tmpl: () => logPath });
-    runs.markStarted(run.id, 'c1');
+    runs.markStartingFromQueued(run.id, 'c1');
+    runs.markRunning(run.id);
     // run is now 'running'
 
     const screen = streams.getOrCreateScreen(run.id, 80, 24);
@@ -376,7 +381,8 @@ describe('WS typed frames', () => {
     const run = runs.create({
       project_id: p.id, prompt: 'hi', log_path_tmpl: () => logPath,
     });
-    runs.markStarted(run.id, 'c');
+    runs.markStartingFromQueued(run.id, 'c');
+    runs.markRunning(run.id);
 
     const app = Fastify();
     await app.register(fastifyWebsocket);

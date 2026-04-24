@@ -49,12 +49,36 @@ describe('RunsRepo', () => {
     expect(run.branch_name).toBe('fix-login-bug');
   });
 
-  it('markStarted and markFinished update state', () => {
+  it('markStartingFromQueued sets state to starting and records container', () => {
     const run = runs.create({
       project_id: projectId, prompt: 'x',
       log_path_tmpl: (id) => `/tmp/${id}.log`,
     });
-    runs.markStarted(run.id, 'container-abc');
+    runs.markStartingFromQueued(run.id, 'container-abc');
+    const after = runs.get(run.id)!;
+    expect(after.state).toBe('starting');
+    expect(after.container_id).toBe('container-abc');
+  });
+
+  it('markStartingFromQueued then markRunning transitions to running', () => {
+    const run = runs.create({
+      project_id: projectId, prompt: 'x',
+      log_path_tmpl: (id) => `/tmp/${id}.log`,
+    });
+    runs.markStartingFromQueued(run.id, 'container-abc');
+    runs.markRunning(run.id);
+    const after = runs.get(run.id)!;
+    expect(after.state).toBe('running');
+    expect(after.container_id).toBe('container-abc');
+  });
+
+  it('markStartingFromQueued + markRunning then markFinished updates state', () => {
+    const run = runs.create({
+      project_id: projectId, prompt: 'x',
+      log_path_tmpl: (id) => `/tmp/${id}.log`,
+    });
+    runs.markStartingFromQueued(run.id, 'container-abc');
+    runs.markRunning(run.id);
     expect(runs.get(run.id)!.state).toBe('running');
     expect(runs.get(run.id)!.container_id).toBe('container-abc');
 
@@ -70,12 +94,24 @@ describe('RunsRepo', () => {
     expect(after.finished_at).not.toBeNull();
   });
 
+  it('markStartingFromQueued requires the run to be queued (no-op otherwise)', () => {
+    const run = runs.create({
+      project_id: projectId, prompt: 'x',
+      log_path_tmpl: (id) => `/tmp/${id}.log`,
+    });
+    runs.markStartingFromQueued(run.id, 'c1');
+    // Already 'starting' — second call is a no-op.
+    runs.markStartingFromQueued(run.id, 'c2');
+    expect(runs.get(run.id)!.container_id).toBe('c1');
+  });
+
   it('lists running runs', () => {
     const r = runs.create({
       project_id: projectId, prompt: 'x',
       log_path_tmpl: (id) => `/tmp/${id}.log`,
     });
-    runs.markStarted(r.id, 'c');
+    runs.markStartingFromQueued(r.id, 'c');
+    runs.markRunning(r.id);
     expect(runs.listByState('running').length).toBe(1);
   });
 
@@ -101,7 +137,8 @@ describe('RunsRepo', () => {
       prompt: 'x',
       log_path_tmpl: (id) => `/tmp/${id}.log`,
     });
-    runs.markStarted(run.id, 'c');
+    runs.markStartingFromQueued(run.id, 'c');
+    runs.markRunning(run.id);
     runs.markFinished(run.id, {
       state: 'succeeded',
       exit_code: 0,
@@ -116,7 +153,8 @@ describe('RunsRepo', () => {
       log_path_tmpl: (id) => `/tmp/${id}.log` });
     runs.create({ project_id: projectId, prompt: 'y',
       log_path_tmpl: (id) => `/tmp/${id}.log` });
-    runs.markStarted(a.id, 'c');
+    runs.markStartingFromQueued(a.id, 'c');
+    runs.markRunning(a.id);
     runs.markFinished(a.id, { state: 'succeeded', exit_code: 0, head_commit: 'h' });
 
     const res = runs.listFiltered({ state: 'succeeded', limit: 50, offset: 0 });
@@ -198,7 +236,8 @@ describe('RunsRepo auto-resume', () => {
       project_id: projectId, prompt: 'x',
       log_path_tmpl: (id) => `/tmp/${id}.log`,
     });
-    runs.markStarted(run.id, 'c');
+    runs.markStartingFromQueued(run.id, 'c');
+    runs.markRunning(run.id);
     runs.markAwaitingResume(run.id, { next_resume_at: 9000, last_limit_reset_at: 9000 });
     const after = runs.get(run.id)!;
     expect(after.state).toBe('awaiting_resume');
@@ -208,18 +247,34 @@ describe('RunsRepo auto-resume', () => {
     expect(after.container_id).toBeNull();
   });
 
-  it('markResuming clears awaiting fields and returns to running', () => {
+  it('markStartingForResume clears awaiting fields and sets state to starting', () => {
     const run = runs.create({
       project_id: projectId, prompt: 'x',
       log_path_tmpl: (id) => `/tmp/${id}.log`,
     });
-    runs.markStarted(run.id, 'c1');
+    runs.markStartingFromQueued(run.id, 'c1');
+    runs.markRunning(run.id);
     runs.markAwaitingResume(run.id, { next_resume_at: 9000, last_limit_reset_at: 9000 });
-    runs.markResuming(run.id, 'c2');
+    runs.markStartingForResume(run.id, 'c2');
+    const after = runs.get(run.id)!;
+    expect(after.state).toBe('starting');
+    expect(after.container_id).toBe('c2');
+    expect(after.next_resume_at).toBeNull();
+  });
+
+  it('markStartingForResume then markRunning transitions to running', () => {
+    const run = runs.create({
+      project_id: projectId, prompt: 'x',
+      log_path_tmpl: (id) => `/tmp/${id}.log`,
+    });
+    runs.markStartingFromQueued(run.id, 'c1');
+    runs.markRunning(run.id);
+    runs.markAwaitingResume(run.id, { next_resume_at: 9000, last_limit_reset_at: 9000 });
+    runs.markStartingForResume(run.id, 'c2');
+    runs.markRunning(run.id);
     const after = runs.get(run.id)!;
     expect(after.state).toBe('running');
     expect(after.container_id).toBe('c2');
-    expect(after.next_resume_at).toBeNull();
   });
 
   it('setClaudeSessionId writes once; no-op on subsequent calls with different value', () => {
@@ -237,7 +292,8 @@ describe('RunsRepo auto-resume', () => {
       project_id: projectId, prompt: 'x',
       log_path_tmpl: (id) => `/tmp/${id}.log`,
     });
-    runs.markStarted(run.id, 'c');
+    runs.markStartingFromQueued(run.id, 'c');
+    runs.markRunning(run.id);
     runs.markAwaitingResume(run.id, { next_resume_at: 9000, last_limit_reset_at: 9000 });
     expect(runs.listByState('awaiting_resume').length).toBe(1);
   });
@@ -247,21 +303,24 @@ describe('RunsRepo auto-resume', () => {
       project_id: projectId, prompt: 'x',
       log_path_tmpl: (id) => `/tmp/${id}.log`,
     });
-    runs.markStarted(run.id, 'c');
+    runs.markStartingFromQueued(run.id, 'c');
+    runs.markRunning(run.id);
     runs.markAwaitingResume(run.id, { next_resume_at: 9000, last_limit_reset_at: 9000 });
     const awaiting = runs.listAwaiting();
     expect(awaiting).toHaveLength(1);
     expect(awaiting[0]).toEqual({ id: run.id, next_resume_at: 9000 });
   });
 
-  it('markContinuing transitions failed → running, resets resume_attempts, clears finished state', () => {
+  it('markStartingForContinueRequest transitions failed → starting, resets resume_attempts, clears finished state', () => {
     const run = runs.create({
       project_id: projectId, prompt: 'x',
       log_path_tmpl: (id) => `/tmp/${id}.log`,
     });
-    runs.markStarted(run.id, 'c1');
+    runs.markStartingFromQueued(run.id, 'c1');
+    runs.markRunning(run.id);
     runs.markAwaitingResume(run.id, { next_resume_at: 1, last_limit_reset_at: 1 });
-    runs.markResuming(run.id, 'c2');
+    runs.markStartingForResume(run.id, 'c2');
+    runs.markRunning(run.id);
     runs.markFinished(run.id, { state: 'failed', error: 'boom', exit_code: 1 });
 
     const before = runs.get(run.id)!;
@@ -270,7 +329,45 @@ describe('RunsRepo auto-resume', () => {
     expect(before.error).toBe('boom');
     expect(before.finished_at).not.toBeNull();
 
-    runs.markContinuing(run.id, 'c3');
+    runs.markStartingForContinueRequest(run.id);
+
+    const afterCR = runs.get(run.id)!;
+    expect(afterCR.state).toBe('starting');
+    expect(afterCR.resume_attempts).toBe(0);
+    expect(afterCR.error).toBeNull();
+    expect(afterCR.exit_code).toBeNull();
+    expect(afterCR.finished_at).toBeNull();
+  });
+
+  it('markStartingContainer records container id after markStartingForContinueRequest', () => {
+    const run = runs.create({
+      project_id: projectId, prompt: 'x',
+      log_path_tmpl: (id) => `/tmp/${id}.log`,
+    });
+    runs.markStartingFromQueued(run.id, 'c1');
+    runs.markRunning(run.id);
+    runs.markFinished(run.id, { state: 'failed', error: 'boom', exit_code: 1 });
+
+    runs.markStartingForContinueRequest(run.id);
+    runs.markStartingContainer(run.id, 'c3');
+
+    const after = runs.get(run.id)!;
+    expect(after.state).toBe('starting');
+    expect(after.container_id).toBe('c3');
+  });
+
+  it('markStartingForContinueRequest + markStartingContainer + markRunning transitions to running', () => {
+    const run = runs.create({
+      project_id: projectId, prompt: 'x',
+      log_path_tmpl: (id) => `/tmp/${id}.log`,
+    });
+    runs.markStartingFromQueued(run.id, 'c1');
+    runs.markRunning(run.id);
+    runs.markFinished(run.id, { state: 'failed', error: 'boom', exit_code: 1 });
+
+    runs.markStartingForContinueRequest(run.id);
+    runs.markStartingContainer(run.id, 'c3');
+    runs.markRunning(run.id);
 
     const after = runs.get(run.id)!;
     expect(after.state).toBe('running');
@@ -281,36 +378,39 @@ describe('RunsRepo auto-resume', () => {
     expect(after.finished_at).toBeNull();
   });
 
-  it('markContinuing also accepts cancelled as the source state', () => {
+  it('markStartingForContinueRequest also accepts cancelled as the source state', () => {
     const run = runs.create({
       project_id: projectId, prompt: 'x',
       log_path_tmpl: (id) => `/tmp/${id}.log`,
     });
-    runs.markStarted(run.id, 'c1');
+    runs.markStartingFromQueued(run.id, 'c1');
+    runs.markRunning(run.id);
     runs.markFinished(run.id, { state: 'cancelled' });
-    runs.markContinuing(run.id, 'c2');
-    expect(runs.get(run.id)!.state).toBe('running');
+    runs.markStartingForContinueRequest(run.id);
+    expect(runs.get(run.id)!.state).toBe('starting');
   });
 
-  it('markContinuing also accepts succeeded as the source state', () => {
+  it('markStartingForContinueRequest also accepts succeeded as the source state', () => {
     const run = runs.create({
       project_id: projectId, prompt: 'x',
       log_path_tmpl: (id) => `/tmp/${id}.log`,
     });
-    runs.markStarted(run.id, 'c1');
+    runs.markStartingFromQueued(run.id, 'c1');
+    runs.markRunning(run.id);
     runs.markFinished(run.id, { state: 'succeeded' });
-    runs.markContinuing(run.id, 'c2');
-    expect(runs.get(run.id)!.state).toBe('running');
+    runs.markStartingForContinueRequest(run.id);
+    expect(runs.get(run.id)!.state).toBe('starting');
   });
 
-  it('markContinuing refuses to transition from non-terminal states', () => {
+  it('markStartingForContinueRequest refuses to transition from non-terminal states', () => {
     const run = runs.create({
       project_id: projectId, prompt: 'x',
       log_path_tmpl: (id) => `/tmp/${id}.log`,
     });
-    runs.markStarted(run.id, 'c1');
-    // Running → markContinuing must be a no-op.
-    runs.markContinuing(run.id, 'c2');
+    runs.markStartingFromQueued(run.id, 'c1');
+    runs.markRunning(run.id);
+    // Running → markStartingForContinueRequest must be a no-op.
+    runs.markStartingForContinueRequest(run.id);
     const after = runs.get(run.id)!;
     expect(after.container_id).toBe('c1');
     expect(after.state).toBe('running');
@@ -388,7 +488,7 @@ describe('RunsRepo.state_entered_at', () => {
     const t0 = runs.get(run.id)!.state_entered_at;
 
     await new Promise((r) => setTimeout(r, 2));
-    runs.markStarted(run.id, 'c1');
+    runs.markStartingFromQueued(run.id, 'c1');
     const t1 = runs.get(run.id)!.state_entered_at;
     expect(t1).toBeGreaterThan(t0);
 
@@ -398,7 +498,7 @@ describe('RunsRepo.state_entered_at', () => {
     expect(t2).toBeGreaterThan(t1);
 
     await new Promise((r) => setTimeout(r, 2));
-    runs.markRunningFromWaiting(run.id);
+    runs.markRunning(run.id);
     const t3 = runs.get(run.id)!.state_entered_at;
     expect(t3).toBeGreaterThan(t2);
 
@@ -409,12 +509,13 @@ describe('RunsRepo.state_entered_at', () => {
     expect(t4).toBe(runs.get(run.id)!.finished_at);
   });
 
-  it('sets state_entered_at on markAwaitingResume and markResuming', async () => {
+  it('sets state_entered_at on markAwaitingResume and markStartingForResume', async () => {
     const run = runs.create({
       project_id: projectId, prompt: 'x',
       log_path_tmpl: (id) => `/tmp/${id}.log`,
     });
-    runs.markStarted(run.id, 'c1');
+    runs.markStartingFromQueued(run.id, 'c1');
+    runs.markRunning(run.id);
     const tRunning = runs.get(run.id)!.state_entered_at;
 
     await new Promise((r) => setTimeout(r, 2));
@@ -423,7 +524,7 @@ describe('RunsRepo.state_entered_at', () => {
     expect(tAwaiting).toBeGreaterThan(tRunning);
 
     await new Promise((r) => setTimeout(r, 2));
-    runs.markResuming(run.id, 'c2');
+    runs.markStartingForResume(run.id, 'c2');
     const tResumed = runs.get(run.id)!.state_entered_at;
     expect(tResumed).toBeGreaterThan(tAwaiting);
   });
@@ -437,7 +538,8 @@ describe('waiting-state transitions', () => {
       prompt: 'x',
       log_path_tmpl: (id) => `/tmp/${id}.log`,
     });
-    repo.markStarted(run.id, 'c');
+    repo.markStartingFromQueued(run.id, 'c');
+    repo.markRunning(run.id);
     return { repo, id: run.id };
   }
 
@@ -463,16 +565,18 @@ describe('waiting-state transitions', () => {
     expect(repo.get(id)!.state).toBe('queued');
   });
 
-  it('markRunningFromWaiting flips waiting → running', () => {
+  it('markRunning flips waiting → running', () => {
     const { repo, id } = seedRunning();
     repo.markWaiting(id);
-    repo.markRunningFromWaiting(id);
+    repo.markRunning(id);
     expect(repo.get(id)!.state).toBe('running');
   });
 
-  it('markRunningFromWaiting is a no-op from non-waiting states', () => {
+  it('markRunning is a no-op from non-waiting/non-starting states', () => {
     const { repo, id } = seedRunning();
-    repo.markRunningFromWaiting(id);
+    // Already running — calling markRunning from running is not allowed;
+    // guard is 'starting' | 'waiting' only.
+    repo.markRunning(id);
     expect(repo.get(id)!.state).toBe('running');
   });
 
@@ -483,13 +587,13 @@ describe('waiting-state transitions', () => {
     expect(repo.get(id)!.state).toBe('awaiting_resume');
   });
 
-  it('markWaiting + markRunningFromWaiting are idempotent', () => {
+  it('markWaiting + markRunning are idempotent', () => {
     const { repo, id } = seedRunning();
     repo.markWaiting(id);
     repo.markWaiting(id);
     expect(repo.get(id)!.state).toBe('waiting');
-    repo.markRunningFromWaiting(id);
-    repo.markRunningFromWaiting(id);
+    repo.markRunning(id);
+    repo.markRunning(id);
     expect(repo.get(id)!.state).toBe('running');
   });
 });
