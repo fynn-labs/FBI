@@ -23,6 +23,18 @@ defmodule FBIWeb.Router do
     get "/projects/:id/secrets", SecretsController, :index
     put "/projects/:id/secrets/:name", SecretsController, :put
     delete "/projects/:id/secrets/:name", SecretsController, :delete
+
+    # Global MCP
+    get "/mcp-servers", McpServersController, :index_global
+    post "/mcp-servers", McpServersController, :create_global
+    patch "/mcp-servers/:id", McpServersController, :patch_global
+    delete "/mcp-servers/:id", McpServersController, :delete_global
+
+    # Project-scoped MCP
+    get "/projects/:id/mcp-servers", McpServersController, :index_project
+    post "/projects/:id/mcp-servers", McpServersController, :create_project
+    patch "/projects/:id/mcp-servers/:sid", McpServersController, :patch_project
+    delete "/projects/:id/mcp-servers/:sid", McpServersController, :delete_project
   end
 
   # WebSocket upgrade routes must not go through the :api pipeline — the
