@@ -1,6 +1,6 @@
 import type {
   DailyUsage, ListeningPort, McpServer, Project, Run, RunUsageBreakdownRow, SecretName, Settings,
-  UsageState, FileDiffPayload, ChangesPayload, HistoryOp, HistoryResult, FilesHeadEntry,
+  UsageState, FileDiffPayload, ChangesPayload, HistoryOp, HistoryResult, FilesHeadEntry, FilesDirtyEntry,
 } from '@shared/types.js';
 
 function xhrUploadJson<T>(url: string, file: File, onProgress?: (pct: number) => void): Promise<T> {
@@ -241,4 +241,20 @@ export const api = {
       `/api/runs/${runId}/uploads/${encodeURIComponent(filename)}`,
       { method: 'DELETE' },
     ),
+
+  getRunWip: (id: number) =>
+    request<{ ok: true; snapshot_sha: string; parent_sha: string; files: FilesDirtyEntry[] } | { ok: false; reason: 'no-wip' }>(
+      `/api/runs/${id}/wip`
+    ),
+
+  getRunWipFile: (id: number, path: string) =>
+    request<FileDiffPayload>(
+      `/api/runs/${id}/wip/file?path=${encodeURIComponent(path)}`
+    ),
+
+  discardRunWip: (id: number) =>
+    request<void>(`/api/runs/${id}/wip/discard`, { method: 'POST' }),
+
+  downloadRunWipPatch: (id: number): string =>
+    `/api/runs/${id}/wip/patch`,
 };
