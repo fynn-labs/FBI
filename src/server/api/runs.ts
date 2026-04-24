@@ -286,6 +286,7 @@ export function registerRunsRoutes(app: FastifyInstance, deps: Deps): void {
     if (cached) return cached;
 
     const project = deps.projects.get(run.project_id);
+    const baseBranch = run.base_branch ?? project?.default_branch ?? 'main';
     const repo = project ? parseGitHubRepo(project.repo_url) : null;
     const ghAvail = await deps.gh.available();
     const live = deps.orchestrator.getLastFiles(runId);
@@ -366,9 +367,17 @@ export function registerRunsRoutes(app: FastifyInstance, deps: Deps): void {
       created_at: r.created_at,
     }));
 
+    // Compute branch_base using run.base_branch in preference to project.default_branch.
+    // When live data is available, override the base field so it reflects the run's
+    // actual base branch rather than the watcher's initialisation-time default.
+    const liveBranchBase = live?.branchBase ?? null;
+    const branchBase = liveBranchBase
+      ? { ...liveBranchBase, base: baseBranch }
+      : null;
+
     const payload: ChangesPayload = {
       branch_name: run.branch_name || null,
-      branch_base: live?.branchBase ?? null,
+      branch_base: branchBase,
       commits,
       uncommitted: live?.dirty ?? [],
       integrations: ghPayload ? { github: ghPayload } : {},
