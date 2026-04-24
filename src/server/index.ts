@@ -117,7 +117,7 @@ async function main() {
       execHistoryOp: (id, op) => orchestrator.execHistoryOp(id, op),
       spawnSubRun: (id, kind, argsJson) => orchestrator.spawnSubRun(id, kind, argsJson),
       deleteRun: (id) => orchestrator.deleteRun(id),
-      initSafeguard: (id) => { orchestrator.wipRepo.init(id); },
+      initSafeguard: (id) => orchestrator.wipRepo.init(id),
     },
     wipRepo: orchestrator.wipRepo,
   });

@@ -2,7 +2,7 @@ import { describe, it, expect } from 'vitest';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { WipRepo } from '../orchestrator/wipRepo.js';
+import { WipRepo } from './wipRepo.js';
 
 describe('WipRepo eager init', () => {
   it('creates the bare repo synchronously for a given runId', () => {

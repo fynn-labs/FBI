@@ -206,7 +206,7 @@ export function registerRunsRoutes(app: FastifyInstance, deps: Deps): void {
           runId: run.id,
         });
       } catch (err) {
-        // Rollback: delete the run row, uploads, and the safeguard bare repo.
+        // Rollback: delete the run row and any uploads dir. initSafeguard has not run yet, so no wip.git exists.
         deps.runs.delete(run.id);
         try {
           fs.rmSync(path.join(deps.runsDir, String(run.id)), { recursive: true, force: true });
@@ -224,10 +224,10 @@ export function registerRunsRoutes(app: FastifyInstance, deps: Deps): void {
       deps.runs.setBranchName(run.id, effectiveBranch);
       run.branch_name = effectiveBranch;
     }
-    // Provision the safeguard bare repo up-front. The run may never launch
-    // (draft promotion failure below rolls it back), but having wip.git in
-    // place is cheap and lets the /safeguard bind mount be ready synchronously
-    // when the container starts.
+    // Provision the safeguard bare repo now that draft promotion has succeeded.
+    // Cheap, and lets the /safeguard bind mount start synchronously when the
+    // container launches. If launch itself fails later, the delete-run codepath
+    // cleans up via wipRepo.remove (called from deleteRun in orchestrator/index.ts).
     deps.orchestrator.initSafeguard(run.id);
     void deps.launch(run.id).catch((err) => app.log.error({ err }, 'launch failed'));
     reply.code(201);
