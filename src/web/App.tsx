@@ -49,6 +49,14 @@ function Shell({ projects, runs, children }: { projects: Project[]; runs: Run[];
 
 function StatusRegistrations({ active, waiting, today }: { active: number; waiting: number; today: number }) {
   const conn = useConnectionState();
+  const prevConn = useRef(conn);
+  useEffect(() => {
+    if (prevConn.current === 'disconnected' && conn === 'connected') {
+      window.location.reload();
+    }
+    prevConn.current = conn;
+  }, [conn]);
+
   useEffect(() => {
     const connRender = () => {
       if (conn === 'connected') return <><span className="text-ok">●</span> <span className="text-ok">connected</span></>;
