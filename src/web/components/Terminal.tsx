@@ -152,31 +152,37 @@ export function Terminal({ runId, interactive }: Props) {
         </div>
       )}
       {paused && (
-        <div className="absolute top-0 left-0 right-0 z-10 flex items-center gap-2 px-3 py-1 bg-surface border-b border-border text-[12px] text-text-dim">
-          <span>⏸ Stream paused — you're viewing history.</span>
-          <button
-            type="button"
-            onClick={onResumeClick}
-            className="text-accent hover:text-accent-strong transition-colors duration-fast ease-out"
-          >
-            Resume stream
-          </button>
-        </div>
-      )}
-      {paused && chunkState !== 'idle' && (
-        <div className="absolute top-[28px] left-0 right-0 z-10 flex items-center gap-2 px-3 py-1 bg-surface border-b border-border text-[11px] text-text-dim">
-          {chunkState === 'loading' && <span>Loading older history…</span>}
-          {chunkState === 'error' && (
-            <>
-              <span>Failed to load older history.</span>
-              <button
-                type="button"
-                onClick={() => void controllerRef.current?.loadOlderChunk()}
-                className="text-accent hover:text-accent-strong transition-colors duration-fast ease-out"
-              >
-                Retry
-              </button>
-            </>
+        <div className="absolute top-0 left-0 right-0 z-10 flex flex-col">
+          <div className="flex items-center gap-2 px-3 py-1 bg-surface border-b border-border text-[12px] text-text-dim">
+            <span>⏸ Stream paused — you're viewing history.</span>
+            <button
+              type="button"
+              onClick={onResumeClick}
+              className="text-accent hover:text-accent-strong transition-colors duration-fast ease-out"
+            >
+              Resume stream
+            </button>
+          </div>
+          {chunkState !== 'idle' && (
+            <div
+              role="status"
+              aria-live="polite"
+              className="flex items-center gap-2 px-3 py-1 bg-surface border-b border-border text-[11px] text-text-dim"
+            >
+              {chunkState === 'loading' && <span>Loading older history…</span>}
+              {chunkState === 'error' && (
+                <>
+                  <span>Failed to load older history.</span>
+                  <button
+                    type="button"
+                    onClick={() => void controllerRef.current?.loadOlderChunk()}
+                    className="text-accent hover:text-accent-strong transition-colors duration-fast ease-out"
+                  >
+                    Retry
+                  </button>
+                </>
+              )}
+            </div>
           )}
         </div>
       )}

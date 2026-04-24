@@ -959,4 +959,58 @@ describe('TerminalController', () => {
     await c.loadOlderChunk();
     expect(states).toEqual(['loading', 'error']);
   });
+
+  it('loadOlderChunk aborted by resume emits idle, not error', async () => {
+    const shell = makeStubShell({ openState: 'open' });
+    acquiredShells.set(82, shell);
+    const term = makeFakeXterm();
+    const host = document.createElement('div');
+    const c = new TerminalController(82, term as unknown as import('@xterm/xterm').Terminal, host);
+
+    const TOTAL = 2_000_000;
+    const seedBytes = new Uint8Array(524288).fill(1);
+    fetchResponder = (call): { status: number; headers: Record<string, string>; body: Uint8Array } => {
+      if (call.headers.range === 'bytes=0-0') {
+        return { status: 206, headers: { 'x-transcript-total': String(TOTAL) }, body: new Uint8Array([0]) };
+      }
+      if (call.headers.range === `bytes=${TOTAL - 524288}-${TOTAL - 1}`) {
+        return { status: 206, headers: {}, body: seedBytes };
+      }
+      // Older chunk: succeeds, but we'll abort before the rebuild.
+      return { status: 206, headers: {}, body: new Uint8Array(524288).fill(2) };
+    };
+    for (const cb of shell._snap) cb({ type: 'snapshot', ansi: 'S', cols: 120, rows: 40 });
+    for (let i = 0; i < 10; i++) {
+      await new Promise((r) => setTimeout(r, 0));
+      if (c._debugBuffers().loadedStartOffset === TOTAL - 524288) break;
+    }
+    for (const cb of shell._events) cb({ type: 'state', state: 'succeeded' } as unknown as { type: string });
+    c.pause();
+    const states: string[] = [];
+    c.onChunkStateChange((s) => states.push(s));
+
+    // Start the chunk load and resume before it fully finishes.
+    void c.loadOlderChunk();
+    await c.resume();
+
+    expect(states).not.toContain('error');
+    // States should include at least 'loading' and 'idle'.
+    expect(states[0]).toBe('loading');
+    expect(states[states.length - 1]).toBe('idle');
+  });
+
+  it('pause() clears stale chunkState from a prior paused session', async () => {
+    const shell = makeStubShell({ openState: 'open' });
+    acquiredShells.set(83, shell);
+    const term = makeFakeXterm();
+    const host = document.createElement('div');
+    const c = new TerminalController(83, term as unknown as import('@xterm/xterm').Terminal, host);
+
+    // Force chunkState = 'error' directly to simulate a prior failed load.
+    (c as unknown as { chunkState: 'error' }).chunkState = 'error';
+    expect(c._debugBuffers().chunkState).toBe('error');
+
+    c.pause();
+    expect(c._debugBuffers().chunkState).toBe('idle');
+  });
 });
