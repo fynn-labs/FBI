@@ -12,8 +12,6 @@ export interface UploadTrayProps {
   disabled?: boolean;
   disabledReason?: string;
   onUploaded: (filename: string) => void;
-  onRemove?: (filename: string) => void;
-  attached: UploadTrayFile[];
   upload: (file: File) => Promise<{ filename: string; size: number }>;
   maxFileBytes: number;
   maxTotalBytes: number;
@@ -48,24 +46,6 @@ function PaperclipIcon() {
       aria-hidden="true"
     >
       <path d="M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.49" />
-    </svg>
-  );
-}
-
-function RemoveIcon() {
-  return (
-    <svg
-      viewBox="0 0 24 24"
-      width="12"
-      height="12"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="2"
-      strokeLinecap="round"
-      strokeLinejoin="round"
-      aria-hidden="true"
-    >
-      <path d="M18 6L6 18M6 6l12 12" />
     </svg>
   );
 }
@@ -188,36 +168,6 @@ export function UploadTray(props: UploadTrayProps) {
         <div className="text-attn text-sm" role="alert">
           {error}
         </div>
-      )}
-      {props.attached.length > 0 && (
-        <ul className="flex flex-wrap gap-2">
-          {props.attached.map((f) => (
-            <li
-              key={f.filename}
-              className="inline-flex items-center gap-2 rounded-md border border-border bg-surface-raised px-2 py-1 text-sm text-text-dim"
-            >
-              <span className="text-text">
-                {f.filename} <span className="text-text-faint">· {humanSize(f.size)}</span>
-              </span>
-              {f.uploading && <span aria-label="uploading">⟳</span>}
-              {f.error && (
-                <span className="text-attn" role="alert">
-                  {f.error}
-                </span>
-              )}
-              {props.onRemove && (
-                <button
-                  type="button"
-                  aria-label={`remove ${f.filename}`}
-                  onClick={() => props.onRemove?.(f.filename)}
-                  className="inline-flex items-center justify-center w-4 h-4 rounded hover:bg-surface hover:text-text transition-colors duration-fast ease-out"
-                >
-                  <RemoveIcon />
-                </button>
-              )}
-            </li>
-          ))}
-        </ul>
       )}
     </div>
   );

@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import type { Project, Run, ChangesPayload } from '@shared/types.js';
 import type { WipResponse } from '../features/runs/ChangesTab.js';
@@ -39,21 +39,6 @@ export function RunDetailPage() {
   const [continueOpen, setContinueOpen] = useState(false);
   const terminalPaneRef = useRef<HTMLDivElement | null>(null);
   const { height, setHeight } = useBottomPaneHeight();
-
-  const refreshUploads = useCallback(async () => {
-    try {
-      const { files } = await api.listRunUploads(runId);
-      setAttached(files.map(f => ({ filename: f.filename, size: f.size })));
-    } catch { /* silent */ }
-  }, [runId]);
-
-  useEffect(() => {
-    void refreshUploads();
-  }, [refreshUploads]);
-
-  useEffect(() => {
-    if (run?.state === 'waiting') void refreshUploads();
-  }, [run?.state, refreshUploads]);
 
   useKeyBinding({ chord: 'mod+j', handler: () => setDrawerOpen((v) => !v), description: 'Toggle run drawer' }, []);
 
@@ -272,7 +257,6 @@ export function RunDetailPage() {
             disabled={run.state !== 'waiting' && run.state !== 'running'}
             disabledReason="Uploads are available while the run is active."
             dropZoneRef={terminalPaneRef}
-            attached={attached}
             upload={async (file) => {
               const res = await api.uploadRunFile(run.id, file);
               setAttached(prev => [...prev, { filename: res.filename, size: res.size }]);
@@ -283,12 +267,6 @@ export function RunDetailPage() {
               const shell = acquireShell(run.id);
               shell.send(new TextEncoder().encode(text));
               releaseShell(run.id);
-            }}
-            onRemove={async (filename) => {
-              try {
-                await api.deleteRunUpload(run.id, filename);
-              } catch { /* best-effort */ }
-              setAttached(prev => prev.filter(f => f.filename !== filename));
             }}
             maxFileBytes={100 * 1024 * 1024}
             maxTotalBytes={1024 * 1024 * 1024}
