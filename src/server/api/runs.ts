@@ -587,4 +587,13 @@ export function registerRunsRoutes(app: FastifyInstance, deps: Deps): void {
     return patch;
   });
 
+  app.post('/api/runs/:id/stop-mirror', async (req, reply) => {
+    const id = Number((req.params as { id: string }).id);
+    const run = deps.runs.get(id);
+    if (!run) return reply.code(404).send({ ok: false });
+    deps.runs.setBaseBranch(id, null);
+    deps.runs.setMirrorStatus(id, null);
+    return { ok: true };
+  });
+
 }

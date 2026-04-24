@@ -257,4 +257,9 @@ export const api = {
 
   downloadRunWipPatch: (id: number): string =>
     `/api/runs/${id}/wip/patch`,
+
+  clearRunBaseBranch: async (id: number): Promise<void> => {
+    const r = await fetch(`/api/runs/${id}/stop-mirror`, { method: 'POST' });
+    if (!r.ok) throw new Error(`HTTP ${r.status}`);
+  },
 };

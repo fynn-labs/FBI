@@ -5,7 +5,9 @@ import { AgentSection } from './AgentSection.js';
 import { SubmodulesSection } from './SubmodulesSection.js';
 import { LinksSection } from './LinksSection.js';
 import { SubRunsSection } from './SubRunsSection.js';
+import { MirrorStatusBanner } from './MirrorStatusBanner.js';
 import { useHistoryOp } from '../useHistoryOp.js';
+import { api } from '../../../lib/api.js';
 import type { ChangesPayload, MergeStrategy, Project, Run } from '@shared/types.js';
 
 export interface ShipTabProps {
@@ -27,6 +29,16 @@ export function ShipTab({ run, project, changes, onCreatePr, creatingPr, onReloa
 
   return (
     <div>
+      <MirrorStatusBanner
+        status={run.mirror_status}
+        baseBranch={run.base_branch}
+        runId={run.id}
+        onRebase={() => void runOp({ op: 'mirror-rebase' })}
+        onStop={async () => {
+          await api.clearRunBaseBranch(run.id);
+          onReload();
+        }}
+      />
       <ShipHeader changes={changes} runState={run.state} />
       {msg && <p className="px-4 py-1 text-[12px] text-text-dim bg-surface-raised border-y border-border">{msg}</p>}
       <MergePrimary
