@@ -162,7 +162,10 @@ defmodule FBI.Runs.Queries do
       :usage_parse_errors,
       :title,
       :title_locked,
-      :parent_run_id
+      :parent_run_id,
+      :kind,
+      :kind_args_json,
+      :mirror_status
     ])
   end
 end
