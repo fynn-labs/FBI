@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import type { Run } from '@shared/types.js';
 import { Dialog } from '@ui/primitives/Dialog.js';
+import { Button } from '@ui/primitives/Button.js';
 import { ModelParamsCollapse, type ModelParamsValue } from './ModelParamsCollapse.js';
 
 export function ContinueRunDialog(props: {
@@ -38,32 +39,17 @@ export function ContinueRunDialog(props: {
   }
 
   return (
-    <Dialog
-      open={open}
-      onClose={onClose}
-      title="Continue run"
-    >
+    <Dialog open={open} onClose={onClose} title="Continue run">
       <div data-testid="continue-dialog" className="space-y-4">
-        <p className="text-sm text-text-dim">
+        <p className="text-[13px] text-text-dim">
           Model params are pre-filled from this run. Change any to override on resume.
         </p>
         <ModelParamsCollapse value={value} onChange={setValue} />
-        <div className="flex justify-end gap-2 pt-2">
-          <button
-            type="button"
-            className="px-3 py-1 rounded border border-border"
-            onClick={onClose}
-          >
-            Cancel
-          </button>
-          <button
-            type="button"
-            className="px-3 py-1 rounded bg-accent text-accent-foreground disabled:opacity-50"
-            onClick={handleSubmit}
-            disabled={submitting}
-          >
+        <div className="flex justify-end gap-2 pt-1">
+          <Button type="button" variant="ghost" onClick={onClose}>Cancel</Button>
+          <Button type="button" variant="primary" onClick={handleSubmit} disabled={submitting}>
             {submitting ? 'Continuing…' : 'Continue'}
-          </button>
+          </Button>
         </div>
       </div>
     </Dialog>
