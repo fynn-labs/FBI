@@ -122,22 +122,30 @@ The `Makefile` `build` target cross-compiles all four via `cargo build --release
 
 ### 4.1 New `tunnel.rs` module
 
-Manages a `tokio::sync::Mutex<HashMap<u32, TunnelEntry>>` keyed by run ID:
+Manages a `tokio::sync::Mutex<TunnelState>` stored as a `tauri::State`:
 
 ```rust
+struct TunnelState {
+    tunnels: HashMap<u32, TunnelEntry>,
+    last_runs: Vec<TrayRunInfo>,   // last run list from update_tray_runs
+}
+
 enum TunnelEntry {
-    Polling,                        // discovery task running, no ports yet
-    Active(Child, Vec<u16>),        // sidecar running with known ports
+    Polling,                                    // discovery task running, no ports yet
+    Active(tauri_plugin_shell::process::Child, Vec<u16>),  // sidecar running with known ports
 }
 ```
 
-**`reconcile(app, server_url, running_run_ids)`** — called after each `update_tray_runs`:
+`last_runs` lets background poll tasks rebuild the tray with current run info + fresh tunnel state without needing another `invoke` from the frontend.
 
+**`reconcile(app, server_url, runs)`** — called after each `update_tray_runs` with the full run list:
+
+- Updates `last_runs` in the shared state.
 - **New running run, no entry**: insert `Polling`, spawn a background tokio task that GETs `/api/runs/{id}/listening-ports` every 2 s. When ≥1 port is returned:
   - Spawn the sidecar via `tauri_plugin_shell::process::Command::new_sidecar("fbi-tunnel")` with args `[server_url, run_id.to_string()]`.
   - Transition entry to `Active(child, ports)`.
   - Fire notification: `"Tunnel active — run #N: localhost:5173, localhost:9229"`.
-  - Trigger tray rebuild.
+  - Rebuild tray using `last_runs` + current tunnel state.
 - **Run absent from active list, entry exists**: kill the child (if `Active`), remove entry. Fire no notification if it was `Polling`; silent stop if `Active` (the existing run-ended notification covers it).
 
 ### 4.2 `tray.rs` changes
