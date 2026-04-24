@@ -7,11 +7,22 @@ import { setConnectionState } from '../lib/connectionState.js';
 import type { RunState } from '@shared/types.js';
 
 type Listener = (map: Map<number, number>) => void;
+type RefreshListener = () => void;
 
 let lastRunning = new Map<number, number>();
 let lastWaiting = new Map<number, number>();
 const runningListeners = new Set<Listener>();
 const waitingListeners = new Set<Listener>();
+const refreshListeners = new Set<RefreshListener>();
+
+export function subscribeToRunRefresh(cb: RefreshListener): () => void {
+  refreshListeners.add(cb);
+  return () => { refreshListeners.delete(cb); };
+}
+
+function notifyRunRefresh() {
+  for (const l of refreshListeners) l();
+}
 
 export function _publishRunning(map: Map<number, number>) {
   lastRunning = map;
@@ -98,6 +109,7 @@ export function useRunWatcher(enabled: boolean) {
         const prev = runs.get(msg.run_id)?.state;
         runs.set(msg.run_id, { state: msg.state, project_id: msg.project_id });
         publishCountsFromMap(runs);
+        notifyRunRefresh();
         if (seeding || !enabled) return;
         if (prev === 'running' && msg.state === 'waiting') {
           const proj = await api.getProject(msg.project_id).catch(() => null);

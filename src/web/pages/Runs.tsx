@@ -6,6 +6,7 @@ import { KeyboardHint } from '@ui/patterns/KeyboardHint.js';
 import type { Run } from '@shared/types.js';
 import { api } from '../lib/api.js';
 import { RunsList } from '../features/runs/RunsList.js';
+import { subscribeToRunRefresh } from '../hooks/useRunWatcher.js';
 import { getLastRunGlobal, setLastRunGlobal } from '../features/runs/lastRun.js';
 import { useIsNarrow } from '../hooks/useIsNarrow.js';
 
@@ -29,7 +30,8 @@ export function RunsPage() {
       .catch((e) => { if (!cancelled) setError(String(e)); });
     load();
     const t = setInterval(load, 5000);
-    return () => { cancelled = true; clearInterval(t); };
+    const unsub = subscribeToRunRefresh(() => { void load(); });
+    return () => { cancelled = true; clearInterval(t); unsub(); };
   }, []);
 
   // Remember the current run id whenever it changes.

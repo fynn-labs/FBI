@@ -5,6 +5,7 @@ import { EmptyState, LoadingState, ErrorState } from '@ui/patterns/index.js';
 import type { Project, Run } from '@shared/types.js';
 import { api } from '../lib/api.js';
 import { RunsList } from '../features/runs/RunsList.js';
+import { subscribeToRunRefresh } from '../hooks/useRunWatcher.js';
 import { ProjectHeader } from '../features/projects/ProjectHeader.js';
 import { getLastRunForProject, setLastRunForProject } from '../features/runs/lastRun.js';
 import { useIsNarrow } from '../hooks/useIsNarrow.js';
@@ -66,7 +67,8 @@ export function ProjectDetailPage() {
 
     loadRuns();
     intervalId = setInterval(loadRuns, 5000);
-    return () => { cancelled = true; if (intervalId !== null) clearInterval(intervalId); };
+    const unsub = subscribeToRunRefresh(() => { void loadRuns(); });
+    return () => { cancelled = true; if (intervalId !== null) clearInterval(intervalId); unsub(); };
   }, [pid]);
 
   // Remember the current run id whenever it changes.

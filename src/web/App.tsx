@@ -3,6 +3,7 @@ import { Routes, Route, Navigate, useLocation, useNavigate } from 'react-router-
 import { AppShell, Cheatsheet } from '@ui/shell/index.js';
 import { sidebarRegistry } from '@ui/shell/sidebarRegistry.js';
 import { PlayIcon, GearIcon } from '@ui/primitives/Icons.js';
+import { StatusDot } from '@ui/primitives/StatusDot.js';
 import { paletteRegistry } from '@ui/shell/paletteRegistry.js';
 import { statusRegistry } from '@ui/shell/statusRegistry.js';
 import { keymap } from '@ui/shell/KeyMap.js';
@@ -59,9 +60,9 @@ function StatusRegistrations({ active, waiting, today }: { active: number; waiti
 
   useEffect(() => {
     const connRender = () => {
-      if (conn === 'connected') return <><span className="text-ok">●</span> <span className="text-ok">connected</span></>;
-      if (conn === 'disconnected') return <><span className="text-fail">●</span> <span className="text-fail">disconnected</span></>;
-      return <><span className="text-warn">●</span> <span className="text-warn">connecting…</span></>;
+      if (conn === 'connected') return <span className="inline-flex items-center gap-1"><StatusDot tone="ok" /><span className="text-ok">connected</span></span>;
+      if (conn === 'disconnected') return <span className="inline-flex items-center gap-1"><StatusDot tone="fail" /><span className="text-fail">disconnected</span></span>;
+      return <span className="inline-flex items-center gap-1"><StatusDot tone="warn" /><span className="text-warn">connecting…</span></span>;
     };
     const off1 = statusRegistry.register({ id: 'conn', side: 'left', order: 0, render: connRender });
     const off2 = statusRegistry.register({ id: 'active', side: 'left', order: 1, render: () => <>{active} <span className="text-run">running</span></> });
@@ -111,8 +112,8 @@ export function App() {
   dataRef.current = { projects, runs };
 
   useEffect(() => {
-    const offRuns = sidebarRegistry.register({ id: 'runs', group: 'views', label: 'All runs', route: '/runs', order: 10, icon: <PlayIcon size={14} /> });
-    const offSet = sidebarRegistry.register({ id: 'settings', group: 'views', label: 'Settings', route: '/settings', order: 20, icon: <GearIcon size={14} /> });
+    const offRuns = sidebarRegistry.register({ id: 'runs', group: 'views', label: 'All runs', route: '/runs', order: 10, icon: <PlayIcon size={16} /> });
+    const offSet = sidebarRegistry.register({ id: 'settings', group: 'views', label: 'Settings', route: '/settings', order: 20, icon: <GearIcon size={16} /> });
 
     const offActions = paletteRegistry.register({
       id: 'actions',

@@ -11,6 +11,15 @@ export function useUsage(): UsageState | null {
   return s;
 }
 
+export function useUsageUpdatedAt(): number | null {
+  const [t, setT] = useState<number | null>(() => usageStore.getLastUpdatedAt());
+  useEffect(() => {
+    usageStore.ensureStarted();
+    return usageStore.onUpdatedAt(setT);
+  }, []);
+  return t;
+}
+
 export function __resetUsageStoreForTest(): void {
   usageStore._resetForTest();
 }

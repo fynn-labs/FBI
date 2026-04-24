@@ -113,7 +113,7 @@ export function Sidebar({ projects, collapsed }: SidebarProps) {
             )}
           >
             {collapsed ? (
-              <span className="relative w-7 h-7 flex items-center justify-center rounded-md text-base font-semibold">
+              <span className="relative w-8 h-8 flex items-center justify-center rounded-md text-lg font-semibold">
                 {p.name[0]?.toUpperCase() ?? '·'}
                 {p.hasWaiting ? (
                   <StatusDot tone="attn" aria-label="waiting for input" className="absolute -top-0.5 -right-0.5" />
@@ -147,11 +147,14 @@ export function Sidebar({ projects, collapsed }: SidebarProps) {
             )}
           >
             {collapsed ? (
-              <span className="w-7 h-7 flex items-center justify-center rounded-md text-base font-semibold">
+              <span className="w-8 h-8 flex items-center justify-center rounded-md text-lg font-semibold">
                 {v.icon ?? (v.label[0]?.toUpperCase() ?? '·')}
               </span>
             ) : (
-              <span className="truncate">{v.label}</span>
+              <>
+                {v.icon && <span className="w-4 h-4 flex items-center justify-center shrink-0">{v.icon}</span>}
+                <span className="truncate">{v.label}</span>
+              </>
             )}
           </NavLink>
         ))}
@@ -172,12 +175,19 @@ export function Sidebar({ projects, collapsed }: SidebarProps) {
           onMouseDown={handleMouseDown}
           onKeyDown={handleKeyDown}
           className={cn(
-            'shrink-0 w-[6px] h-full cursor-col-resize bg-border',
+            'group shrink-0 w-[6px] h-full cursor-col-resize bg-border relative',
             'hover:bg-border-strong focus:outline-none focus-visible:bg-accent/40',
             dragging && 'bg-accent/50',
             'transition-colors duration-fast',
           )}
-        />
+        >
+          <span className={cn(
+            'absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2',
+            'w-[3px] h-8 rounded-full pointer-events-none',
+            'bg-border-strong group-hover:bg-text-faint transition-colors duration-fast',
+            dragging && 'bg-accent',
+          )} />
+        </div>
       )}
       {collapsed && <div className="shrink-0 w-px h-full bg-border-strong" />}
     </>
