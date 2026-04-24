@@ -857,7 +857,8 @@ export class Orchestrator {
 
     const active = this.active.get(runId);
     if (active) {
-      return runHistoryOpInContainer(active.container, env);
+      const scriptContents = fs.readFileSync(HISTORY_OP, 'utf8');
+      return runHistoryOpInContainer(active.container, env, { scriptContents });
     }
     // Finished run: transient container.
     return runHistoryOpInTransientContainer({

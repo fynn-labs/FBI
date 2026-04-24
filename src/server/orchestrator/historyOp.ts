@@ -54,8 +54,21 @@ export function buildEnv(runId: number, branch: string, defaultBranch: string, o
 export async function runHistoryOpInContainer(
   container: Docker.Container,
   env: HistoryOpEnv,
-  opts: { timeoutMs?: number } = {},
+  opts: { timeoutMs?: number; scriptContents?: string } = {},
 ): Promise<ParsedOpResult> {
+  // Inject the script at exec time rather than relying on the bind mount
+  // set at container start. Legacy containers (from before the bind mount
+  // was introduced) have no script at /usr/local/bin/fbi-history-op.sh;
+  // docker exec would return 127. putArchive is idempotent, so even
+  // containers that already have the bind-mounted file get the current
+  // version (matches what the server code expects).
+  if (opts.scriptContents) {
+    const tar = await import('tar-stream');
+    const pack = tar.pack();
+    pack.entry({ name: 'fbi-history-op.sh', mode: 0o755 }, opts.scriptContents);
+    pack.finalize();
+    await container.putArchive(pack as unknown as NodeJS.ReadableStream, { path: '/usr/local/bin' });
+  }
   const { stdout, exitCode } = await dockerExec(
     container,
     ['/usr/local/bin/fbi-history-op.sh'],
