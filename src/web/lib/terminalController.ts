@@ -69,6 +69,8 @@ export class TerminalController {
   private loadedStartOffset = 0;
   private paused = false;
   private seeded = false;
+  private pendingChunk: { abort: AbortController; promise: Promise<void> } | null = null;
+  private startMarkerWritten = false;
   private pauseListeners = new Set<(paused: boolean) => void>();
   private interactiveProp = false; // track the prop so applyInteractive can recompute
 
@@ -430,6 +432,73 @@ export class TerminalController {
     if (this.disposed) return 0;
     const total = Number(res.headers.get('X-Transcript-Total') ?? '0');
     return Number.isFinite(total) ? total : 0;
+  }
+
+  /**
+   * Fetch the next CHUNK_SIZE bytes of older transcript (bytes before
+   * loadedStartOffset) and rebuild the xterm with scroll position
+   * restored.
+   *
+   * Guards:
+   * - Must be paused (no-op otherwise).
+   * - loadedStartOffset === 0 → no-op.
+   * - pendingChunk !== null → returns the in-flight promise (dedup).
+   */
+  async loadOlderChunk(): Promise<void> {
+    if (this.disposed || !this.paused) return;
+    if (this.loadedStartOffset === 0) return;
+    if (this.pendingChunk) return this.pendingChunk.promise;
+
+    const abort = new AbortController();
+    const end = this.loadedStartOffset - 1;
+    const start = Math.max(0, this.loadedStartOffset - CHUNK_SIZE);
+    traceRecord('controller.chunk.fetch', { runId: this.runId, start, end });
+
+    const promise = (async () => {
+      try {
+        const res = await fetch(`/api/runs/${this.runId}/transcript`, {
+          headers: { Range: `bytes=${start}-${end}` },
+          signal: abort.signal,
+        });
+        if (this.disposed || abort.signal.aborted) return;
+        if (!res.ok && res.status !== 206) {
+          traceRecord('controller.chunk.error', { status: res.status });
+          return;
+        }
+        const chunk = new Uint8Array(await res.arrayBuffer());
+        if (this.disposed || abort.signal.aborted) return;
+
+        const oldBaseY = this.term.buffer.active.baseY;
+        const oldViewportY = this.term.buffer.active.viewportY;
+
+        const newLoaded = concat([chunk, this.loadedBytes]);
+        await this.rebuildXterm([newLoaded, this.liveTailBytes]);
+        if (this.disposed) return;
+
+        const newBaseY = this.term.buffer.active.baseY;
+        const addedLines = newBaseY - oldBaseY;
+        this.term.scrollToLine(oldViewportY + addedLines);
+
+        this.loadedBytes = newLoaded;
+        this.loadedStartOffset = start;
+        if (start === 0 && !this.startMarkerWritten) {
+          this.startMarkerWritten = true;
+          this.term.write(new TextEncoder().encode('\r\n\x1b[2;37m── start of run ──\x1b[0m\r\n'));
+        }
+        traceRecord('controller.chunk.rebuild', {
+          addedBytes: chunk.byteLength,
+          addedLines,
+        });
+      } catch (err) {
+        if (abort.signal.aborted) return;
+        traceRecord('controller.chunk.error', { err: String(err) });
+      } finally {
+        this.pendingChunk = null;
+      }
+    })();
+
+    this.pendingChunk = { abort, promise };
+    return promise;
   }
 
   /** @internal — for tests only. */

@@ -47,7 +47,10 @@ type EventKind =
   | 'controller.pause'
   | 'controller.pause.listener.error'
   | 'controller.seed.complete'
-  | 'controller.seed.error';
+  | 'controller.seed.error'
+  | 'controller.chunk.fetch'
+  | 'controller.chunk.rebuild'
+  | 'controller.chunk.error';
 
 interface TraceEvent {
   t: number; // ms since trace start
