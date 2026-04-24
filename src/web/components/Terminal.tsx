@@ -59,6 +59,12 @@ export function Terminal({ runId, interactive }: Props) {
       fontSize: 13,
       theme: readTheme(),
       cursorBlink: false,
+      // xterm's default is 1000 lines, which would silently cap our
+      // lazy-loaded scrollback. A single 512 KB chunk already produces
+      // ~4000 lines at typical line lengths, and users can load many
+      // chunks back to transcript start. Set high enough to hold full
+      // realistic runs (spec Q8: no cap in v1).
+      scrollback: 1_000_000,
     });
     const fit = new FitAddon();
     term.loadAddon(fit);
