@@ -59,4 +59,18 @@ describe('LogStore', () => {
   it('readRange returns empty for missing file', () => {
     expect(LogStore.readRange('/nonexistent/x', 0, 100).length).toBe(0);
   });
+
+  it('byteSize + readRange reflect unflushed appends from an open LogStore', () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'fbi-'));
+    const p = path.join(dir, 'log');
+    const s = new LogStore(p);
+    s.append(Buffer.from('hello '));
+    s.append(Buffer.from('world'));
+    // Writer is still open — both static helpers must see the bytes.
+    expect(LogStore.byteSize(p)).toBe(11);
+    expect(Buffer.from(LogStore.readRange(p, 0, 10)).toString()).toBe('hello world');
+    // A live reader of a suffix range works the same:
+    expect(Buffer.from(LogStore.readRange(p, 6, 10)).toString()).toBe('world');
+    s.close();
+  });
 });
