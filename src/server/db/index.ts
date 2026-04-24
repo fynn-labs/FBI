@@ -144,6 +144,8 @@ export function migrate(db: DB): void {
   if (!runsCols.has('base_branch')) {
     db.exec('ALTER TABLE runs ADD COLUMN base_branch TEXT');
   }
+  // CHECK constraint omitted: SQLite ALTER TABLE ADD COLUMN cannot carry a CHECK
+  // clause. Enforced at the application layer via the MirrorStatus type.
   if (!runsCols.has('mirror_status')) {
     db.exec("ALTER TABLE runs ADD COLUMN mirror_status TEXT");
   }
