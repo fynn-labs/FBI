@@ -14,6 +14,10 @@ describe('detectScroll', () => {
     expect(detectScroll(mkTerm(500, 499)).atBottom).toBe(false);
   });
 
+  it('atBottom true when viewportY > baseY (overscroll / trackpad momentum)', () => {
+    expect(detectScroll(mkTerm(500, 501)).atBottom).toBe(true);
+  });
+
   it('nearTop true when viewportY < NEAR_TOP_LINES and baseY > 0', () => {
     expect(detectScroll(mkTerm(500, 50)).nearTop).toBe(true);
     expect(detectScroll(mkTerm(500, 99)).nearTop).toBe(true);
