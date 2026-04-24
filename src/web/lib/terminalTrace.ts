@@ -45,7 +45,9 @@ type EventKind =
   | 'controller.resumeLive'
   | 'controller.redraw'
   | 'controller.pause'
-  | 'controller.pause.listener.error';
+  | 'controller.pause.listener.error'
+  | 'controller.seed.complete'
+  | 'controller.seed.error';
 
 interface TraceEvent {
   t: number; // ms since trace start
