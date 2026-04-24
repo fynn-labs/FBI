@@ -263,9 +263,13 @@ export function registerRunsRoutes(app: FastifyInstance, deps: Deps): void {
     reply.header('X-Transcript-Total', String(total));
     reply.header('content-type', 'text/plain; charset=utf-8');
 
+    if (total === 0) {
+      return reply.send(Buffer.alloc(0));
+    }
+
     const rangeHeader = req.headers.range;
     const m = typeof rangeHeader === 'string'
-      ? /^bytes=(\d+)-(\d*)$/.exec(rangeHeader.trim())
+      ? /^bytes=(\d+)-(\d*)$/i.exec(rangeHeader.trim())
       : null;
     if (!m) {
       const bytes = LogStore.readAll(run.log_path);

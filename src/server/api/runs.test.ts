@@ -764,6 +764,41 @@ describe('runs routes', () => {
     expect(res.body).toBe('abc');
   });
 
+  it('GET /api/runs/:id/transcript returns 416 when Range start is past EOF', async () => {
+    const { app, projectId, runs } = setup();
+    const id = await seedTranscript(app, runs, projectId, 'abcdefghij');
+    const res = await app.inject({
+      method: 'GET', url: `/api/runs/${id}/transcript`,
+      headers: { range: 'bytes=50-60' },
+    });
+    expect(res.statusCode).toBe(416);
+    expect(res.headers['content-range']).toBe('bytes */10');
+    expect(res.headers['x-transcript-total']).toBe('10');
+  });
+
+  it('GET /api/runs/:id/transcript returns 416 when Range start > end', async () => {
+    const { app, projectId, runs } = setup();
+    const id = await seedTranscript(app, runs, projectId, 'abcdefghij');
+    const res = await app.inject({
+      method: 'GET', url: `/api/runs/${id}/transcript`,
+      headers: { range: 'bytes=5-3' },
+    });
+    expect(res.statusCode).toBe(416);
+    expect(res.headers['content-range']).toBe('bytes */10');
+  });
+
+  it('GET /api/runs/:id/transcript with empty transcript returns 200 + empty body even with Range', async () => {
+    const { app, projectId, runs } = setup();
+    const id = await seedTranscript(app, runs, projectId, '');
+    const res = await app.inject({
+      method: 'GET', url: `/api/runs/${id}/transcript`,
+      headers: { range: 'bytes=0-10' },
+    });
+    expect(res.statusCode).toBe(200);
+    expect(res.headers['x-transcript-total']).toBe('0');
+    expect(res.body).toBe('');
+  });
+
   describe('draft_token integration', () => {
     it('POST /api/projects/:id/runs with draft_token promotes uploads and still launches', async () => {
       const { app, projectId, launched, runsDir } = setupWithUploads();
