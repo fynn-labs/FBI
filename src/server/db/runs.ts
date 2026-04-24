@@ -126,7 +126,7 @@ export class RunsRepo {
                 last_limit_reset_at=?,
                 resume_attempts = resume_attempts + 1,
                 state_entered_at=?
-          WHERE id=? AND state IN ('running','waiting')`,
+          WHERE id=? AND state IN ('starting','running','waiting')`,
       )
       .run(p.next_resume_at, p.last_limit_reset_at, Date.now(), id);
   }

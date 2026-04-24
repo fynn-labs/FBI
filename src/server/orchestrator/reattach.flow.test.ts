@@ -78,7 +78,8 @@ describe('Orchestrator.recover -> reattach', () => {
       project_id: p.id, prompt: 'long-lived',
       log_path_tmpl: (id) => path.join(os.tmpdir(), `reattach-${id}.log`),
     });
-    runs.markStarted(run.id, 'old-container');
+    runs.markStartingFromQueued(run.id, 'old-container');
+    runs.markRunning(run.id);
     // Claude wrote a session JSONL into the mount dir before the server
     // restart. scanSessionId() walks one level deep and expects a UUID-named
     // file (matching Claude Code's on-disk layout: `<mount>/<project>/<uuid>.jsonl`).

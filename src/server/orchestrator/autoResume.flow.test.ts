@@ -164,7 +164,8 @@ describe('autoResume flow (stubbed Docker)', () => {
     });
 
     // Put run directly in awaiting_resume state.
-    runs.markStarted(run.id, 'old-container');
+    runs.markStartingFromQueued(run.id, 'old-container');
+    runs.markRunning(run.id);
     runs.markAwaitingResume(run.id, {
       next_resume_at: Date.now() + 60_000,
       last_limit_reset_at: Date.now(),

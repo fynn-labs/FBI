@@ -70,7 +70,8 @@ describe('ResumeScheduler', () => {
         project_id: projectId, prompt: 'x',
         log_path_tmpl: (id) => `/tmp/${id}.log`,
       });
-      runs.markStarted(r.id, 'c');
+      runs.markStartingFromQueued(r.id, 'c');
+      runs.markRunning(r.id);
       runs.markAwaitingResume(r.id, { next_resume_at: Date.now() + at, last_limit_reset_at: Date.now() + at });
     }
     await scheduler.rehydrate();
@@ -84,7 +85,8 @@ describe('ResumeScheduler', () => {
       project_id: projectId, prompt: 'x',
       log_path_tmpl: (id) => `/tmp/${id}.log`,
     });
-    runs.markStarted(r.id, 'c');
+    runs.markStartingFromQueued(r.id, 'c');
+    runs.markRunning(r.id);
     runs.markAwaitingResume(r.id, { next_resume_at: 0, last_limit_reset_at: 0 });
     await scheduler.rehydrate();
     await vi.advanceTimersByTimeAsync(1);

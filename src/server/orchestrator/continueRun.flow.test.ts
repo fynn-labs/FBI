@@ -104,7 +104,8 @@ describe('Orchestrator.continueRun', () => {
       log_path_tmpl: (id) => path.join(os.tmpdir(), `cont-${id}.log`),
     });
     // Walk the run through a full failure cycle.
-    runs.markStarted(run.id, 'c1');
+    runs.markStartingFromQueued(run.id, 'c1');
+    runs.markRunning(run.id);
     runs.setClaudeSessionId(run.id, 'sess-xyz');
     runs.markFinished(run.id, { state: 'failed', error: 'OOM' });
     // Plant the session JSONL on disk so eligibility passes.
@@ -144,7 +145,8 @@ describe('Orchestrator.continueRun', () => {
       branch_hint: 'feat/keep-going',
       log_path_tmpl: (id) => path.join(os.tmpdir(), `cont-${id}.log`),
     });
-    runs.markStarted(run.id, 'c1');
+    runs.markStartingFromQueued(run.id, 'c1');
+    runs.markRunning(run.id);
     runs.setClaudeSessionId(run.id, 'sess-xyz');
     runs.markFinished(run.id, { state: 'failed', error: 'OOM' });
     const sessDir = runMountDir(dir, run.id);
@@ -181,7 +183,8 @@ describe('Orchestrator.continueRun', () => {
       project_id: p.id, prompt: 'x',
       log_path_tmpl: (id) => path.join(os.tmpdir(), `cont-${id}.log`),
     });
-    runs.markStarted(run.id, 'c1');
+    runs.markStartingFromQueued(run.id, 'c1');
+    runs.markRunning(run.id);
     runs.markFinished(run.id, { state: 'failed' });
     const orch = makeOrchestrator({ createContainer: vi.fn() } as unknown as Docker);
     await expect(orch.continueRun(run.id)).rejects.toThrow(/no_session/);
@@ -194,7 +197,8 @@ describe('Orchestrator.continueRun', () => {
       branch_hint: 'feat/done',
       log_path_tmpl: (id) => path.join(os.tmpdir(), `cont-${id}.log`),
     });
-    runs.markStarted(run.id, 'c1');
+    runs.markStartingFromQueued(run.id, 'c1');
+    runs.markRunning(run.id);
     runs.setClaudeSessionId(run.id, 'sess-ok');
     runs.markFinished(run.id, { state: 'succeeded' });
     const sessDir = runMountDir(dir, run.id);
