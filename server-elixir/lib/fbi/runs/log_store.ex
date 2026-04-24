@@ -64,6 +64,7 @@ defmodule FBI.Runs.LogStore do
     case :file.open(path, [:read, :raw, :binary]) do
       {:error, _} ->
         ""
+
       {:ok, fd} ->
         try do
           size =
@@ -71,15 +72,22 @@ defmodule FBI.Runs.LogStore do
               {:ok, s} -> s
               _ -> 0
             end
+
           if start_byte >= size do
             ""
           else
             clamped_end = min(end_byte, size - 1)
             length = clamped_end - start_byte + 1
-            {:ok, _} = :file.position(fd, start_byte)
-            case :file.read(fd, length) do
-              {:ok, data} -> data
-              _ -> ""
+
+            case :file.position(fd, start_byte) do
+              {:ok, _} ->
+                case :file.read(fd, length) do
+                  {:ok, data} -> data
+                  _ -> ""
+                end
+
+              _ ->
+                ""
             end
           end
         after
