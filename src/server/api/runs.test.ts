@@ -5,12 +5,14 @@ import FormData from 'form-data';
 import fs from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
+import { execFileSync } from 'node:child_process';
 import { openDb } from '../db/index.js';
 import { ProjectsRepo } from '../db/projects.js';
 import { RunsRepo } from '../db/runs.js';
 import { RunStreamRegistry } from '../logs/registry.js';
 import { registerRunsRoutes, parseSubmoduleLog } from './runs.js';
 import { registerUploadsRoutes } from './uploads.js';
+import { WipRepo } from '../orchestrator/wipRepo.js';
 
 const stubGh = {
   available: async () => true,
@@ -30,6 +32,16 @@ const stubOrchestrator = {
   execHistoryOp: async () => ({ kind: 'complete' as const, sha: 'deadbeef' }),
   spawnSubRun: async () => 0,
   deleteRun: (_runId: number) => { /* noop */ },
+};
+
+const stubWipRepo = {
+  exists: (_runId: number) => false,
+  snapshotSha: (_runId: number) => null,
+  parentSha: (_runId: number) => null,
+  readSnapshotFiles: (_runId: number) => [],
+  readSnapshotDiff: (_runId: number, filePath: string) => ({ path: filePath, ref: 'wip' as const, hunks: [], truncated: false }),
+  readSnapshotPatch: (_runId: number) => '',
+  deleteWipRef: (_runId: number) => { /* noop */ },
 };
 
 function setup() {
@@ -60,6 +72,7 @@ function setup() {
     fireResumeNow: (_id: number) => {},
     continueRun: async (_id: number) => {},
     orchestrator: stubOrchestrator,
+    wipRepo: stubWipRepo,
   });
   return { app, projectId: p.id, launched, cancelled, streams, runs };
 }
@@ -93,6 +106,7 @@ function setupWithUploads() {
     fireResumeNow: (_id: number) => {},
     continueRun: async (_id: number) => {},
     orchestrator: stubOrchestrator,
+    wipRepo: stubWipRepo,
   });
   registerUploadsRoutes(app, { runs, runsDir, draftUploadsDir });
   return { app, projectId: p.id, launched, runs, runsDir, draftUploadsDir };
@@ -115,6 +129,7 @@ function makeApp() {
     fireResumeNow: (_id: number) => {},
     continueRun: async (_id: number) => {},
     orchestrator: stubOrchestrator,
+    wipRepo: stubWipRepo,
   });
   return { app, projects, runs, streams };
 }
@@ -223,7 +238,8 @@ describe('runs routes', () => {
       cancel: async (_id: number) => {},
       fireResumeNow: (id: number) => { fired.push(id); },
       continueRun: async (_id: number) => {},
-    orchestrator: stubOrchestrator,
+      orchestrator: stubOrchestrator,
+      wipRepo: stubWipRepo,
     });
     const res = await app2.inject({ method: 'POST', url: `/api/runs/${r.id}/resume-now` });
     expect(res.statusCode).toBe(204);
@@ -266,6 +282,7 @@ describe('runs routes', () => {
       fireResumeNow: () => {},
       continueRun: async (id: number) => { continued.push(id); },
       orchestrator: stubOrchestrator,
+      wipRepo: stubWipRepo,
     });
     const res = await app.inject({ method: 'POST', url: `/api/runs/${run.id}/continue` });
     expect(res.statusCode).toBe(204);
@@ -306,6 +323,7 @@ describe('runs routes', () => {
       fireResumeNow: () => {},
       continueRun: () => longContinue,
       orchestrator: stubOrchestrator,
+      wipRepo: stubWipRepo,
     });
     const start = Date.now();
     const res = await app.inject({ method: 'POST', url: `/api/runs/${run.id}/continue` });
@@ -377,6 +395,7 @@ describe('runs routes', () => {
       fireResumeNow: () => {}, continueRun: async () => {},
       gh: { ...stubGh, commitsOnBranch: async () => { ghCalls++; return []; } },
       orchestrator: stubOrchestrator,
+      wipRepo: stubWipRepo,
     });
     await app.inject({ method: 'GET', url: `/api/runs/${r.id}/changes` });
     await app.inject({ method: 'GET', url: `/api/runs/${r.id}/changes` });
@@ -402,6 +421,7 @@ describe('runs routes', () => {
         ...stubOrchestrator,
         execInContainer: async () => ({ stdout: '5\t2\tsrc/a.ts\n-\t-\timg.png\n', stderr: '', exitCode: 0 }),
       },
+      wipRepo: stubWipRepo,
     });
     const res = await app.inject({ method: 'GET', url: `/api/runs/${r.id}/commits/abc1234/files` });
     expect(res.statusCode).toBe(200);
@@ -434,6 +454,7 @@ describe('runs routes', () => {
         ...stubOrchestrator,
         execInContainer: async () => ({ stdout: '3\t1\tfoo.ts\n', stderr: '', exitCode: 0 }),
       },
+      wipRepo: stubWipRepo,
     });
     const res = await app.inject({
       method: 'GET',
@@ -467,6 +488,7 @@ describe('runs routes', () => {
       fireResumeNow: () => {},
       continueRun: async () => { throw new Error('should not be called'); },
       orchestrator: stubOrchestrator,
+      wipRepo: stubWipRepo,
     });
     const res = await app.inject({ method: 'POST', url: `/api/runs/${run.id}/continue` });
     expect(res.statusCode).toBe(409);
@@ -501,6 +523,7 @@ describe('runs routes', () => {
           ...stubOrchestrator,
           execHistoryOp: async () => ({ kind: 'complete' as const, sha: 'abc123' }),
         },
+        wipRepo: stubWipRepo,
       });
       const res = await app.inject({ method: 'POST', url: `/api/runs/${run.id}/history`, payload: { op: 'merge' } });
       expect(res.statusCode).toBe(200);
@@ -521,6 +544,7 @@ describe('runs routes', () => {
           execHistoryOp: async () => ({ kind: 'conflict-detected' as const, message: 'conflict' }),
           spawnSubRun: async (parent, kind) => { spawned.push({ parent, kind }); return 99; },
         },
+        wipRepo: stubWipRepo,
       });
       const res = await app.inject({ method: 'POST', url: `/api/runs/${run.id}/history`, payload: { op: 'merge' } });
       expect(res.statusCode).toBe(200);
@@ -541,6 +565,7 @@ describe('runs routes', () => {
           ...stubOrchestrator,
           spawnSubRun: async (parent, kind) => { spawned.push({ parent, kind }); return 88; },
         },
+        wipRepo: stubWipRepo,
       });
       const res = await app.inject({ method: 'POST', url: `/api/runs/${run.id}/history`, payload: { op: 'polish' } });
       expect(res.statusCode).toBe(200);
@@ -562,6 +587,7 @@ describe('runs routes', () => {
           ...stubOrchestrator,
           execHistoryOp: async (_rid, op) => { received = op; return { kind: 'complete', sha: 'abc' }; },
         },
+        wipRepo: stubWipRepo,
       });
       const res = await app.inject({ method: 'POST', url: `/api/runs/${run.id}/history`,
         payload: { op: 'push-submodule', path: 'foo' } });
@@ -707,6 +733,7 @@ describe('runs routes', () => {
           throw new Error('unexpected command');
         },
       },
+      wipRepo: stubWipRepo,
     });
 
     const res = await app.inject({ method: 'GET', url: `/api/runs/${r.id}/changes` });
@@ -724,5 +751,132 @@ describe('runs routes', () => {
       ],
       commits_truncated: false,
     }]);
+  });
+
+  describe('WIP snapshot endpoints', () => {
+    function setupWip() {
+      const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'fbi-wip-'));
+      const db = openDb(path.join(dir, 'db.sqlite'));
+      const projects = new ProjectsRepo(db);
+      const runs = new RunsRepo(db);
+      const p = projects.create({
+        name: 'p', repo_url: 'r', default_branch: 'main',
+        devcontainer_override_json: null, instructions: null,
+        git_author_name: null, git_author_email: null,
+      });
+      const run = runs.create({ project_id: p.id, prompt: 'x', log_path_tmpl: (id) => path.join(dir, `${id}.log`) });
+      const wipRepo = new WipRepo(dir);
+
+      function seedSnapshot(): void {
+        const bare = wipRepo.init(run.id);
+        const work = fs.mkdtempSync(path.join(os.tmpdir(), 'wip-seed-'));
+        execFileSync('git', ['init', '--initial-branch', 'main', work]);
+        execFileSync('git', ['-C', work, 'config', 'user.name', 'Test']);
+        execFileSync('git', ['-C', work, 'config', 'user.email', 't@t']);
+        fs.writeFileSync(path.join(work, 'a.txt'), 'one\n');
+        execFileSync('git', ['-C', work, 'add', '.']);
+        execFileSync('git', ['-C', work, 'commit', '-m', 'base']);
+        fs.writeFileSync(path.join(work, 'a.txt'), 'two\n');
+        execFileSync('git', ['-C', work, 'add', '.']);
+        execFileSync('git', ['-C', work, 'commit', '-m', 'snapshot']);
+        execFileSync('git', ['-C', work, 'push', bare, '+HEAD:refs/heads/wip']);
+        fs.rmSync(work, { recursive: true, force: true });
+      }
+
+      const app = Fastify();
+      registerRunsRoutes(app, {
+        runs, projects, gh: stubGh,
+        streams: new RunStreamRegistry(),
+        runsDir: dir,
+        draftUploadsDir: dir,
+        launch: async () => {},
+        cancel: async () => {},
+        fireResumeNow: () => {},
+        continueRun: async () => {},
+        orchestrator: stubOrchestrator,
+        wipRepo,
+      });
+
+      return { app, run, wipRepo, seedSnapshot, dir };
+    }
+
+    it('GET /api/runs/:id/wip returns no-wip when no repo exists', async () => {
+      const { app, run } = setupWip();
+      const res = await app.inject({ method: 'GET', url: `/api/runs/${run.id}/wip` });
+      expect(res.statusCode).toBe(200);
+      expect(res.json()).toEqual({ ok: false, reason: 'no-wip' });
+    });
+
+    it('GET /api/runs/:id/wip returns no-wip when repo exists but has no snapshot', async () => {
+      const { app, run, wipRepo } = setupWip();
+      wipRepo.init(run.id);
+      const res = await app.inject({ method: 'GET', url: `/api/runs/${run.id}/wip` });
+      expect(res.statusCode).toBe(200);
+      expect(res.json()).toEqual({ ok: false, reason: 'no-wip' });
+    });
+
+    it('GET /api/runs/:id/wip returns snapshot info when a snapshot exists', async () => {
+      const { app, run, seedSnapshot } = setupWip();
+      seedSnapshot();
+      const res = await app.inject({ method: 'GET', url: `/api/runs/${run.id}/wip` });
+      expect(res.statusCode).toBe(200);
+      const body = res.json() as { ok: boolean; snapshot_sha: string; parent_sha: string; files: Array<{ path: string }> };
+      expect(body.ok).toBe(true);
+      expect(typeof body.snapshot_sha).toBe('string');
+      expect(typeof body.parent_sha).toBe('string');
+      expect(body.files.map((f) => f.path)).toContain('a.txt');
+    });
+
+    it('GET /api/runs/:id/wip/file returns empty diff when no path given', async () => {
+      const { app, run } = setupWip();
+      const res = await app.inject({ method: 'GET', url: `/api/runs/${run.id}/wip/file` });
+      expect(res.statusCode).toBe(200);
+      const body = res.json() as { hunks: unknown[]; truncated: boolean };
+      expect(body.hunks).toEqual([]);
+      expect(body.truncated).toBe(false);
+    });
+
+    it('GET /api/runs/:id/wip/file returns diff for a file in the snapshot', async () => {
+      const { app, run, seedSnapshot } = setupWip();
+      seedSnapshot();
+      const res = await app.inject({ method: 'GET', url: `/api/runs/${run.id}/wip/file?path=a.txt` });
+      expect(res.statusCode).toBe(200);
+      const body = res.json() as { path: string; ref: string; hunks: unknown[] };
+      expect(body.path).toBe('a.txt');
+      expect(body.ref).toBe('wip');
+      expect(body.hunks.length).toBeGreaterThan(0);
+    });
+
+    it('POST /api/runs/:id/wip/discard returns 404 when no repo exists', async () => {
+      const { app, run } = setupWip();
+      const res = await app.inject({ method: 'POST', url: `/api/runs/${run.id}/wip/discard` });
+      expect(res.statusCode).toBe(404);
+    });
+
+    it('POST /api/runs/:id/wip/discard removes the wip ref', async () => {
+      const { app, run, wipRepo, seedSnapshot } = setupWip();
+      seedSnapshot();
+      expect(wipRepo.snapshotSha(run.id)).not.toBeNull();
+      const res = await app.inject({ method: 'POST', url: `/api/runs/${run.id}/wip/discard` });
+      expect(res.statusCode).toBe(200);
+      expect(res.json()).toEqual({ ok: true });
+      expect(wipRepo.snapshotSha(run.id)).toBeNull();
+    });
+
+    it('GET /api/runs/:id/wip/patch returns 404 when no repo exists', async () => {
+      const { app, run } = setupWip();
+      const res = await app.inject({ method: 'GET', url: `/api/runs/${run.id}/wip/patch` });
+      expect(res.statusCode).toBe(404);
+    });
+
+    it('GET /api/runs/:id/wip/patch returns a patch file for a snapshot', async () => {
+      const { app, run, seedSnapshot } = setupWip();
+      seedSnapshot();
+      const res = await app.inject({ method: 'GET', url: `/api/runs/${run.id}/wip/patch` });
+      expect(res.statusCode).toBe(200);
+      expect(res.headers['content-type']).toContain('text/plain');
+      expect(res.headers['content-disposition']).toContain(`run-${run.id}-wip.patch`);
+      expect(res.body).toContain('From ');
+    });
   });
 });

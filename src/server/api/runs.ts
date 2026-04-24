@@ -14,6 +14,7 @@ import type {
   FilesPayload, FilesHeadEntry,
   GithubPayload, HistoryOp, HistoryResult, MergeStrategy,
   ChildRunSummary, SubmoduleBump, SubmoduleDirty,
+  FilesDirtyEntry, FileDiffPayload,
 } from '../../shared/types.js';
 import type { ChangesPayload, ChangeCommit } from '../../shared/types.js';
 import type { ParsedOpResult } from '../orchestrator/historyOp.js';
@@ -37,6 +38,16 @@ interface OrchestratorDep {
   deleteRun(runId: number): void;
 }
 
+interface WipRepoDep {
+  exists(runId: number): boolean;
+  snapshotSha(runId: number): string | null;
+  parentSha(runId: number): string | null;
+  readSnapshotFiles(runId: number): FilesDirtyEntry[];
+  readSnapshotDiff(runId: number, filePath: string): FileDiffPayload;
+  readSnapshotPatch(runId: number): string;
+  deleteWipRef(runId: number): void;
+}
+
 interface Deps {
   runs: RunsRepo;
   projects: ProjectsRepo;
@@ -49,6 +60,7 @@ interface Deps {
   fireResumeNow: (runId: number) => void;
   continueRun: (runId: number) => Promise<void>;
   orchestrator: OrchestratorDep;
+  wipRepo: WipRepoDep;
 }
 
 const GH_STATUS_TTL_MS = 10_000;
@@ -530,6 +542,40 @@ export function registerRunsRoutes(app: FastifyInstance, deps: Deps): void {
     // gh-error: return 200 with the structured message so the client can
     // surface it instead of throwing on HTTP 500.
     return { kind: 'git-error', message: result.message } satisfies HistoryResult;
+  });
+
+  app.get('/api/runs/:id/wip', async (req) => {
+    const id = Number((req.params as { id: string }).id);
+    if (!deps.wipRepo.exists(id)) return { ok: false, reason: 'no-wip' };
+    const snapshotSha = deps.wipRepo.snapshotSha(id);
+    if (!snapshotSha) return { ok: false, reason: 'no-wip' };
+    const files = deps.wipRepo.readSnapshotFiles(id);
+    if (files.length === 0) return { ok: false, reason: 'no-wip' };
+    const parentSha = deps.wipRepo.parentSha(id) ?? '';
+    return { ok: true, snapshot_sha: snapshotSha, parent_sha: parentSha, files };
+  });
+
+  app.get('/api/runs/:id/wip/file', async (req) => {
+    const id = Number((req.params as { id: string }).id);
+    const filePath = (req.query as { path?: string }).path ?? '';
+    if (!filePath) return { hunks: [], truncated: false, path: filePath, ref: 'wip' };
+    return deps.wipRepo.readSnapshotDiff(id, filePath);
+  });
+
+  app.post('/api/runs/:id/wip/discard', async (req, reply) => {
+    const id = Number((req.params as { id: string }).id);
+    if (!deps.wipRepo.exists(id)) return reply.code(404).send({ ok: false });
+    deps.wipRepo.deleteWipRef(id);
+    return { ok: true };
+  });
+
+  app.get('/api/runs/:id/wip/patch', async (req, reply) => {
+    const id = Number((req.params as { id: string }).id);
+    if (!deps.wipRepo.exists(id)) return reply.code(404).send('');
+    const patch = deps.wipRepo.readSnapshotPatch(id);
+    reply.header('content-type', 'text/plain; charset=utf-8');
+    reply.header('content-disposition', `attachment; filename="run-${id}-wip.patch"`);
+    return patch;
   });
 
 }

@@ -117,6 +117,7 @@ async function main() {
       spawnSubRun: (id, kind, argsJson) => orchestrator.spawnSubRun(id, kind, argsJson),
       deleteRun: (id) => orchestrator.deleteRun(id),
     },
+    wipRepo: orchestrator.wipRepo,
   });
   registerSettingsRoutes(app, {
     settings,

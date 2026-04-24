@@ -39,7 +39,7 @@ export class WipRepo {
     try { fs.rmdirSync(parent); } catch { /* non-empty or missing — both fine */ }
   }
 
-  private snapshotSha(runId: number): string | null {
+  snapshotSha(runId: number): string | null {
     if (!this.exists(runId)) return null;
     try {
       return git(this.path(runId), 'rev-parse', '--verify', '-q', 'refs/heads/wip').trim() || null;
@@ -75,6 +75,13 @@ export class WipRepo {
       `${parent}..${snap}`, '--', filePath,
     );
     return parseUnifiedDiff(out, filePath, 'wip');
+  }
+
+  deleteWipRef(runId: number): void {
+    if (!this.exists(runId)) return;
+    try {
+      execFileSync('git', ['-C', this.path(runId), 'update-ref', '-d', 'refs/heads/wip']);
+    } catch { /* idempotent */ }
   }
 
   readSnapshotPatch(runId: number): string {

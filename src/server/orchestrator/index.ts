@@ -73,7 +73,7 @@ export class Orchestrator {
   private gcTimer: NodeJS.Timeout | null = null;
   private gc: ImageGc;
   private scheduler: ResumeScheduler;
-  private readonly wipRepo: WipRepo;
+  readonly wipRepo: WipRepo;
 
   constructor(private deps: OrchestratorDeps) {
     this.wipRepo = new WipRepo(this.deps.config.runsDir);
