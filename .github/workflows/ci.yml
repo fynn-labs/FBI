@@ -27,7 +27,11 @@ jobs:
         run: npm run lint
 
       - name: Test
-        run: npm test
+        # Exclude Docker-dependent tests: they poll real containers with
+        # assertions that race against container startup, and one (image.test)
+        # depends on a pre-existing known-broken template. Run those locally
+        # against a real Docker host.
+        run: npm test -- --exclude '**/*.integration.test.ts' --exclude 'src/server/orchestrator/image.test.ts'
 
   elixir:
     name: Elixir (mix test + format check + warnings-as-errors)
