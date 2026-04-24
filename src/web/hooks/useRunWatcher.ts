@@ -5,6 +5,7 @@ import {
 } from '../lib/notifications.js';
 import { setConnectionState } from '../lib/connectionState.js';
 import type { RunState } from '@shared/types.js';
+import { isTauri, invoke } from '@tauri-apps/api/core';
 
 type Listener = (map: Map<number, number>) => void;
 type RefreshListener = () => void;
@@ -77,6 +78,10 @@ function publishCountsFromMap(runs: Map<number, { state: RunState; project_id: n
   }
   _publishRunning(running);
   _publishWaiting(waiting);
+  if (isTauri()) {
+    const active = [...running.values()].reduce((a, b) => a + b, 0);
+    invoke('update_tray', { active }).catch(() => {});
+  }
 }
 
 export function useRunWatcher(enabled: boolean) {
@@ -123,6 +128,13 @@ export function useRunWatcher(enabled: boolean) {
             state: msg.state as 'succeeded' | 'failed' | 'cancelled',
             project_name: proj?.name,
           });
+          if (isTauri() && enabled) {
+            const icon = msg.state === 'succeeded' ? '✓' : msg.state === 'failed' ? '✗' : '⊘';
+            invoke('notify', {
+              title: `${icon} Run #${msg.run_id} ${msg.state}`,
+              body: proj?.name ? `Project: ${proj.name}` : 'Run finished',
+            }).catch(() => {});
+          }
         }
       };
       ws.onclose = () => {
