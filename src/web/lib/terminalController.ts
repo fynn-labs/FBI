@@ -76,6 +76,7 @@ export class TerminalController {
   private seeded = false;
   private pendingChunk: { abort: AbortController; promise: Promise<void> } | null = null;
   private pendingResumeSnapshot: ((snap: RunWsSnapshotMessage) => void) | null = null;
+  private pendingResumePromise: Promise<void> | null = null;
   private startMarkerWritten = false;
   private pauseListeners = new Set<(paused: boolean) => void>();
   private interactiveProp = false; // track the prop so applyInteractive can recompute
@@ -379,57 +380,74 @@ export class TerminalController {
 
   async resume(): Promise<void> {
     if (this.disposed || !this.paused) return;
+    if (this.pendingResumePromise) return this.pendingResumePromise;
     traceRecord('controller.resume', { runId: this.runId, state: this.latestState });
 
-    // Abort a concurrent chunk load; its rebuild would be wasted work.
-    if (this.pendingChunk) {
-      this.pendingChunk.abort.abort();
-      this.pendingChunk = null;
-    }
-
-    let freshSnap: RunWsSnapshotMessage | null = null;
-    if (isLiveState(this.latestState)) {
-      const p = new Promise<RunWsSnapshotMessage>((resolve) => {
-        this.pendingResumeSnapshot = resolve;
-      });
-      const timeout = new Promise<null>((r) => setTimeout(() => r(null), RESUME_SNAPSHOT_TIMEOUT_MS));
-      this.shell.sendHello(this.term.cols, this.term.rows);
-      const snap = await Promise.race([p, timeout]);
-      this.pendingResumeSnapshot = null;
-      if (snap) freshSnap = snap;
-    }
-
-    let tail: Uint8Array | null = null;
-    if (!freshSnap) {
+    this.pendingResumePromise = (async () => {
       try {
-        const res = await fetch(`/api/runs/${this.runId}/transcript`, {
-          headers: { Range: `bytes=${this.liveOffset}-` },
-        });
-        if (!this.disposed && (res.ok || res.status === 206)) {
-          tail = new Uint8Array(await res.arrayBuffer());
-          if (tail.byteLength > 0) {
-            const mergedLive = concat([this.liveTailBytes, tail]);
-            this.liveTailBytes = mergedLive;
-            this.liveOffset += tail.byteLength;
+        // Abort a concurrent chunk load; its rebuild would be wasted work.
+        if (this.pendingChunk) {
+          this.pendingChunk.abort.abort();
+          this.pendingChunk = null;
+        }
+
+        let freshSnap: RunWsSnapshotMessage | null = null;
+        if (isLiveState(this.latestState)) {
+          const p = new Promise<RunWsSnapshotMessage>((resolve) => {
+            this.pendingResumeSnapshot = resolve;
+          });
+          const timeout = new Promise<null>((r) => setTimeout(() => r(null), RESUME_SNAPSHOT_TIMEOUT_MS));
+          this.shell.sendHello(this.term.cols, this.term.rows);
+          const snap = await Promise.race([p, timeout]);
+          if (snap) {
+            freshSnap = snap;
+            this.pendingResumeSnapshot = null;
+          } else {
+            // Timeout: swap the resolver for a no-op sink. A late snapshot
+            // will be handed to the sink by the interception branch and
+            // discarded — crucially NOT routed through the normal
+            // reset+write path, which would wipe the scrollback we're
+            // about to rebuild via the tail-fetch fallback.
+            this.pendingResumeSnapshot = () => { /* swallow late snapshot */ };
           }
         }
-      } catch (err) {
-        traceRecord('controller.resume.tail.error', { err: String(err) });
+
+        let tail: Uint8Array | null = null;
+        if (!freshSnap) {
+          try {
+            const res = await fetch(`/api/runs/${this.runId}/transcript`, {
+              headers: { Range: `bytes=${this.liveOffset}-` },
+            });
+            if (!this.disposed && (res.ok || res.status === 206)) {
+              tail = new Uint8Array(await res.arrayBuffer());
+              if (tail.byteLength > 0) {
+                const mergedLive = concat([this.liveTailBytes, tail]);
+                this.liveTailBytes = mergedLive;
+                this.liveOffset += tail.byteLength;
+              }
+            }
+          } catch (err) {
+            traceRecord('controller.resume.tail.error', { err: String(err) });
+          }
+        }
+
+        if (this.disposed) return;
+
+        const buffers: Array<Uint8Array | string> = [this.loadedBytes, this.liveTailBytes];
+        if (freshSnap) buffers.push(freshSnap.ansi);
+        await this.rebuildXterm(buffers);
+
+        if (this.disposed) return;
+        this.term.scrollToBottom();
+        this.scheduleCursorRedraw();
+        this.paused = false;
+        this.applyInteractive();
+        this.emitPauseChange();
+      } finally {
+        this.pendingResumePromise = null;
       }
-    }
-
-    if (this.disposed) return;
-
-    const buffers: Array<Uint8Array | string> = [this.loadedBytes, this.liveTailBytes];
-    if (freshSnap) buffers.push(freshSnap.ansi);
-    await this.rebuildXterm(buffers);
-
-    if (this.disposed) return;
-    this.term.scrollToBottom();
-    this.scheduleCursorRedraw();
-    this.paused = false;
-    this.applyInteractive();
-    this.emitPauseChange();
+    })();
+    return this.pendingResumePromise;
   }
 
   private writeAndWait(data: Uint8Array | string): Promise<void> {
@@ -604,6 +622,8 @@ export class TerminalController {
     this.unsubOpen?.(); this.unsubOpen = null;
     this.unsubEvents?.(); this.unsubEvents = null;
     this.pauseListeners.clear();
+    this.pendingResumeSnapshot = null;
+    if (this.pendingChunk) { this.pendingChunk.abort.abort(); this.pendingChunk = null; }
     if (this.historyTerm) { this.historyTerm.dispose(); this.historyTerm = null; }
     releaseShell(this.runId);
   }
