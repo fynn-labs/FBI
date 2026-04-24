@@ -142,7 +142,7 @@ export const api = {
     }),
   continueRun: (
     id: number,
-    modelParams?: {
+    modelParams: {
       model: string | null;
       effort: string | null;
       subagent_model: string | null;
@@ -150,7 +150,7 @@ export const api = {
   ) =>
     request<void>(`/api/runs/${id}/continue`, {
       method: 'POST',
-      body: JSON.stringify(modelParams ?? {}),
+      body: JSON.stringify(modelParams),
     }),
 
   getSettings: () => request<Settings>('/api/settings'),
