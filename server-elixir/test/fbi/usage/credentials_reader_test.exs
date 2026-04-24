@@ -75,23 +75,27 @@ defmodule FBI.Usage.CredentialsReaderTest do
     test "coalesces rapid writes into a single broadcast", %{path: path} do
       Phoenix.PubSub.subscribe(FBI.PubSub, "credentials")
 
-      start_supervised!({CredentialsReader, path: path, debounce_ms: 100, name: nil})
+      # Long debounce gives slower CI runners enough slack to deliver all
+      # inotify events before the window closes, without which the first
+      # few writes can fire a debounce while the later writes arrive late
+      # and fire a second one.
+      start_supervised!({CredentialsReader, path: path, debounce_ms: 500, name: nil})
 
       # Give the inotify watch a moment to arm before writing.
       Process.sleep(200)
 
       payload = Jason.encode!(%{"claudeAiOauth" => %{"accessToken" => "v1"}})
 
-      # Write multiple times in quick succession
+      # All writes land well inside the debounce window.
       for _ <- 1..5 do
         File.write!(path, payload)
-        Process.sleep(10)
+        Process.sleep(5)
       end
 
       assert_receive :credentials_changed, 3_000
 
-      # Confirm we don't get a second one within the debounce window + some buffer
-      refute_receive :credentials_changed, 300
+      # Confirm no second broadcast lands within the full debounce window.
+      refute_receive :credentials_changed, 700
     end
   end
 end
