@@ -72,8 +72,13 @@ export function Terminal({ runId, interactive }: Props) {
 
     const controller = new TerminalController(runId, term, host);
     controllerRef.current = controller;
-    setReady(false);
-    controller.onReady(() => setReady(true));
+    // Sync React state to controller's ready state. Cache-hit mounts are
+    // ready instantly (the controller wrote the cached snapshot in its
+    // constructor); fresh mounts need to wait for the silence+cap timers.
+    setReady(controller.isReady());
+    if (!controller.isReady()) {
+      controller.onReady(() => setReady(true));
+    }
 
     // On tab-return, nudge Claude to repaint. A bare re-hello with the
     // same dims doesn't always trigger a Claude redraw (the server's

@@ -105,7 +105,12 @@ export class TerminalController {
       traceRecord('controller.snapshot.cached', { cols: cached.cols, rows: cached.rows });
       this.term.reset();
       this.term.write(cached.ansi);
-      this.onSnapshotParsed();
+      // Cache-hit fast path: the user already saw this run's screen; the
+      // cached snapshot is a reasonable stand-in while we wait for the
+      // fresh one. Fire ready synchronously so the "Loading terminal…"
+      // overlay never appears on repeat visits.
+      this.snapshotArrived = true;
+      this.ready = true;
     }
 
     this.unsubOpen = this.shell.onOpen(() => {
@@ -153,12 +158,24 @@ export class TerminalController {
   // Called when the first snapshot has been parsed into xterm. Starts the
   // byte-silence watch + hard cap: ready fires after 400 ms of no bytes,
   // or after 2000 ms as a hard cap (so a perpetually-chatty terminal still
-  // reveals itself eventually).
+  // reveals itself eventually). Also schedules a cursor-nudge redraw:
+  // Claude Code sometimes omits its prompt-cursor cell on a SIGWINCH
+  // redraw (depending on which render phase the TUI is in). A deferred
+  // requestRedraw 800ms after the initial snapshot asks Claude to paint
+  // one more full frame, catching the cursor in a later render phase.
   private onSnapshotParsed(): void {
     if (this.snapshotArrived) return;
     this.snapshotArrived = true;
     this.bumpReadySilenceTimer();
     this.readyCapTimer = setTimeout(() => this.fireReady(), 2000);
+    setTimeout(() => {
+      if (!this.disposed) this.requestRedraw();
+    }, 800);
+  }
+
+  /** Whether the first snapshot (cached or fresh) has been applied. */
+  isReady(): boolean {
+    return this.ready;
   }
 
   private bumpReadySilenceTimer(): void {
