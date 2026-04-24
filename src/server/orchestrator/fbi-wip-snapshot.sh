@@ -32,7 +32,7 @@ if [ -z "$parent" ]; then
 fi
 
 # Build the snapshot tree in a temporary index so the real index is untouched.
-GIT_DIR_ABS=$(git rev-parse --git-dir)
+GIT_DIR_ABS=$(git rev-parse --absolute-git-dir)
 tmp_index=$(mktemp)
 # Seed the temp index from the real one if present so write-tree captures both
 # staged and unstaged + untracked in one tree.
@@ -63,6 +63,8 @@ if [ -z "$commit" ]; then
   exit 0
 fi
 
+# Force-push: sole writer under FBI's branch policy. Last writer wins if two
+# snapshot invocations race; acceptable because both represent the same run.
 if ! out=$(git push --force --quiet fbi-wip "$commit:refs/heads/wip" 2>&1); then
   esc=$(printf '%s' "$out" | tr '\n' ' ' | sed 's/\\/\\\\/g; s/"/\\"/g')
   printf '{"ok":false,"reason":"push","message":"%s"}\n' "$esc"
