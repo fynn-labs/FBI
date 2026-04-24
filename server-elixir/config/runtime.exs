@@ -24,6 +24,8 @@ config :fbi, FBIWeb.Endpoint, http: [port: String.to_integer(System.get_env("POR
 
 if config_env() == :prod do
   config :fbi, proxy_target: System.get_env("PROXY_TARGET", "http://127.0.0.1:3001")
+  config :fbi, cli_dist_dir: System.get_env("CLI_DIST_DIR", "dist/cli")
+  config :fbi, fbi_cli_version: System.get_env("FBI_VERSION")
 
   database_path =
     System.get_env("DATABASE_PATH") ||

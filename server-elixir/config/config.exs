@@ -15,6 +15,12 @@ config :fbi,
 
 config :fbi, proxy_target: "http://127.0.0.1:3001"
 
+# CLI-binary serving config (Phase 2).  `cli_dist_dir` defaults to "dist/cli"
+# for local dev; prod reads `CLI_DIST_DIR` in runtime.exs.  `fbi_cli_version`
+# is surfaced via the `X-FBI-CLI-Version` response header when set.
+config :fbi, cli_dist_dir: "dist/cli"
+config :fbi, fbi_cli_version: nil
+
 # Configure the endpoint
 config :fbi, FBIWeb.Endpoint,
   url: [host: "localhost"],
