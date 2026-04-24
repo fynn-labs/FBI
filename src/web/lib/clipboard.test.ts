@@ -1,4 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import { writeToClipboard } from './clipboard.js';
 
 vi.mock('@tauri-apps/plugin-clipboard-manager', () => ({
   writeText: vi.fn().mockResolvedValue(undefined),
@@ -16,7 +17,6 @@ describe('writeToClipboard', () => {
     });
     // @ts-expect-error
     delete window.__TAURI_INTERNALS__;
-    vi.resetModules();
   });
 
   afterEach(() => {
@@ -25,13 +25,11 @@ describe('writeToClipboard', () => {
   });
 
   it('calls navigator.clipboard.writeText in browser context', async () => {
-    const { writeToClipboard } = await import('./clipboard.js');
     await writeToClipboard('hello world');
     expect(mockWriteText).toHaveBeenCalledWith('hello world');
   });
 
   it('calls navigator.clipboard.writeText with empty string', async () => {
-    const { writeToClipboard } = await import('./clipboard.js');
     await writeToClipboard('');
     expect(mockWriteText).toHaveBeenCalledWith('');
   });
@@ -42,7 +40,6 @@ describe('writeToClipboard', () => {
     tauriWriteText.mockResolvedValue(undefined);
     // @ts-expect-error
     window.__TAURI_INTERNALS__ = {};
-    const { writeToClipboard } = await import('./clipboard.js');
     await writeToClipboard('tauri text');
     expect(tauriWriteText).toHaveBeenCalledWith('tauri text');
     expect(mockWriteText).not.toHaveBeenCalled();
