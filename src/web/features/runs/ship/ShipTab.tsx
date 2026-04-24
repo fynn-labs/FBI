@@ -7,7 +7,6 @@ import { LinksSection } from './LinksSection.js';
 import { SubRunsSection } from './SubRunsSection.js';
 import { MirrorStatusBanner } from './MirrorStatusBanner.js';
 import { useHistoryOp } from '../useHistoryOp.js';
-import { api } from '../../../lib/api.js';
 import type { ChangesPayload, MergeStrategy, Project, Run } from '@shared/types.js';
 
 export interface ShipTabProps {
@@ -31,13 +30,10 @@ export function ShipTab({ run, project, changes, onCreatePr, creatingPr, onReloa
     <div>
       <MirrorStatusBanner
         status={run.mirror_status}
-        baseBranch={run.branch_name}
+        branch={run.branch_name}
         runId={run.id}
+        headSha={run.head_commit}
         onRebase={() => void runOp({ op: 'sync' })}
-        onStop={async () => {
-          await api.clearRunBaseBranch(run.id);
-          onReload();
-        }}
       />
       <ShipHeader changes={changes} runState={run.state} />
       {msg && <p className="px-4 py-1 text-[12px] text-text-dim bg-surface-raised border-y border-border">{msg}</p>}

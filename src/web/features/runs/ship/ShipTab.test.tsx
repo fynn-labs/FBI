@@ -4,7 +4,7 @@ import { describe, it, expect, vi } from 'vitest';
 import { ShipTab } from './ShipTab.js';
 import type { ChangesPayload, Run, Project } from '@shared/types.js';
 
-const run = { id: 1, state: 'running', branch_name: 'feat/x', project_id: 1, prompt: '', title: null } as unknown as Run;
+const run = { id: 1, state: 'running', branch_name: 'feat/x', project_id: 1, prompt: '', title: null, head_commit: null, mirror_status: 'ok' } as unknown as Run;
 const project = { id: 1, repo_url: 'git@github.com:me/foo.git', default_merge_strategy: 'squash' } as unknown as Project;
 const base: ChangesPayload = {
   branch_name: 'feat/x',
