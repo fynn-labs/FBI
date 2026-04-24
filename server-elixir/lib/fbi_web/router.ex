@@ -17,6 +17,7 @@ defmodule FBIWeb.Router do
     # to TS via the catch-all because it depends on the orchestrator (Phase 7).
     get "/settings", SettingsController, :show
     patch "/settings", SettingsController, :update
+    get "/config/defaults", ConfigController, :defaults
   end
 
   # WebSocket upgrade routes must not go through the :api pipeline — the
