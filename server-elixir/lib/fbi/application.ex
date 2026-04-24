@@ -10,8 +10,7 @@ defmodule FBI.Application do
     children = [
       FBIWeb.Telemetry,
       FBI.Repo,
-      {Ecto.Migrator,
-       repos: Application.fetch_env!(:fbi, :ecto_repos), skip: skip_migrations?()},
+      {Ecto.Migrator, repos: Application.fetch_env!(:fbi, :ecto_repos), skip: skip_migrations?()},
       {DNSCluster, query: Application.get_env(:fbi, :dns_cluster_query) || :ignore},
       {Phoenix.PubSub, name: FBI.PubSub},
       # Start a worker by calling: FBI.Worker.start_link(arg)

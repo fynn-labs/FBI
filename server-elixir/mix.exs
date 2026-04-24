@@ -52,7 +52,7 @@ defmodule FBI.MixProject do
       {:bandit, "~> 1.5"},
       {:req, "~> 0.5"},
       {:mint_web_socket, "~> 1.0"},
-      {:file_system, "~> 1.0"},
+      {:file_system, "~> 1.0"}
     ]
   end
 
