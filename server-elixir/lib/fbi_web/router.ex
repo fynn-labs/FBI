@@ -50,6 +50,8 @@ defmodule FBIWeb.Router do
     delete "/runs/:id", RunsController, :delete
     get "/runs/:id/siblings", RunsController, :siblings
     get "/projects/:id/runs", RunsController, :index_for_project
+
+    get "/runs/:id/transcript", TranscriptController, :show
   end
 
   # WebSocket upgrade routes must not go through the :api pipeline — the
