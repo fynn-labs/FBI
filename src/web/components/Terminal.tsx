@@ -160,7 +160,7 @@ export function Terminal({ runId, interactive }: Props) {
       {paused && (
         <div className="absolute top-0 left-0 right-0 z-10 flex flex-col">
           <div className="flex items-center gap-2 px-3 py-1 bg-surface border-b border-border text-[12px] text-text-dim">
-            <span>⏸ Stream paused — you're viewing history.</span>
+            <span>⏸ Stream paused — you&apos;re viewing history.</span>
             <button
               type="button"
               onClick={onResumeClick}
