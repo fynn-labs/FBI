@@ -1,7 +1,10 @@
+import { useNavigate } from 'react-router-dom';
 import { CommitRow } from './CommitRow.js';
+import { ResumeFailedBanner } from './ResumeFailedBanner.js';
 import { SubmoduleDirtyRow } from './SubmoduleDirtyRow.js';
 import { WipSection, type WipResponse } from './WipSection.js';
 import type { ChangesPayload, Project, Run } from '@shared/types.js';
+import { api } from '../../lib/api.js';
 
 export type { WipResponse };
 
@@ -13,6 +16,7 @@ export interface ChangesTabProps {
 }
 
 export function ChangesTab({ run, changes, wip }: ChangesTabProps) {
+  const nav = useNavigate();
   if (!changes) return <p className="p-3 text-[13px] text-text-faint">Loading changes…</p>;
   if (!changes.branch_name) return <p className="p-3 text-[13px] text-text-faint">This run didn't produce a branch.</p>;
 
@@ -23,6 +27,13 @@ export function ChangesTab({ run, changes, wip }: ChangesTabProps) {
 
   return (
     <div>
+      {run.state === 'resume_failed' && (
+        <ResumeFailedBanner
+          patchHref={api.downloadRunWipPatch(run.id)}
+          onDiscard={async () => { await api.discardRunWip(run.id); await api.continueRun(run.id); }}
+          onCancel={() => nav(-1)}
+        />
+      )}
       <div className="flex items-center gap-3 px-3 py-2 border-b border-border bg-surface-raised text-[12px]">
         <span className="font-mono text-text">{changes.branch_name}</span>
         <span className="text-text-faint">·</span>
