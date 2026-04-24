@@ -22,6 +22,7 @@ function mkRun(id: number, state: RunState, createdAt: number, title = `run-${id
     tokens_input: 0, tokens_output: 0, tokens_cache_read: 0, tokens_cache_create: 0,
     tokens_total: 0, usage_parse_errors: 0,
     title, title_locked: 0, parent_run_id: null,
+    model: null, effort: null, subagent_model: null,
   };
 }
 

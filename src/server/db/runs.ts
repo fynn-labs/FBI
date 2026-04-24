@@ -6,6 +6,9 @@ export interface CreateRunInput {
   prompt: string;
   branch_hint?: string;
   log_path_tmpl: (id: number) => string;
+  model?: string | null;
+  effort?: string | null;
+  subagent_model?: string | null;
 }
 
 export interface ListFilteredInput {
@@ -33,10 +36,22 @@ export class RunsRepo {
       const branchHint = input.branch_hint ?? '';
       const stub = this.db
         .prepare(
-          `INSERT INTO runs (project_id, prompt, branch_name, state, log_path, created_at, state_entered_at)
-           VALUES (?, ?, ?, 'queued', '', ?, ?)`
+          `INSERT INTO runs
+             (project_id, prompt, branch_name, state, log_path,
+              created_at, state_entered_at,
+              model, effort, subagent_model)
+           VALUES (?, ?, ?, 'queued', '', ?, ?, ?, ?, ?)`
         )
-        .run(input.project_id, input.prompt, branchHint, now, now);
+        .run(
+          input.project_id,
+          input.prompt,
+          branchHint,
+          now,
+          now,
+          input.model ?? null,
+          input.effort ?? null,
+          input.subagent_model ?? null,
+        );
       const id = Number(stub.lastInsertRowid);
       const logPath = input.log_path_tmpl(id);
       this.db
@@ -44,6 +59,15 @@ export class RunsRepo {
         .run(logPath, id);
       return this.get(id)!;
     })();
+  }
+
+  updateModelParams(
+    id: number,
+    p: { model: string | null; effort: string | null; subagent_model: string | null },
+  ): void {
+    this.db
+      .prepare('UPDATE runs SET model = ?, effort = ?, subagent_model = ? WHERE id = ?')
+      .run(p.model, p.effort, p.subagent_model, id);
   }
 
   get(id: number): Run | undefined {

@@ -171,6 +171,53 @@ describe('RunsRepo', () => {
     const siblings = runs.listSiblings(a.id, 10);
     expect(siblings.map((r) => r.id)).toEqual([b.id]);
   });
+
+  it('round-trips model, effort, subagent_model on create', () => {
+    const run = runs.create({
+      project_id: projectId,
+      prompt: 'x',
+      log_path_tmpl: (id) => `/tmp/${id}.log`,
+      model: 'opus',
+      effort: 'xhigh',
+      subagent_model: 'haiku',
+    });
+    const got = runs.get(run.id)!;
+    expect(got.model).toBe('opus');
+    expect(got.effort).toBe('xhigh');
+    expect(got.subagent_model).toBe('haiku');
+  });
+
+  it('stores nulls when model params are omitted', () => {
+    const run = runs.create({
+      project_id: projectId,
+      prompt: 'x',
+      log_path_tmpl: (id) => `/tmp/${id}.log`,
+    });
+    const got = runs.get(run.id)!;
+    expect(got.model).toBeNull();
+    expect(got.effort).toBeNull();
+    expect(got.subagent_model).toBeNull();
+  });
+
+  it('updateModelParams overwrites the three columns', () => {
+    const run = runs.create({
+      project_id: projectId,
+      prompt: 'x',
+      log_path_tmpl: (id) => `/tmp/${id}.log`,
+      model: 'sonnet',
+      effort: 'high',
+      subagent_model: null,
+    });
+    runs.updateModelParams(run.id, {
+      model: 'opus',
+      effort: 'max',
+      subagent_model: 'sonnet',
+    });
+    const got = runs.get(run.id)!;
+    expect(got.model).toBe('opus');
+    expect(got.effort).toBe('max');
+    expect(got.subagent_model).toBe('sonnet');
+  });
 });
 
 describe('RunsRepo auto-resume', () => {
