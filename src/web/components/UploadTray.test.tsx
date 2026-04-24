@@ -15,7 +15,6 @@ describe('UploadTray', () => {
       <UploadTray
         upload={upload}
         onUploaded={onUploaded}
-        attached={[]}
         maxFileBytes={100 * 1024 * 1024}
         maxTotalBytes={1024 * 1024 * 1024}
         totalBytes={0}
@@ -33,7 +32,6 @@ describe('UploadTray', () => {
       <UploadTray
         upload={upload}
         onUploaded={() => {}}
-        attached={[]}
         maxFileBytes={10}
         maxTotalBytes={100}
         totalBytes={0}
@@ -51,7 +49,6 @@ describe('UploadTray', () => {
       <UploadTray
         upload={upload}
         onUploaded={() => {}}
-        attached={[]}
         maxFileBytes={1_000_000}
         maxTotalBytes={100}
         totalBytes={95}
@@ -67,26 +64,12 @@ describe('UploadTray', () => {
     render(
       <UploadTray
         upload={vi.fn()} onUploaded={() => {}}
-        attached={[]} maxFileBytes={1e9} maxTotalBytes={1e10} totalBytes={0}
+        maxFileBytes={1e9} maxTotalBytes={1e10} totalBytes={0}
         disabled disabledReason="nope"
       />,
     );
     const input = screen.getByTestId('upload-input') as HTMLInputElement;
     expect(input.disabled).toBe(true);
-  });
-
-  it('renders chips for attached files with a remove button when `onRemove` is provided', () => {
-    const onRemove = vi.fn();
-    render(
-      <UploadTray
-        upload={vi.fn()} onUploaded={() => {}}
-        onRemove={onRemove}
-        attached={[{ filename: 'foo.csv', size: 123 }]}
-        maxFileBytes={1e9} maxTotalBytes={1e10} totalBytes={123}
-      />,
-    );
-    fireEvent.click(screen.getByRole('button', { name: /remove foo.csv/i }));
-    expect(onRemove).toHaveBeenCalledWith('foo.csv');
   });
 
   it('uploads a file dropped on the drop zone element', async () => {
@@ -101,7 +84,6 @@ describe('UploadTray', () => {
             dropZoneRef={ref}
             upload={upload}
             onUploaded={onUploaded}
-            attached={[]}
             maxFileBytes={1e9}
             maxTotalBytes={1e10}
             totalBytes={0}
@@ -136,7 +118,6 @@ describe('UploadTray', () => {
             dropZoneRef={ref}
             upload={upload}
             onUploaded={() => {}}
-            attached={[]}
             maxFileBytes={1e9}
             maxTotalBytes={1e10}
             totalBytes={0}
