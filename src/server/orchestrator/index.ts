@@ -231,6 +231,7 @@ export class Orchestrator {
         `FBI_MARKETPLACES=${marketplaces.join('\n')}`,
         `FBI_PLUGINS=${plugins.join('\n')}`,
         'IS_SANDBOX=1',
+        ...(run.base_branch ? [`FBI_BASE_BRANCH=${run.base_branch}`] : []),
         ...(opts.resumeSessionId ? [`FBI_RESUME_SESSION_ID=${opts.resumeSessionId}`] : []),
         ...(opts.branchName ? [`FBI_CHECKOUT_BRANCH=${opts.branchName}`] : []),
         ...Object.entries(auth.env()).map(([k, v]) => `${k}=${v}`),

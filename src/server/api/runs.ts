@@ -185,6 +185,11 @@ export function registerRunsRoutes(app: FastifyInstance, deps: Deps): void {
         return reply.code(422).send({ error: 'promotion_failed' });
       }
     }
+    if (hint !== '') {
+      deps.runs.setBaseBranch(run.id, hint);
+      // Reflect into the returned run object for anyone reading the handler output.
+      run.base_branch = hint;
+    }
     void deps.launch(run.id).catch((err) => app.log.error({ err }, 'launch failed'));
     reply.code(201);
     return run;

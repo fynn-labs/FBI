@@ -93,13 +93,35 @@ trap 'kill "$FBI_SNAPSHOT_PID" 2>/dev/null || :' EXIT
 git config user.name  "$GIT_AUTHOR_NAME"
 git config user.email "$GIT_AUTHOR_EMAIL"
 
+# Ensure env vars that the post-commit hook needs are exported so the hook
+# subshell (a new process spawned by git) inherits them.
+export RUN_ID
+export DEFAULT_BRANCH
+export FBI_BASE_BRANCH="${FBI_BASE_BRANCH:-}"
+
 # Silent post-commit push hook: so the GitHub tab's commits/PR/CI views and
 # the Merge-to-main button have up-to-date remote state mid-run. Runs in the
 # background so a slow or offline push never blocks the commit itself.
 mkdir -p .git/hooks
 cat > .git/hooks/post-commit <<'HOOK'
 #!/bin/sh
-( git push --recurse-submodules=on-demand -u origin HEAD > /tmp/last-push.log 2>&1 || true ) &
+# Primary push: agent-owned branch (sole writer — always fast-forward).
+( git push --recurse-submodules=on-demand origin HEAD > /tmp/last-push.log 2>&1 || true ) &
+
+# Mirror push: to the user's feature branch, best-effort.
+if [ -n "${FBI_BASE_BRANCH:-}" ] \
+   && [ "$FBI_BASE_BRANCH" != "$DEFAULT_BRANCH" ] \
+   && [ "$FBI_BASE_BRANCH" != "claude/run-${RUN_ID}" ]; then
+  (
+    if git push --recurse-submodules=on-demand origin "HEAD:refs/heads/$FBI_BASE_BRANCH" > /tmp/last-mirror.log 2>&1; then
+      mkdir -p /fbi-state
+      echo ok > /fbi-state/mirror-status
+    else
+      mkdir -p /fbi-state
+      echo diverged > /fbi-state/mirror-status
+    fi
+  ) &
+fi
 HOOK
 chmod +x .git/hooks/post-commit
 
