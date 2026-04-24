@@ -561,6 +561,20 @@ export class Orchestrator {
     if (!run) throw new Error(`run ${runId} not found`);
     if (run.state !== 'awaiting_resume') return;
 
+    // Migrate legacy runs (branch_name is not claude/run-N) to agent-owned branch policy.
+    if (run.branch_name && !run.branch_name.startsWith('claude/run-')) {
+      const oldBranch = run.branch_name;
+      const newBranch = `claude/run-${runId}`;
+      this.deps.runs.setBaseBranch(runId, oldBranch);
+      this.deps.runs.setBranchName(runId, newBranch);
+      run.branch_name = newBranch;
+      const migStore = new LogStore(run.log_path);
+      migStore.append(Buffer.from(
+        `\n[fbi] migrating run to agent-owned branch ${newBranch}; original branch "${oldBranch}" kept as mirror target\n`,
+      ));
+      migStore.close();
+    }
+
     // Reuse the existing log store and broadcaster.
     const store = new LogStore(run.log_path);
     const broadcaster = this.deps.streams.getOrCreate(runId);

@@ -438,6 +438,17 @@ describe('base_branch and mirror_status', () => {
     projectId = r.projectId;
   });
 
+  it('setBranchName updates branch_name', () => {
+    const r = runs.create({
+      project_id: projectId,
+      prompt: 'x',
+      branch_hint: 'feat/x',
+      log_path_tmpl: (id) => `/tmp/${id}.log`,
+    });
+    runs.setBranchName(r.id, 'claude/run-99');
+    expect(runs.get(r.id)!.branch_name).toBe('claude/run-99');
+  });
+
   it('persists base_branch and mirror_status', () => {
     const r = runs.create({
       project_id: projectId,

@@ -302,6 +302,10 @@ export class RunsRepo {
       .run(baseBranch, id);
   }
 
+  setBranchName(id: number, name: string): void {
+    this.db.prepare('UPDATE runs SET branch_name = ? WHERE id = ?').run(name, id);
+  }
+
   setMirrorStatus(id: number, status: MirrorStatus): void {
     this.db.prepare('UPDATE runs SET mirror_status = ? WHERE id = ?')
       .run(status, id);
