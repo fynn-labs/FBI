@@ -28,6 +28,7 @@ function lookupHostDockerGid(): number | null {
 
 export interface Config {
   port: number;
+  host: string;
   dbPath: string;
   runsDir: string;
   // Bind-mount source prefix used when passing runsDir-derived paths to the
@@ -66,6 +67,7 @@ function parseList(v: string | undefined): string[] {
 export function loadConfig(): Config {
   return {
     port: Number(process.env.PORT ?? 3000),
+    host: process.env.HOST ?? '0.0.0.0',
     dbPath: process.env.DB_PATH ?? '/var/lib/agent-manager/db.sqlite',
     runsDir: process.env.RUNS_DIR ?? '/var/lib/agent-manager/runs',
     hostRunsDir: process.env.FBI_HOST_RUNS_DIR,

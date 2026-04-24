@@ -57,6 +57,10 @@ export class OAuthUsagePoller {
 
   start(): void {
     if (this.timer) return;
+    if (process.env.FBI_OAUTH_POLLER_DISABLED === '1') {
+      console.log('OAuthUsagePoller: disabled via FBI_OAUTH_POLLER_DISABLED');
+      return;
+    }
     const tick = async () => {
       await this.pollOnce();
       if (this.timer) this.timer = setTimeout(tick, this.intervalMs);
