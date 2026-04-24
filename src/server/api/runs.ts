@@ -74,7 +74,7 @@ function setChangesCached(runId: number, value: ChangesPayload): void {
 }
 function invalidateChanges(runId: number): void { changesCache.delete(runId); }
 
-function parseUnifiedDiff(raw: string, path: string, ref: string): FileDiffPayload {
+export function parseUnifiedDiff(raw: string, path: string, ref: string): FileDiffPayload {
   const MAX = 256 * 1024;
   const truncated = raw.length > MAX;
   const body = truncated ? raw.slice(0, MAX) : raw;
