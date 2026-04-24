@@ -142,7 +142,7 @@ async function main() {
     draftUploadsDir: config.draftUploadsDir,
   });
 
-  const stopDraftUploadsGc = startDraftUploadsGc({
+  void startDraftUploadsGc({
     runsDir: config.runsDir,
     draftDir: config.draftUploadsDir,
   });
@@ -170,7 +170,7 @@ async function main() {
   await orchestrator.recover();
   await orchestrator.rehydrateSchedules();
   await orchestrator.startGcScheduler();
-  await app.listen({ port: config.port, host: '0.0.0.0' });
+  await app.listen({ port: config.port, host: config.host });
   poller.start();
 }
 

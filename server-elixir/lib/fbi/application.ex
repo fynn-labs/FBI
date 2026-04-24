@@ -7,21 +7,33 @@ defmodule FBI.Application do
 
   @impl true
   def start(_type, _args) do
-    children = [
-      FBIWeb.Telemetry,
-      FBI.Repo,
-      {Ecto.Migrator,
-       repos: Application.fetch_env!(:fbi, :ecto_repos), skip: skip_migrations?()},
-      {DNSCluster, query: Application.get_env(:fbi, :dns_cluster_query) || :ignore},
-      {Phoenix.PubSub, name: FBI.PubSub},
-      # Start a worker by calling: FBI.Worker.start_link(arg)
-      # {FBI.Worker, arg},
-      # Start to serve requests, typically the last entry
-      FBIWeb.Endpoint
-    ]
+    credentials_path = Application.get_env(:fbi, :credentials_path)
 
-    # See https://hexdocs.pm/elixir/Supervisor.html
-    # for other strategies and supported options
+    usage_children =
+      if credentials_path do
+        [
+          {FBI.Usage.CredentialsReader, path: credentials_path},
+          {FBI.Usage.Poller,
+           token_fn: fn -> FBI.Usage.CredentialsReader.read(credentials_path) end}
+        ]
+      else
+        []
+      end
+
+    children =
+      [
+        FBIWeb.Telemetry,
+        FBI.Repo,
+        {Ecto.Migrator,
+         repos: Application.fetch_env!(:fbi, :ecto_repos), skip: skip_migrations?()},
+        {DNSCluster, query: Application.get_env(:fbi, :dns_cluster_query) || :ignore},
+        {Phoenix.PubSub, name: FBI.PubSub}
+      ] ++
+        usage_children ++
+        [
+          FBIWeb.Endpoint
+        ]
+
     opts = [strategy: :one_for_one, name: FBI.Supervisor]
     Supervisor.start_link(children, opts)
   end

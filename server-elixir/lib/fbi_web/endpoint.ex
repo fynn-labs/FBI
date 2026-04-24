@@ -44,7 +44,11 @@ defmodule FBIWeb.Endpoint do
   plug Plug.Parsers,
     parsers: [:urlencoded, :multipart, :json],
     pass: ["*/*"],
-    json_decoder: Phoenix.json_library()
+    json_decoder: Phoenix.json_library(),
+    # Cache the raw body on conn.assigns so the proxy plug can forward the
+    # original bytes upstream. Without this the parser consumes the body and
+    # the proxy read_body returns empty.
+    body_reader: {FBIWeb.RawBodyReader, :read_body, []}
 
   plug Plug.MethodOverride
   plug Plug.Head

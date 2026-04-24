@@ -1,0 +1,77 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  ts:
+    name: TypeScript (vitest + tsc + eslint)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Typecheck
+        run: npm run typecheck
+
+      - name: Lint
+        run: npm run lint
+
+      - name: Test
+        # Exclude Docker-dependent tests: they poll real containers with
+        # assertions that race against container startup, and one (image.test)
+        # depends on a pre-existing known-broken template. Run those locally
+        # against a real Docker host.
+        run: npm test -- --exclude '**/*.integration.test.ts' --exclude 'src/server/orchestrator/image.test.ts'
+
+  elixir:
+    name: Elixir (mix test + format check + warnings-as-errors)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: server-elixir
+    env:
+      MIX_ENV: test
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install inotify-tools
+        # FileSystem (used by CredentialsReader) needs inotify on Linux.
+        run: sudo apt-get update && sudo apt-get install -y inotify-tools
+
+      - name: Install Erlang/OTP + Elixir
+        uses: erlef/setup-beam@v1
+        with:
+          otp-version: '27.2'
+          elixir-version: '1.18.1-otp-27'
+
+      - name: Cache mix deps + build
+        uses: actions/cache@v4
+        with:
+          path: |
+            server-elixir/deps
+            server-elixir/_build
+          key: mix-${{ runner.os }}-otp27.2-elixir1.18.1-${{ hashFiles('server-elixir/mix.lock') }}
+          restore-keys: |
+            mix-${{ runner.os }}-otp27.2-elixir1.18.1-
+
+      - name: Fetch deps
+        run: mix deps.get
+
+      - name: Compile (warnings-as-errors)
+        run: mix compile --warnings-as-errors
+
+      - name: Format check
+        run: mix format --check-formatted
+
+      - name: Test
+        run: mix test

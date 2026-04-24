@@ -23,6 +23,8 @@ end
 config :fbi, FBIWeb.Endpoint, http: [port: String.to_integer(System.get_env("PORT", "4000"))]
 
 if config_env() == :prod do
+  config :fbi, proxy_target: System.get_env("PROXY_TARGET", "http://127.0.0.1:3001")
+
   database_path =
     System.get_env("DATABASE_PATH") ||
       raise """
@@ -32,7 +34,10 @@ if config_env() == :prod do
 
   config :fbi, FBI.Repo,
     database: database_path,
-    pool_size: String.to_integer(System.get_env("POOL_SIZE") || "5")
+    pool_size: String.to_integer(System.get_env("POOL_SIZE") || "5"),
+    # The production DB is shared between this server and the agent runtime,
+    # so concurrent writes happen. Retry briefly instead of erroring.
+    busy_timeout: 5_000
 
   # The secret key base is used to sign/encrypt cookies and other secrets.
   # A default value is used in config/dev.exs and config/test.exs but you

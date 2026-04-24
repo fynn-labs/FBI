@@ -67,7 +67,7 @@ describe('WS shell', () => {
   });
 
   it('forwards bytes published to a terminal runs broadcaster (continue-after-terminal)', async () => {
-    const { app, port, runId } = await setup();
+    const { app } = await setup();
 
     // Grab the server's stream registry via a second app.close()-aware path:
     // The test's `setup` keeps its registry internal. We rebuild setup-equivalent
@@ -193,7 +193,7 @@ describe('WS global state channel', () => {
   it('forwards global state frames on /api/ws/states', async () => {
     const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'fbi-gs-'));
     const db = openDb(path.join(dir, 'db.sqlite'));
-    const projects = new ProjectsRepo(db);
+    new ProjectsRepo(db);
     const runs = new RunsRepo(db);
     const streams = new RunStreamRegistry();
     const app = Fastify();

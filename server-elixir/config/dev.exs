@@ -5,7 +5,10 @@ config :fbi, FBI.Repo,
   database: Path.expand("../fbi_dev.db", __DIR__),
   pool_size: 5,
   stacktrace: true,
-  show_sensitive_data_on_connection_error: true
+  show_sensitive_data_on_connection_error: true,
+  # Retry instead of erroring on contention; the production DB is shared
+  # between this server and the agent runtime, so concurrent writes happen.
+  busy_timeout: 5_000
 
 # For development, we disable any cache and enable
 # debugging and code reloading.

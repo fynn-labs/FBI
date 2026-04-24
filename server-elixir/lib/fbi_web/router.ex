@@ -7,6 +7,17 @@ defmodule FBIWeb.Router do
 
   scope "/api", FBIWeb do
     pipe_through :api
+
+    get "/usage", UsageController, :show
+    get "/usage/daily", UsageController, :daily
+    get "/usage/runs/:id", UsageController, :run_breakdown
+  end
+
+  # WebSocket upgrade routes must not go through the :api pipeline — the
+  # `accepts ["json"]` plug rejects connections that don't carry a JSON
+  # Content-Type header, which a WS upgrade request never does.
+  scope "/api", FBIWeb do
+    get "/ws/usage", UsageSocketController, :upgrade
   end
 
   # Enable LiveDashboard in development
@@ -24,4 +35,8 @@ defmodule FBIWeb.Router do
       live_dashboard "/dashboard", metrics: FBIWeb.Telemetry
     end
   end
+
+  # Catch-all: forward every unmatched request to the upstream server.
+  # This must remain last so native routes above take precedence.
+  match :*, "/*path", FBIWeb.ProxyRouter, :dispatch
 end
