@@ -38,6 +38,7 @@ import type { HistoryOp } from '../../shared/types.js';
 import { nudgeClaudeToExit } from './nudgeClaude.js';
 import { checkContinueEligibility } from './continueEligibility.js';
 import type { FilesPayload } from '../../shared/types.js';
+import { WipRepo } from './wipRepo.js';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const SUPERVISOR = path.join(HERE, 'supervisor.sh');
@@ -72,8 +73,12 @@ export class Orchestrator {
   private gcTimer: NodeJS.Timeout | null = null;
   private gc: ImageGc;
   private scheduler: ResumeScheduler;
+  private readonly wipRepo: WipRepo;
 
   constructor(private deps: OrchestratorDeps) {
+    this.wipRepo = new WipRepo(this.deps.config.runsDir);
+    // WipRepo.path(runId) produces `<runsDir>/<id>/wip.git` — same convention
+    // as the existing per-run directories.
     this.imageBuilder = new ImageBuilder(deps.docker);
     this.gc = new ImageGc(this.deps.docker, () => ({ always: ALWAYS, postbuild: POSTBUILD }));
     this.scheduler = new ResumeScheduler({
@@ -244,6 +249,9 @@ export class Orchestrator {
           `${path.join(scriptsDir, 'supervisor.sh')}:/usr/local/bin/supervisor.sh:ro`,
           `${path.join(scriptsDir, 'finalizeBranch.sh')}:/usr/local/bin/fbi-finalize-branch.sh:ro`,
           `${path.join(scriptsDir, 'fbi-history-op.sh')}:/usr/local/bin/fbi-history-op.sh:ro`,
+          `${path.join(scriptsDir, 'fbi-wip-snapshot.sh')}:/usr/local/bin/fbi-wip-snapshot.sh:ro`,
+          `${path.join(scriptsDir, 'fbi-resume-restore.sh')}:/usr/local/bin/fbi-resume-restore.sh:ro`,
+          `${this.wipRepo.path(runId)}:/fbi-wip.git:rw`,
           `${mountDir}:/home/agent/.claude/projects/`,
           `${this.ensureStateDir(runId)}:/fbi-state/`,
           `${this.ensureUploadsDir(runId)}:/fbi/uploads:ro`,
@@ -265,6 +273,7 @@ export class Orchestrator {
     if (run.state !== 'queued') throw new Error(`run ${runId} not queued`);
     const project = this.deps.projects.get(run.project_id);
     if (!project) throw new Error(`project ${run.project_id} missing`);
+    this.wipRepo.init(runId);
 
     const store = new LogStore(run.log_path);
     const broadcaster = this.deps.streams.getOrCreate(runId);
@@ -854,6 +863,19 @@ export class Orchestrator {
 
   fireResumeNow(runId: number): void {
     this.scheduler.fireNow(runId);
+  }
+
+  /**
+   * Delete a non-running run: remove the DB row, its log file, and the wip
+   * repo. Safe to call only on terminal-state runs (cancelled/failed/
+   * succeeded); callers must cancel first if the run is active.
+   */
+  deleteRun(runId: number): void {
+    const run = this.deps.runs.get(runId);
+    if (!run) return;
+    this.deps.runs.delete(runId);
+    try { fs.unlinkSync(run.log_path); } catch { /* noop */ }
+    this.wipRepo.remove(runId);
   }
 
   async rehydrateSchedules(): Promise<void> {

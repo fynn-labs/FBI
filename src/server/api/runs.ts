@@ -34,6 +34,7 @@ interface OrchestratorDep {
   execInContainer(runId: number, cmd: string[], opts?: { timeoutMs?: number }): Promise<{ stdout: string; stderr: string; exitCode: number }>;
   execHistoryOp(runId: number, op: HistoryOp): Promise<ParsedOpResult>;
   spawnSubRun(parentRunId: number, kind: 'merge-conflict' | 'polish', argsJson: string): Promise<number>;
+  deleteRun(runId: number): void;
 }
 
 interface Deps {
@@ -193,8 +194,7 @@ export function registerRunsRoutes(app: FastifyInstance, deps: Deps): void {
     if (run.state === 'running' || run.state === 'awaiting_resume') {
       await deps.cancel(run.id);
     } else {
-      deps.runs.delete(run.id);
-      try { fs.unlinkSync(run.log_path); } catch { /* noop */ }
+      deps.orchestrator.deleteRun(run.id);
     }
     return reply.code(204).send();
   });

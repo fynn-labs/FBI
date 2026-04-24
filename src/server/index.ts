@@ -115,6 +115,7 @@ async function main() {
       execInContainer: (id, cmd, opts) => orchestrator.execInContainer(id, cmd, opts),
       execHistoryOp: (id, op) => orchestrator.execHistoryOp(id, op),
       spawnSubRun: (id, kind, argsJson) => orchestrator.spawnSubRun(id, kind, argsJson),
+      deleteRun: (id) => orchestrator.deleteRun(id),
     },
   });
   registerSettingsRoutes(app, {

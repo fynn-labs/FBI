@@ -29,6 +29,7 @@ const stubOrchestrator = {
   },
   execHistoryOp: async () => ({ kind: 'complete' as const, sha: 'deadbeef' }),
   spawnSubRun: async () => 0,
+  deleteRun: (_runId: number) => { /* noop */ },
 };
 
 function setup() {
