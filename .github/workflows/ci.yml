@@ -44,6 +44,10 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - name: Install inotify-tools
+        # FileSystem (used by CredentialsReader) needs inotify on Linux.
+        run: sudo apt-get update && sudo apt-get install -y inotify-tools
+
       - name: Install Erlang/OTP + Elixir
         uses: erlef/setup-beam@v1
         with:
