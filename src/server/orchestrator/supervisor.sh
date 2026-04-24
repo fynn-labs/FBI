@@ -74,6 +74,22 @@ fi
 git remote add fbi-wip /fbi-wip.git 2>/dev/null \
   || git remote set-url fbi-wip /fbi-wip.git \
   || { echo "[fbi] fatal: could not register fbi-wip remote"; exit 14; }
+
+# Snapshot daemon. Captures working-tree state every 30s and pushes to
+# fbi-wip/wip. Non-fatal on failure. Killed by the trap below at exit.
+(
+  while true; do
+    sleep 30
+    out=$(/usr/local/bin/fbi-wip-snapshot.sh 2>&1)
+    printf '%s\n' "$out" > /tmp/last-snapshot.log
+    # Mirror to /fbi-state so GitStateWatcher-equivalent server code can read it.
+    mkdir -p /fbi-state
+    printf '%s\n' "$out" > /fbi-state/snapshot-status 2>/dev/null || :
+  done
+) </dev/null >/dev/null 2>&1 &
+FBI_SNAPSHOT_PID=$!
+trap 'kill "$FBI_SNAPSHOT_PID" 2>/dev/null || :' EXIT
+
 git config user.name  "$GIT_AUTHOR_NAME"
 git config user.email "$GIT_AUTHOR_EMAIL"
 
