@@ -377,4 +377,15 @@ export class RunsRepo {
     this.db.prepare('UPDATE runs SET mirror_status = ? WHERE id = ?')
       .run(status, id);
   }
+
+  listActiveByBranch(projectId: number, branchName: string): Run[] {
+    return this.db
+      .prepare(
+        `SELECT * FROM runs
+          WHERE project_id = ? AND branch_name = ?
+            AND state NOT IN ('succeeded','failed','cancelled','resume_failed')
+          ORDER BY id DESC`
+      )
+      .all(projectId, branchName) as Run[];
+  }
 }

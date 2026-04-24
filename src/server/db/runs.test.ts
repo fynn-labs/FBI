@@ -625,6 +625,29 @@ describe('base_branch and mirror_status', () => {
   });
 });
 
+describe('listActiveByBranch', () => {
+  let runs: RunsRepo;
+  let projectId: number;
+  beforeEach(() => {
+    const r = makeRepos();
+    runs = r.runs;
+    projectId = r.projectId;
+  });
+
+  it('returns non-terminal runs matching the branch', () => {
+    const a = runs.create({ project_id: projectId, prompt: 'a', log_path_tmpl: (i) => `/tmp/${i}.log` });
+    runs.setBranchName(a.id, 'feat/x');
+    runs.markStartingFromQueued(a.id, 'c1');
+    runs.markRunning(a.id);
+    const b = runs.create({ project_id: projectId, prompt: 'b', log_path_tmpl: (i) => `/tmp/${i}.log` });
+    runs.setBranchName(b.id, 'feat/x');
+    runs.markStartingFromQueued(b.id, 'c2');
+    runs.markFinished(b.id, { state: 'succeeded' });
+    const matches = runs.listActiveByBranch(projectId, 'feat/x');
+    expect(matches.map((r) => r.id)).toEqual([a.id]);
+  });
+});
+
 describe('waiting-state transitions', () => {
   function seedRunning() {
     const { runs: repo, projectId } = makeRepos();

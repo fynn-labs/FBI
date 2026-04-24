@@ -191,8 +191,20 @@ export function registerRunsRoutes(app: FastifyInstance, deps: Deps): void {
     if (!verdict.ok) {
       return reply.code(400).send({ error: verdict.message });
     }
+    const projectId = Number(id);
+    const force = (body as { force?: unknown }).force === true;
+    if (hint !== '' && !force) {
+      const active = deps.runs.listActiveByBranch(projectId, hint);
+      if (active.length > 0) {
+        return reply.code(409).send({
+          error: 'branch_in_use',
+          active_run_id: active[0].id,
+          message: `Run #${active[0].id} is already using branch "${hint}". Pass { force: true } to start another run on the same branch anyway.`,
+        });
+      }
+    }
     const run = deps.runs.create({
-      project_id: Number(id),
+      project_id: projectId,
       prompt: body.prompt,
       branch_hint: hint === '' ? undefined : hint,
       log_path_tmpl: (rid) => path.join(deps.runsDir, `${rid}.log`),
