@@ -142,7 +142,7 @@ async function main() {
     draftUploadsDir: config.draftUploadsDir,
   });
 
-  const stopDraftUploadsGc = startDraftUploadsGc({
+  void startDraftUploadsGc({
     runsDir: config.runsDir,
     draftDir: config.draftUploadsDir,
   });

@@ -117,7 +117,7 @@ describe('ProjectsRepo', () => {
       devcontainer_override_json: null, instructions: null,
       git_author_name: null, git_author_email: null,
     });
-    const runs = new RunsRepo((repo as any).db);
+    const runs = new RunsRepo((repo as unknown as { db: ReturnType<typeof openDb> }).db);
     const r = runs.create({ project_id: p.id, prompt: 'x',
       log_path_tmpl: (id: number) => `/tmp/${id}.log` });
     const listed = repo.list().find((x) => x.id === p.id)!;

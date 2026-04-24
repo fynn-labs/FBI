@@ -64,7 +64,7 @@ describe('McpServersRepo', () => {
 
   it('cascades delete when project is deleted', () => {
     repo.create({ project_id: projectId, name: 'github', type: 'stdio', command: 'npx', args: [] });
-    const db = (repo as any).db;
+    const db = (repo as unknown as { db: { prepare: (sql: string) => { run: (...args: unknown[]) => void } } }).db;
     db.prepare('DELETE FROM projects WHERE id = ?').run(projectId);
     expect(repo.listForProject(projectId)).toHaveLength(0);
   });

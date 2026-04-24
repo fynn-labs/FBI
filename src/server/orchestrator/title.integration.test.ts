@@ -47,8 +47,8 @@ describe('title integration (Docker-gated)', () => {
     await new Promise((r) => setTimeout(r, 300));
     await watcher.stop();
 
-    expect((runs.get(run.id) as any).title).toBe('Fix auth race');
-    expect((runs.get(run.id) as any).title_locked).toBe(0);
+    expect((runs.get(run.id) as unknown as { title: string | null }).title).toBe('Fix auth race');
+    expect((runs.get(run.id) as unknown as { title_locked: number }).title_locked).toBe(0);
   }, 30_000);
 
   it('user-locked title is not overwritten', async () => {
@@ -86,7 +86,7 @@ describe('title integration (Docker-gated)', () => {
     await new Promise((r) => setTimeout(r, 300));
     await watcher.stop();
 
-    expect((runs.get(run.id) as any).title).toBe('User pick');
-    expect((runs.get(run.id) as any).title_locked).toBe(1);
+    expect((runs.get(run.id) as unknown as { title: string | null }).title).toBe('User pick');
+    expect((runs.get(run.id) as unknown as { title_locked: number }).title_locked).toBe(1);
   }, 30_000);
 });

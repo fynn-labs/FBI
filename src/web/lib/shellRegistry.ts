@@ -24,7 +24,7 @@ function makeEntry(runId: number): Entry {
 }
 
 export function acquireShell(runId: number): ShellHandle {
-  let entry = cache.get(runId);
+  const entry = cache.get(runId);
   if (entry) {
     entry.refCount += 1;
     if (entry.closeTimer) { clearTimeout(entry.closeTimer); entry.closeTimer = null; }

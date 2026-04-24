@@ -186,7 +186,7 @@ describe('RunsRepo', () => {
   });
 
   it('listFiltered scopes by project_id', () => {
-    const otherProj = new ProjectsRepo((runs as any).db)
+    const otherProj = new ProjectsRepo((runs as unknown as { db: ReturnType<typeof openDb> }).db)
       .create({ name: 'p2', repo_url: 'b', default_branch: 'main',
         devcontainer_override_json: null, instructions: null,
         git_author_name: null, git_author_email: null });
@@ -475,36 +475,37 @@ describe('updateTitle', () => {
     return { runs, run };
   }
 
+  type RunRow = { title: string | null; title_locked: number };
   it('sets title when row is unlocked (respectLock=true)', () => {
     const { runs, run } = setup();
     runs.updateTitle(run.id, '  Fix auth race  ', { respectLock: true });
     const after = runs.get(run.id)!;
-    expect((after as any).title).toBe('Fix auth race');
-    expect((after as any).title_locked).toBe(0);
+    expect((after as unknown as RunRow).title).toBe('Fix auth race');
+    expect((after as unknown as RunRow).title_locked).toBe(0);
   });
   it('is a no-op when locked and respectLock=true', () => {
     const { runs, run } = setup();
     runs.updateTitle(run.id, 'Original', { lock: true, respectLock: false });
     runs.updateTitle(run.id, 'Should not overwrite', { respectLock: true });
-    expect((runs.get(run.id) as any).title).toBe('Original');
-    expect((runs.get(run.id) as any).title_locked).toBe(1);
+    expect((runs.get(run.id) as unknown as RunRow).title).toBe('Original');
+    expect((runs.get(run.id) as unknown as RunRow).title_locked).toBe(1);
   });
   it('overwrites when respectLock=false and sets lock when lock=true', () => {
     const { runs, run } = setup();
     runs.updateTitle(run.id, 'First', { respectLock: true });
     runs.updateTitle(run.id, 'User pick', { lock: true, respectLock: false });
-    expect((runs.get(run.id) as any).title).toBe('User pick');
-    expect((runs.get(run.id) as any).title_locked).toBe(1);
+    expect((runs.get(run.id) as unknown as RunRow).title).toBe('User pick');
+    expect((runs.get(run.id) as unknown as RunRow).title_locked).toBe(1);
   });
   it('truncates titles longer than 80 chars', () => {
     const { runs, run } = setup();
     runs.updateTitle(run.id, 'x'.repeat(200), { respectLock: true });
-    expect((runs.get(run.id) as any).title).toHaveLength(80);
+    expect((runs.get(run.id) as unknown as RunRow).title).toHaveLength(80);
   });
   it('ignores empty-after-trim input', () => {
     const { runs, run } = setup();
     runs.updateTitle(run.id, '   ', { respectLock: true });
-    expect((runs.get(run.id) as any).title).toBeNull();
+    expect((runs.get(run.id) as unknown as RunRow).title).toBeNull();
   });
 });
 

@@ -35,7 +35,6 @@ import { RuntimeStateWatcher, type DerivedRuntimeState } from './runtimeStateWat
 import { GitStateWatcher } from './gitStateWatcher.js';
 import { dockerExec, type DockerExecOptions, type DockerExecResult } from './dockerExec.js';
 import { nudgeClaudeToExit } from './nudgeClaude.js';
-import { checkContinueEligibility } from './continueEligibility.js';
 import { makeOnBytes } from '../logs/onBytes.js';
 import type { FilesPayload } from '../../shared/types.js';
 

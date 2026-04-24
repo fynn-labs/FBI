@@ -41,11 +41,11 @@ describe('projects routes', () => {
 
   it('PATCH updates, DELETE removes', async () => {
     const { app } = makeApp();
-    const { json: id } = (await app.inject({
+    await app.inject({
       method: 'POST',
       url: '/api/projects',
       payload: { name: 'a', repo_url: 'r', default_branch: 'main' },
-    })).json() as { json: number; id: number };
+    });
     const created = (await app.inject({
       method: 'POST', url: '/api/projects',
       payload: { name: 'b', repo_url: 'r', default_branch: 'main' },

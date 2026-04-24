@@ -275,7 +275,7 @@ describe('OAuthUsagePoller cadence', () => {
       const db = openDb(':memory:');
       const state = new RateLimitStateRepo(db);
       const buckets = new RateLimitBucketsRepo(db);
-      let nowMs = 1_700_000_000_000;
+      const nowMs = 1_700_000_000_000;
       // Simulate a previous process that successfully polled 1 minute ago.
       state.setObserved(nowMs - 60_000);
       const fetchSpy = vi.fn(async (url: string) => {

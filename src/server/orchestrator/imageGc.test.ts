@@ -46,7 +46,7 @@ describe('ImageGc.sweep', () => {
     const gc = new ImageGc(docker, () => ({ always: [], postbuild: '' }));
     const res = await gc.sweep([p], now * 1000);
     expect(res.deletedCount).toBe(0);
-    expect((docker as any)._removed).toEqual([]);
+    expect((docker as unknown as { _removed: string[] })._removed).toEqual([]);
   });
 
   it('keeps images referenced by any container even if old', async () => {
@@ -71,7 +71,7 @@ describe('ImageGc.sweep', () => {
     const gc = new ImageGc(docker, () => ({ always: [], postbuild: '' }));
     const res = await gc.sweep([p], now * 1000);
     expect(res.deletedCount).toBe(1);
-    expect((docker as any)._removed).toEqual(['fbi/p99:orphan']);
+    expect((docker as unknown as { _removed: string[] })._removed).toEqual(['fbi/p99:orphan']);
   });
 
   it('keeps unreachable fbi/ images newer than 30 days', async () => {
