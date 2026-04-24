@@ -13,7 +13,7 @@ defmodule FBI.Projects.Project do
   use Ecto.Schema
   import Ecto.Changeset
 
-  @primary_key {:id, :integer, autogenerate: false}
+  @primary_key {:id, :id, autogenerate: true}
 
   schema "projects" do
     field :name, :string
