@@ -713,7 +713,7 @@ describe('runs routes', () => {
     });
   });
 
-  it('GET /api/runs/:id/changes populates submodule_bumps from container', async () => {
+  it('GET /api/runs/:id/changes returns empty submodule_bumps under safeguard model', async () => {
     const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'fbi-'));
     const db = openDb(path.join(dir, 'db.sqlite'));
     const projects = new ProjectsRepo(db);
@@ -730,12 +730,6 @@ describe('runs routes', () => {
     runs.markStartingFromQueued(r.id, 'c');
     runs.markRunning(r.id);
 
-    const showOutput =
-      'commit abc123\nAuthor: x\n\n    feat: bump submodule\n\n' +
-      'Submodule cli/tunnel aaa1111..bbb2222:\n' +
-      '  > bbb2222 polish cli\n' +
-      '  > ccc3333 fix bug\n';
-
     const app = Fastify();
     registerRunsRoutes(app, {
       runs, projects, streams: new RunStreamRegistry(), runsDir: dir, draftUploadsDir: dir,
@@ -748,16 +742,7 @@ describe('runs routes', () => {
           { sha: 'abc1234567890', subject: 'feat: bump submodule', committed_at: 1000, pushed: true },
         ],
       },
-      orchestrator: {
-        ...stubOrchestrator,
-        execInContainer: async (_runId, cmd) => {
-          // Respond to git show --submodule=log
-          if (cmd.includes('--submodule=log')) {
-            return { stdout: showOutput, stderr: '', exitCode: 0 };
-          }
-          throw new Error('unexpected command');
-        },
-      },
+      orchestrator: stubOrchestrator,
       wipRepo: stubWipRepo,
     });
 
@@ -765,17 +750,11 @@ describe('runs routes', () => {
     expect(res.statusCode).toBe(200);
     const body = res.json() as { commits: Array<{ sha: string; submodule_bumps: unknown[] }> };
     expect(body.commits).toHaveLength(1);
-    expect(body.commits[0].submodule_bumps).toEqual([{
-      path: 'cli/tunnel',
-      url: null,
-      from: 'aaa1111',
-      to: 'bbb2222',
-      commits: [
-        { sha: 'bbb2222', subject: 'polish cli', committed_at: 0, pushed: false, files: [], files_loaded: false, submodule_bumps: [] },
-        { sha: 'ccc3333', subject: 'fix bug', committed_at: 0, pushed: false, files: [], files_loaded: false, submodule_bumps: [] },
-      ],
-      commits_truncated: false,
-    }]);
+    // submodule_bumps is always [] under the safeguard model (scope A);
+    // the live container is no longer consulted for this field.
+    for (const c of body.commits) {
+      expect(c.submodule_bumps).toEqual([]);
+    }
   });
 
   describe('WIP snapshot endpoints', () => {
