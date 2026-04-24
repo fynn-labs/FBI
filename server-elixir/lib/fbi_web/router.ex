@@ -19,6 +19,10 @@ defmodule FBIWeb.Router do
     patch "/settings", SettingsController, :update
     get "/config/defaults", ConfigController, :defaults
     get "/cli/fbi-tunnel/:os/:arch", CliController, :fbi_tunnel
+
+    get "/projects/:id/secrets", SecretsController, :index
+    put "/projects/:id/secrets/:name", SecretsController, :put
+    delete "/projects/:id/secrets/:name", SecretsController, :delete
   end
 
   # WebSocket upgrade routes must not go through the :api pipeline — the
