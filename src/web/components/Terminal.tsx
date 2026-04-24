@@ -70,6 +70,17 @@ export function Terminal({ runId, interactive }: Props) {
     const observer = new MutationObserver(() => { term.options.theme = readTheme(); });
     observer.observe(document.documentElement, { attributes: true, attributeFilter: ['class'] });
 
+    // Fit BEFORE constructing the controller. Otherwise xterm sits at its
+    // default 80×24 when the controller applies a cached snapshot (which
+    // was serialized at the real viewport dims, typically 133×30), and
+    // the snapshot reflows messily when the ResizeObserver fires the
+    // first real fit a moment later. Doing it up-front keeps the xterm
+    // at the real dims from the start.
+    const rect = host.getBoundingClientRect();
+    if (rect.width >= 4 && rect.height >= 4) {
+      try { fit.fit(); } catch { /* layout may still be transitioning */ }
+    }
+
     const controller = new TerminalController(runId, term, host);
     controllerRef.current = controller;
     // Sync React state to controller's ready state. Cache-hit mounts are
