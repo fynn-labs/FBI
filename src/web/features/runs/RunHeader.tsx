@@ -77,16 +77,19 @@ export function RunHeader({ run, onCancel, onDelete, onContinue, onRenamed }: Ru
             className="h-7 text-[16px] font-sans"
           />
         ) : (
-          <button
-            type="button"
-            onClick={startEdit}
-            onDoubleClick={startEdit}
-            aria-label={`Rename run: ${display}`}
-            title="Click to rename"
-            className="truncate text-left font-semibold hover:underline decoration-dotted"
-          >
-            — {display}
-          </button>
+          <>
+            <span className="shrink-0 text-text-faint font-normal">—</span>
+            <button
+              type="button"
+              onClick={startEdit}
+              onDoubleClick={startEdit}
+              aria-label={`Rename run: ${display}`}
+              title="Click to rename"
+              className="truncate text-left font-semibold hover:underline decoration-dotted min-w-0"
+            >
+              {display}
+            </button>
+          </>
         )}
       </h1>
       <Pill tone={TONE[run.state]}>{run.state}</Pill>

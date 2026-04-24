@@ -13,9 +13,9 @@ export function StatusBar() {
     return statusRegistry.subscribe(update);
   }, []);
   return (
-    <footer className="h-[22px] flex items-center gap-4 px-3 border-t border-border-strong bg-surface font-mono text-[12px] uppercase tracking-[0.06em] text-text-faint">
-      {left.map((i) => <span key={i.id}>{i.render()}</span>)}
-      <span className="ml-auto flex items-center gap-3">
+    <footer className="h-[22px] flex items-center gap-2 sm:gap-4 px-2 sm:px-3 border-t border-border-strong bg-surface font-mono text-[12px] uppercase tracking-[0.06em] text-text-faint overflow-hidden">
+      {left.map((i) => <span key={i.id} className="shrink-0">{i.render()}</span>)}
+      <span className="ml-auto flex items-center gap-2 sm:gap-3 shrink-0">
         {right.map((i) => <span key={i.id}>{i.render()}</span>)}
       </span>
     </footer>
