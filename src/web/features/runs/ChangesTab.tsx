@@ -1,14 +1,18 @@
 import { CommitRow } from './CommitRow.js';
 import { SubmoduleDirtyRow } from './SubmoduleDirtyRow.js';
+import { WipSection, type WipResponse } from './WipSection.js';
 import type { ChangesPayload, Project, Run } from '@shared/types.js';
+
+export type { WipResponse };
 
 export interface ChangesTabProps {
   run: Run;
   project: Project | null;
   changes: ChangesPayload | null;
+  wip?: WipResponse | null;
 }
 
-export function ChangesTab({ run, changes }: ChangesTabProps) {
+export function ChangesTab({ run, changes, wip }: ChangesTabProps) {
   if (!changes) return <p className="p-3 text-[13px] text-text-faint">Loading changes…</p>;
   if (!changes.branch_name) return <p className="p-3 text-[13px] text-text-faint">This run didn't produce a branch.</p>;
 
@@ -27,6 +31,8 @@ export function ChangesTab({ run, changes }: ChangesTabProps) {
         <span className={`font-mono ${behind > 0 ? 'text-warn font-medium' : 'text-text-faint'}`}>{behind} behind</span>
         <span className="font-mono text-text-faint">{base}</span>
       </div>
+
+      {wip && <WipSection runId={run.id} payload={wip} />}
 
       {empty ? (
         <p className="p-3 text-[13px] text-text-faint">No changes yet. The agent hasn't committed anything.</p>

@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import type { Project, Run, ChangesPayload } from '@shared/types.js';
+import type { WipResponse } from '../features/runs/ChangesTab.js';
 import { api } from '../lib/api.js';
 import { LoadingState } from '@ui/patterns/LoadingState.js';
 import { ErrorState } from '@ui/patterns/index.js';
@@ -26,6 +27,7 @@ export function RunDetailPage() {
   const nav = useNavigate();
   const [run, setRun] = useState<Run | null>(null);
   const [changes, setChanges] = useState<ChangesPayload | null>(null);
+  const [wip, setWip] = useState<WipResponse | null>(null);
   const [siblings, setSiblings] = useState<Run[]>([]);
   const [project, setProject] = useState<Project | null>(null);
   const [creatingPr, setCreatingPr] = useState(false);
@@ -141,6 +143,21 @@ export function RunDetailPage() {
     return () => { alive = false; clearInterval(t); };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [run?.id]);
+
+  useEffect(() => {
+    if (!run) return;
+    const live = run.state === 'running' || run.state === 'waiting';
+    if (live) { setWip(null); return; }
+    let alive = true;
+    const load = async () => {
+      try { const r = await api.getRunWip(run.id); if (alive) setWip(r); }
+      catch { /* silent */ }
+    };
+    void load();
+    const t = setInterval(load, 10_000);
+    return () => { alive = false; clearInterval(t); };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [run?.id, run?.state]);
 
   useEffect(() => {
     if (!run) return;
@@ -276,7 +293,7 @@ export function RunDetailPage() {
           onHeightChange={setHeight}
         >
           {(t) =>
-            t === 'changes' ? <ChangesTab run={run} project={project} changes={changes} /> :
+            t === 'changes' ? <ChangesTab run={run} project={project} changes={changes} wip={wip} /> :
             t === 'ship'    ? <ShipTab run={run} project={project} changes={changes}
                                        onCreatePr={onCreatePr} creatingPr={creatingPr} onReload={onReload} /> :
             t === 'tunnel'  ? <TunnelTab runId={run.id} runState={run.state}
