@@ -12,7 +12,7 @@ fn main() {
         .invoke_handler(tauri::generate_handler![
             config::get_server_url,
             config::set_server_url,
-            tray::update_tray,
+            tray::update_tray_runs,
             tray::notify,
             discovery::discover_servers,
         ])

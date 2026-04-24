@@ -69,7 +69,7 @@ function statesUrl(): string {
   return `${wsBase()}/api/ws/states`;
 }
 
-function publishCountsFromMap(runs: Map<number, { state: RunState; project_id: number }>) {
+function publishCountsFromMap(runs: Map<number, { state: RunState; project_id: number; title: string | null }>) {
   const running = new Map<number, number>();
   const waiting = new Map<number, number>();
   for (const { state, project_id } of runs.values()) {
@@ -79,15 +79,17 @@ function publishCountsFromMap(runs: Map<number, { state: RunState; project_id: n
   _publishRunning(running);
   _publishWaiting(waiting);
   if (isTauri()) {
-    const active = [...running.values()].reduce((a, b) => a + b, 0);
-    invoke('update_tray', { active }).catch(() => {});
+    const activeRuns = [...runs.entries()]
+      .filter(([, r]) => !isTerminal(r.state))
+      .map(([id, r]) => ({ id, title: r.title, state: r.state }));
+    invoke('update_tray_runs', { runs: activeRuns }).catch(() => {});
   }
 }
 
 export function useRunWatcher(enabled: boolean) {
   useEffect(() => {
     const dispose = enabled ? installFocusReset() : () => {};
-    const runs = new Map<number, { state: RunState; project_id: number }>();
+    const runs = new Map<number, { state: RunState; project_id: number; title: string | null }>();
     let seeding = true;
     let ws: WebSocket | null = null;
     let stopped = false;
@@ -97,7 +99,7 @@ export function useRunWatcher(enabled: boolean) {
       try {
         const all = await api.listRuns();
         runs.clear();
-        for (const r of all) runs.set(r.id, { state: r.state, project_id: r.project_id });
+        for (const r of all) runs.set(r.id, { state: r.state, project_id: r.project_id, title: r.title });
         publishCountsFromMap(runs);
       } catch { /* swallow; reconnect retry will re-seed */ }
       seeding = false;
@@ -111,7 +113,8 @@ export function useRunWatcher(enabled: boolean) {
       ws.onmessage = async (ev) => {
         const msg = JSON.parse(ev.data as string) as GlobalStateFrame;
         const prev = runs.get(msg.run_id)?.state;
-        runs.set(msg.run_id, { state: msg.state, project_id: msg.project_id });
+        const prevTitle = runs.get(msg.run_id)?.title ?? null;
+        runs.set(msg.run_id, { state: msg.state, project_id: msg.project_id, title: prevTitle });
         publishCountsFromMap(runs);
         notifyRunRefresh();
         if (seeding || !enabled) return;
