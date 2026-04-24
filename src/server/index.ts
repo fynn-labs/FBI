@@ -1,6 +1,7 @@
 import Fastify from 'fastify';
 import fastifyStatic from '@fastify/static';
 import fastifyWebsocket from '@fastify/websocket';
+import fastifyCors from '@fastify/cors';
 import fastifyMultipart from '@fastify/multipart';
 import Docker from 'dockerode';
 import fs from 'node:fs';
@@ -89,6 +90,9 @@ async function main() {
 
   const app = Fastify({ logger: true });
   await app.register(fastifyWebsocket);
+  await app.register(fastifyCors, {
+    origin: ['tauri://localhost', 'http://localhost:5173'],
+  });
   await app.register(fastifyMultipart, {
     limits: { fileSize: 100 * 1024 * 1024, files: 1, fields: 2 },
   });
