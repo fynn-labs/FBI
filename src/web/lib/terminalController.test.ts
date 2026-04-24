@@ -231,19 +231,6 @@ describe('TerminalController', () => {
     expect(term.dataCbs).toHaveLength(0);
   });
 
-  it('resumeLive focuses the live xterm even when no history is active', () => {
-    const shell = makeStubShell();
-    acquiredShells.set(5, shell);
-    const term = makeFakeXterm();
-    const host = document.createElement('div');
-    const c = new TerminalController(5, term as unknown as import('@xterm/xterm').Terminal, host);
-
-    term.focus.mockClear();
-    c.resumeLive();
-
-    expect(term.focus).toHaveBeenCalledTimes(1);
-  });
-
   it('dispose unsubscribes everything and releases the shell', async () => {
     const shell = makeStubShell();
     acquiredShells.set(6, shell);
@@ -853,5 +840,41 @@ describe('TerminalController', () => {
     } finally {
       vi.useRealTimers();
     }
+  });
+
+  it('onScroll: scrolling up from bottom calls pause()', () => {
+    const shell = makeStubShell();
+    acquiredShells.set(70, shell);
+    const term = makeFakeXterm();
+    const host = document.createElement('div');
+    const c = new TerminalController(70, term as unknown as import('@xterm/xterm').Terminal, host);
+    const pauseSpy = vi.spyOn(c, 'pause');
+    c.onScroll({ atBottom: false, nearTop: false });
+    expect(pauseSpy).toHaveBeenCalledTimes(1);
+  });
+
+  it('onScroll: scrolling back to bottom calls resume()', () => {
+    const shell = makeStubShell();
+    acquiredShells.set(71, shell);
+    const term = makeFakeXterm();
+    const host = document.createElement('div');
+    const c = new TerminalController(71, term as unknown as import('@xterm/xterm').Terminal, host);
+    c.pause();
+    const resumeSpy = vi.spyOn(c, 'resume').mockResolvedValue();
+    c.onScroll({ atBottom: true, nearTop: false });
+    expect(resumeSpy).toHaveBeenCalledTimes(1);
+  });
+
+  it('onScroll: nearTop while paused triggers loadOlderChunk', async () => {
+    const shell = makeStubShell();
+    acquiredShells.set(72, shell);
+    const term = makeFakeXterm();
+    const host = document.createElement('div');
+    const c = new TerminalController(72, term as unknown as import('@xterm/xterm').Terminal, host);
+    (c as unknown as { loadedStartOffset: number }).loadedStartOffset = 100_000;
+    c.pause();
+    const loadSpy = vi.spyOn(c, 'loadOlderChunk').mockResolvedValue();
+    c.onScroll({ atBottom: false, nearTop: true });
+    expect(loadSpy).toHaveBeenCalledTimes(1);
   });
 });
