@@ -40,6 +40,11 @@ defmodule FBI.Usage.PacingTest do
       assert %{zone: :hot} = Pacing.derive_pacing(bucket, now)
     end
 
+    test "returns :none when reset_at is nil" do
+      bucket = %{@known_bucket | reset_at: nil}
+      assert %{zone: :none, delta: +0.0} = Pacing.derive_pacing(bucket, 0)
+    end
+
     test "derives window_start from reset_at for known buckets when window_started_at missing" do
       bucket = %{@known_bucket | window_started_at: nil}
       # derived start = reset_at - 5h -> halfway through now = reset_at - 2.5h
