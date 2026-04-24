@@ -26,11 +26,13 @@ defmodule FBI.Orchestrator.WipRepo do
   @spec init(Path.t(), pos_integer()) :: Path.t()
   def init(runs_dir, run_id) do
     p = path(runs_dir, run_id)
+
     unless exists?(runs_dir, run_id) do
       File.mkdir_p!(p)
-      git!(p, ~w[init --quiet --bare --initial-branch wip] ++ [p])
+      git!(p, ~w[init --quiet --bare --initial-branch wip])
       git!(p, ~w[-C] ++ [p] ++ ~w[config core.sharedRepository group])
     end
+
     p
   end
 
@@ -51,10 +53,12 @@ defmodule FBI.Orchestrator.WipRepo do
       nil
     else
       p = path(runs_dir, run_id)
+
       case git(p, ~w[rev-parse --verify -q refs/heads/wip]) do
         {:ok, sha} ->
           trimmed = String.trim(sha)
           if trimmed == "", do: nil, else: trimmed
+
         {:error, _} ->
           nil
       end
@@ -65,9 +69,12 @@ defmodule FBI.Orchestrator.WipRepo do
   @spec parent_sha(Path.t(), pos_integer()) :: String.t() | nil
   def parent_sha(runs_dir, run_id) do
     case snapshot_sha(runs_dir, run_id) do
-      nil -> nil
+      nil ->
+        nil
+
       sha ->
         p = path(runs_dir, run_id)
+
         case git(p, ["rev-parse", "#{sha}^"]) do
           {:ok, out} -> String.trim(out)
           {:error, _} -> nil
@@ -83,9 +90,12 @@ defmodule FBI.Orchestrator.WipRepo do
   @spec read_snapshot_files(Path.t(), pos_integer()) :: [map()]
   def read_snapshot_files(runs_dir, run_id) do
     case snapshot_sha(runs_dir, run_id) do
-      nil -> []
+      nil ->
+        []
+
       snap ->
         p = path(runs_dir, run_id)
+
         case git(p, ["show", "--no-color", "--name-status", "--format=", snap]) do
           {:ok, out} ->
             out
@@ -95,7 +105,9 @@ defmodule FBI.Orchestrator.WipRepo do
               status = String.at(status_raw, 0) || "M"
               %{path: Enum.join(rest, "\t"), status: status, additions: 0, deletions: 0}
             end)
-          {:error, _} -> []
+
+          {:error, _} ->
+            []
         end
     end
   end
@@ -105,8 +117,9 @@ defmodule FBI.Orchestrator.WipRepo do
   def delete_wip_ref(runs_dir, run_id) do
     if exists?(runs_dir, run_id) do
       p = path(runs_dir, run_id)
-      git(p, ["-C", p, "update-ref", "-d", "refs/heads/wip"])
+      git(p, ["update-ref", "-d", "refs/heads/wip"])
     end
+
     :ok
   end
 

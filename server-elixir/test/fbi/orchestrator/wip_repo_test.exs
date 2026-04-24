@@ -40,4 +40,14 @@ defmodule FBI.Orchestrator.WipRepoTest do
     WipRepo.init(base, 1)
     assert WipRepo.snapshot_sha(base, 1) == nil
   end
+
+  test "delete_wip_ref/2 is a no-op on empty repo", %{base: base} do
+    WipRepo.init(base, 1)
+    assert WipRepo.delete_wip_ref(base, 1) == :ok
+  end
+
+  test "parent_sha/2 returns nil on empty repo", %{base: base} do
+    WipRepo.init(base, 1)
+    assert WipRepo.parent_sha(base, 1) == nil
+  end
 end
