@@ -80,7 +80,9 @@ defmodule FBI.Mcp.QueriesTest do
       p = make_project()
       {:ok, _} = Queries.create(%{project_id: nil, name: "zulu", type: "stdio", command: "npx"})
       {:ok, _} = Queries.create(%{project_id: nil, name: "alpha", type: "stdio", command: "npx"})
-      {:ok, _} = Queries.create(%{project_id: p.id, name: "scoped", type: "stdio", command: "npx"})
+
+      {:ok, _} =
+        Queries.create(%{project_id: p.id, name: "scoped", type: "stdio", command: "npx"})
 
       rows = Queries.list_global()
       names = Enum.map(rows, & &1.name)
@@ -96,7 +98,9 @@ defmodule FBI.Mcp.QueriesTest do
       {:ok, _} = Queries.create(%{project_id: nil, name: "global", type: "stdio", command: "npx"})
       {:ok, _} = Queries.create(%{project_id: p1.id, name: "zeta", type: "stdio", command: "npx"})
       {:ok, _} = Queries.create(%{project_id: p1.id, name: "beta", type: "stdio", command: "npx"})
-      {:ok, _} = Queries.create(%{project_id: p2.id, name: "other", type: "stdio", command: "npx"})
+
+      {:ok, _} =
+        Queries.create(%{project_id: p2.id, name: "other", type: "stdio", command: "npx"})
 
       rows = Queries.list_for_project(p1.id)
       names = Enum.map(rows, & &1.name)
@@ -149,7 +153,10 @@ defmodule FBI.Mcp.QueriesTest do
 
     test "returns :not_found for a project-scoped row" do
       p = make_project()
-      {:ok, s} = Queries.create(%{project_id: p.id, name: "scoped", type: "stdio", command: "npx"})
+
+      {:ok, s} =
+        Queries.create(%{project_id: p.id, name: "scoped", type: "stdio", command: "npx"})
+
       assert Queries.get_global(s.id) == :not_found
     end
 
@@ -161,7 +168,10 @@ defmodule FBI.Mcp.QueriesTest do
   describe "get_project/2" do
     test "returns decoded row matching project_id" do
       p = make_project()
-      {:ok, s} = Queries.create(%{project_id: p.id, name: "scoped", type: "stdio", command: "npx"})
+
+      {:ok, s} =
+        Queries.create(%{project_id: p.id, name: "scoped", type: "stdio", command: "npx"})
+
       assert {:ok, fetched} = Queries.get_project(p.id, s.id)
       assert fetched.id == s.id
       assert fetched.project_id == p.id
@@ -170,7 +180,10 @@ defmodule FBI.Mcp.QueriesTest do
     test "returns :not_found for a row not matching the given project_id" do
       p1 = make_project()
       p2 = make_project()
-      {:ok, s} = Queries.create(%{project_id: p1.id, name: "scoped", type: "stdio", command: "npx"})
+
+      {:ok, s} =
+        Queries.create(%{project_id: p1.id, name: "scoped", type: "stdio", command: "npx"})
+
       assert Queries.get_project(p2.id, s.id) == :not_found
     end
 

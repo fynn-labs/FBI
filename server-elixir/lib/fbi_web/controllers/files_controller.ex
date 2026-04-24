@@ -53,7 +53,13 @@ defmodule FBIWeb.FilesController do
   end
 
   defp empty_payload(base) do
-    %{dirty: [], head: nil, headFiles: [], branchBase: %{base: base, ahead: 0, behind: 0}, live: false}
+    %{
+      dirty: [],
+      head: nil,
+      headFiles: [],
+      branchBase: %{base: base, ahead: 0, behind: 0},
+      live: false
+    }
   end
 
   defp map_status("added"), do: "A"

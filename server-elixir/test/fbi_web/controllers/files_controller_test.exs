@@ -71,6 +71,7 @@ defmodule FBIWeb.FilesControllerTest do
     body = conn |> get("/api/runs/#{run.id}/files") |> json_response(200)
 
     assert body["live"] == false
+
     assert body["headFiles"] == [
              %{"filename" => "a.ex", "additions" => 10, "deletions" => 2, "status" => "A"},
              %{"filename" => "b.ex", "additions" => 0, "deletions" => 5, "status" => "D"},

@@ -51,12 +51,23 @@ defmodule FBIWeb.UploadsController do
 
       json(conn, %{filename: resolved, size: size, uploaded_at: now})
     else
-      :not_found -> conn |> put_status(404) |> json(%{error: "not_found"})
-      {:error, :wrong_state} -> conn |> put_status(409) |> json(%{error: "wrong_state"})
-      {:error, :invalid} -> conn |> put_status(400) |> json(%{error: "invalid_filename"})
-      {:error, :quota_exceeded} -> conn |> put_status(413) |> json(%{error: "run_quota_exceeded"})
-      {:error, :collision_overflow} -> conn |> put_status(500) |> json(%{error: "collision_overflow"})
-      _ -> conn |> put_status(500) |> json(%{error: "io_error"})
+      :not_found ->
+        conn |> put_status(404) |> json(%{error: "not_found"})
+
+      {:error, :wrong_state} ->
+        conn |> put_status(409) |> json(%{error: "wrong_state"})
+
+      {:error, :invalid} ->
+        conn |> put_status(400) |> json(%{error: "invalid_filename"})
+
+      {:error, :quota_exceeded} ->
+        conn |> put_status(413) |> json(%{error: "run_quota_exceeded"})
+
+      {:error, :collision_overflow} ->
+        conn |> put_status(500) |> json(%{error: "collision_overflow"})
+
+      _ ->
+        conn |> put_status(500) |> json(%{error: "io_error"})
     end
   end
 

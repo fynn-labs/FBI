@@ -25,7 +25,17 @@ defmodule FBI.Mcp.Server do
   @spec changeset(t(), map()) :: Ecto.Changeset.t()
   def changeset(srv, attrs) do
     srv
-    |> cast(attrs, [:id, :project_id, :name, :type, :command, :args_json, :url, :env_json, :created_at])
+    |> cast(attrs, [
+      :id,
+      :project_id,
+      :name,
+      :type,
+      :command,
+      :args_json,
+      :url,
+      :env_json,
+      :created_at
+    ])
     |> validate_required([:name, :type, :created_at])
     |> validate_inclusion(:type, ["stdio", "sse"])
     |> unique_constraint([:project_id, :name])

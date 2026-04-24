@@ -36,6 +36,7 @@ defmodule FBI.Projects.QueriesTest do
       :timer.sleep(2)
       {:ok, b} = make()
       ids = Enum.map(Queries.list(), & &1.id)
+
       assert Enum.find_index(ids, &(&1 == b.id)) <
                Enum.find_index(ids, &(&1 == a.id))
     end

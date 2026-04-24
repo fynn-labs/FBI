@@ -28,8 +28,13 @@ if config_env() == :prod do
   config :fbi, fbi_cli_version: System.get_env("FBI_VERSION")
 
   config :fbi, runs_dir: System.get_env("RUNS_DIR", "/var/lib/agent-manager/runs")
-  config :fbi, draft_uploads_dir: System.get_env("DRAFT_UPLOADS_DIR", "/var/lib/agent-manager/draft-uploads")
-  config :fbi, secrets_key_path: System.get_env("SECRETS_KEY_FILE", "/etc/agent-manager/secrets.key")
+
+  config :fbi,
+    draft_uploads_dir: System.get_env("DRAFT_UPLOADS_DIR", "/var/lib/agent-manager/draft-uploads")
+
+  config :fbi,
+    secrets_key_path: System.get_env("SECRETS_KEY_FILE", "/etc/agent-manager/secrets.key")
+
   config :fbi, docker_socket_path: System.get_env("DOCKER_SOCKET", "/var/run/docker.sock")
 
   database_path =

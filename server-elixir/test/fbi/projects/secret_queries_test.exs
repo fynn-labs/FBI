@@ -4,13 +4,18 @@ defmodule FBI.Projects.SecretQueriesTest do
   alias FBI.Projects.{Queries, SecretQueries}
 
   setup do
-    key_path = Path.join(System.tmp_dir!(), "fbi-secret-test-#{System.unique_integer([:positive])}")
+    key_path =
+      Path.join(System.tmp_dir!(), "fbi-secret-test-#{System.unique_integer([:positive])}")
+
     File.write!(key_path, :crypto.strong_rand_bytes(32))
     prev = Application.get_env(:fbi, :secrets_key_path)
     Application.put_env(:fbi, :secrets_key_path, key_path)
 
     on_exit(fn ->
-      if prev, do: Application.put_env(:fbi, :secrets_key_path, prev), else: Application.delete_env(:fbi, :secrets_key_path)
+      if prev,
+        do: Application.put_env(:fbi, :secrets_key_path, prev),
+        else: Application.delete_env(:fbi, :secrets_key_path)
+
       File.rm(key_path)
     end)
 
