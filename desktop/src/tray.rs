@@ -14,7 +14,7 @@ pub fn setup_tray(app: &mut tauri::App) -> tauri::Result<()> {
     let tray_icon = tauri::image::Image::from_bytes(include_bytes!("../icons/tray-template.png"))
         .unwrap();
     #[cfg(not(target_os = "macos"))]
-    let tray_icon = tauri::image::Image::from_bytes(include_bytes!("../icons/tray.ico"))
+    let tray_icon = tauri::image::Image::from_bytes(include_bytes!("../icons/tray-linux.png"))
         .unwrap();
 
     TrayIconBuilder::with_id("main")
