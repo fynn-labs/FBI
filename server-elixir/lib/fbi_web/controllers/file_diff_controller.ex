@@ -94,9 +94,7 @@ defmodule FBIWeb.FileDiffController do
   end
 
   defp parent_sha(bare_dir, snap) do
-    case System.cmd("git", ["-C", bare_dir, "rev-parse", "#{snap}^"],
-           stderr_to_stdout: true
-         ) do
+    case System.cmd("git", ["-C", bare_dir, "rev-parse", "#{snap}^"], stderr_to_stdout: true) do
       {sha, 0} -> String.trim(sha)
       _ -> nil
     end
@@ -138,7 +136,11 @@ defmodule FBIWeb.FileDiffController do
 
             if type do
               updated =
-                Map.update!(current, :lines, &(&1 ++ [%{type: type, content: String.slice(line, 1..-1//1)}]))
+                Map.update!(
+                  current,
+                  :lines,
+                  &(&1 ++ [%{type: type, content: String.slice(line, 1..-1//1)}])
+                )
 
               {acc, updated}
             else
