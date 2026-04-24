@@ -15,10 +15,12 @@ defmodule FBIWeb.ConfigControllerTest do
     System.delete_env("FBI_DEFAULT_PLUGINS")
 
     on_exit(fn ->
-      if mp, do: System.put_env("FBI_DEFAULT_MARKETPLACES", mp),
+      if mp,
+        do: System.put_env("FBI_DEFAULT_MARKETPLACES", mp),
         else: System.delete_env("FBI_DEFAULT_MARKETPLACES")
 
-      if pl, do: System.put_env("FBI_DEFAULT_PLUGINS", pl),
+      if pl,
+        do: System.put_env("FBI_DEFAULT_PLUGINS", pl),
         else: System.delete_env("FBI_DEFAULT_PLUGINS")
     end)
 

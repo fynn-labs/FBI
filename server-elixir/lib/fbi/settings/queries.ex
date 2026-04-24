@@ -121,10 +121,8 @@ defmodule FBI.Settings.Queries do
       global_prompt: Map.get(patch, :global_prompt, existing.global_prompt),
       notifications_enabled:
         bool_to_int(Map.get(patch, :notifications_enabled), existing.notifications_enabled),
-      concurrency_warn_at:
-        Map.get(patch, :concurrency_warn_at, existing.concurrency_warn_at),
-      image_gc_enabled:
-        bool_to_int(Map.get(patch, :image_gc_enabled), existing.image_gc_enabled),
+      concurrency_warn_at: Map.get(patch, :concurrency_warn_at, existing.concurrency_warn_at),
+      image_gc_enabled: bool_to_int(Map.get(patch, :image_gc_enabled), existing.image_gc_enabled),
       global_marketplaces_json:
         list_to_json(Map.get(patch, :global_marketplaces), existing.global_marketplaces_json),
       global_plugins_json:

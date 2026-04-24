@@ -37,15 +37,21 @@ defmodule FBI.Config.DefaultsTest do
     end
 
     test "splits on commas and trims whitespace" do
-      with_env([{"FBI_DEFAULT_MARKETPLACES", "foo, bar ,baz"}, {"FBI_DEFAULT_PLUGINS", nil}], fn ->
-        assert Defaults.list().marketplaces == ["foo", "bar", "baz"]
-      end)
+      with_env(
+        [{"FBI_DEFAULT_MARKETPLACES", "foo, bar ,baz"}, {"FBI_DEFAULT_PLUGINS", nil}],
+        fn ->
+          assert Defaults.list().marketplaces == ["foo", "bar", "baz"]
+        end
+      )
     end
 
     test "splits on newlines" do
-      with_env([{"FBI_DEFAULT_MARKETPLACES", "foo\nbar\nbaz"}, {"FBI_DEFAULT_PLUGINS", nil}], fn ->
-        assert Defaults.list().marketplaces == ["foo", "bar", "baz"]
-      end)
+      with_env(
+        [{"FBI_DEFAULT_MARKETPLACES", "foo\nbar\nbaz"}, {"FBI_DEFAULT_PLUGINS", nil}],
+        fn ->
+          assert Defaults.list().marketplaces == ["foo", "bar", "baz"]
+        end
+      )
     end
 
     test "drops empty entries and whitespace-only entries" do
