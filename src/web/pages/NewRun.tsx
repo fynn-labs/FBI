@@ -63,18 +63,6 @@ export function NewRunPage() {
     el.focus();
   }
 
-  function stripExactToken(el: HTMLTextAreaElement | null, token: string): void {
-    if (!el) return;
-    const idx = el.value.indexOf(token);
-    if (idx < 0) return;
-    const next = el.value.slice(0, idx) + el.value.slice(idx + token.length);
-    const setter = Object.getOwnPropertyDescriptor(
-      window.HTMLTextAreaElement.prototype, 'value'
-    )?.set;
-    setter?.call(el, next);
-    el.dispatchEvent(new Event('input', { bubbles: true }));
-  }
-
   async function doCreateRun(force?: boolean) {
     const run = await api.createRun(
       pid,
@@ -151,7 +139,6 @@ export function NewRunPage() {
           />
         </div>
         <UploadTray
-          attached={attached}
           dropZoneRef={dropZoneRef}
           upload={async (file) => {
             const res = await api.uploadDraftFile(file, draftToken);
@@ -161,14 +148,6 @@ export function NewRunPage() {
           }}
           onUploaded={(filename) => {
             insertAtCursor(textareaRef.current, `@/fbi/uploads/${filename} `);
-          }}
-          onRemove={async (filename) => {
-            if (!draftToken) return;
-            try {
-              await api.deleteDraftFile(draftToken, filename);
-            } catch { /* best-effort delete */ }
-            setAttached(prev => prev.filter(f => f.filename !== filename));
-            stripExactToken(textareaRef.current, `@/fbi/uploads/${filename} `);
           }}
           maxFileBytes={PER_FILE}
           maxTotalBytes={PER_RUN}
