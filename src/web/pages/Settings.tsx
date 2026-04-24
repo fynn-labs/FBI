@@ -4,6 +4,9 @@ import { FormRow, ErrorState, LoadingState } from '@ui/patterns/index.js';
 import { Input, Textarea, Toggle, Button, Section } from '@ui/primitives/index.js';
 import { ChipInput } from '../components/ChipInput.js';
 import { McpServerList } from '../components/McpServerList.js';
+import { isTauri } from '@tauri-apps/api/core';
+import { setServerUrl } from '../lib/serverConfig.js';
+import { setApiBaseUrl } from '../lib/api.js';
 
 export function SettingsPage() {
   const [prompt, setPrompt] = useState<string | null>(null);
@@ -20,6 +23,7 @@ export function SettingsPage() {
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [changingServer, setChangingServer] = useState(false);
 
   useEffect(() => {
     void api.getSettings().then((s) => {
@@ -162,6 +166,25 @@ export function SettingsPage() {
           <McpServerList projectId={null} label="MCP servers" />
         </div>
       </Section>
+
+      {isTauri() && (
+        <Section title="Desktop connection">
+          <Button
+            type="button"
+            variant="ghost"
+            size="sm"
+            disabled={changingServer}
+            onClick={async () => {
+              setChangingServer(true);
+              await setServerUrl('');
+              setApiBaseUrl('');
+              window.location.reload();
+            }}
+          >
+            Change server
+          </Button>
+        </Section>
+      )}
 
       {error && <ErrorState message={error} />}
       {saved && <p className="text-[14px] text-ok">Saved.</p>}
