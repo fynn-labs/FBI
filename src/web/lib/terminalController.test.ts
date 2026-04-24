@@ -72,7 +72,10 @@ function makeFakeXterm() {
     writes,
     dataCbs,
     options: {} as Record<string, unknown>,
-    write: vi.fn((data: string | Uint8Array) => { writes.push(data); }),
+    write: vi.fn((data: string | Uint8Array, cb?: () => void) => {
+      writes.push(data);
+      if (cb) cb();
+    }),
     reset: vi.fn(() => { writes.push('__RESET__'); }),
     focus: vi.fn(),
     onData: vi.fn((cb: DataCb) => {
@@ -195,5 +198,55 @@ describe('TerminalController', () => {
     const snapshot = { messages_remaining: 99 };
     for (const cb of shell._events) cb({ type: 'usage', snapshot } as unknown as { type: string });
     expect(usagePublishes).toEqual([[7, snapshot]]);
+  });
+
+  it('onReady fires after the first snapshot is written to xterm', () => {
+    const shell = makeStubShell();
+    acquiredShells.set(8, shell);
+    const term = makeFakeXterm();
+    const host = document.createElement('div');
+    const c = new TerminalController(8, term as unknown as import('@xterm/xterm').Terminal, host);
+
+    const readyCb = vi.fn();
+    c.onReady(readyCb);
+    expect(readyCb).not.toHaveBeenCalled();
+
+    const snap: RunWsSnapshotMessage = { type: 'snapshot', ansi: 'X', cols: 120, rows: 40 };
+    for (const cb of shell._snap) cb(snap);
+    expect(readyCb).toHaveBeenCalledTimes(1);
+
+    // A second snapshot does not re-fire onReady.
+    for (const cb of shell._snap) cb(snap);
+    expect(readyCb).toHaveBeenCalledTimes(1);
+  });
+
+  it('onReady subscribed after the first snapshot still fires (microtask)', async () => {
+    const shell = makeStubShell();
+    acquiredShells.set(9, shell);
+    const term = makeFakeXterm();
+    const host = document.createElement('div');
+    const c = new TerminalController(9, term as unknown as import('@xterm/xterm').Terminal, host);
+
+    const snap: RunWsSnapshotMessage = { type: 'snapshot', ansi: 'X', cols: 120, rows: 40 };
+    for (const cb of shell._snap) cb(snap);
+
+    const readyCb = vi.fn();
+    c.onReady(readyCb);
+    expect(readyCb).not.toHaveBeenCalled();
+    await Promise.resolve();
+    expect(readyCb).toHaveBeenCalledTimes(1);
+  });
+
+  it('requestSnapshot sends hello with current term dims', () => {
+    const shell = makeStubShell();
+    acquiredShells.set(10, shell);
+    const term = makeFakeXterm();
+    const host = document.createElement('div');
+    const c = new TerminalController(10, term as unknown as import('@xterm/xterm').Terminal, host);
+    // Clear the initial hello that onOpen may have queued.
+    shell.sentHello.length = 0;
+
+    c.requestSnapshot();
+    expect(shell.sentHello).toEqual([{ cols: 120, rows: 40 }]);
   });
 });

@@ -49,6 +49,13 @@ export class TerminalController {
   // class is unusable; monotonic.
   private disposed = false;
 
+  // Fires once after the first snapshot is written to xterm (cached or
+  // from the server). Consumers use this to drop a "Loading…" overlay
+  // without flashing fast-forward content while the opening snapshot is
+  // being parsed.
+  private ready = false;
+  private readyCbs: Array<() => void> = [];
+
   constructor(runId: number, term: Xterm, host: HTMLElement) {
     this.runId = runId;
     this.term = term;
@@ -68,7 +75,7 @@ export class TerminalController {
       if (this.disposed) return;
       traceRecord('controller.snapshot', { ansiLen: snap.ansi.length, cols: snap.cols, rows: snap.rows });
       this.term.reset();
-      this.term.write(snap.ansi);
+      this.term.write(snap.ansi, () => { this.fireReady(); });
     });
 
     this.unsubBytes = this.shell.onBytes((data) => {
@@ -85,7 +92,7 @@ export class TerminalController {
     if (cached) {
       traceRecord('controller.snapshot.cached', { cols: cached.cols, rows: cached.rows });
       this.term.reset();
-      this.term.write(cached.ansi);
+      this.term.write(cached.ansi, () => { this.fireReady(); });
     }
 
     this.unsubOpen = this.shell.onOpen(() => {
@@ -118,6 +125,38 @@ export class TerminalController {
   resize(cols: number, rows: number): void {
     if (this.disposed) return;
     this.shell.resize(cols, rows);
+  }
+
+  /**
+   * Subscribe to the one-shot "ready" signal that fires after the first
+   * snapshot has been written to xterm (cached or from the server). If the
+   * snapshot already landed before subscription, fires on the next microtask.
+   */
+  onReady(cb: () => void): void {
+    if (this.ready) { queueMicrotask(cb); return; }
+    this.readyCbs.push(cb);
+  }
+
+  private fireReady(): void {
+    if (this.ready) return;
+    this.ready = true;
+    const cbs = this.readyCbs.splice(0);
+    for (const cb of cbs) cb();
+  }
+
+  /**
+   * Re-ask the server for a fresh snapshot by re-sending hello. The server
+   * processes hellos idempotently — it drains the parser, re-serializes, and
+   * sends a new snapshot frame. Used by the page-visibility handler so a
+   * tab-return captures Claude Code's *current* cursor cell rather than
+   * whatever was last in the buffer (Claude only draws its cursor cell at
+   * specific render moments, and those can happen while the tab is hidden
+   * and rAF is throttled).
+   */
+  requestSnapshot(): void {
+    if (this.disposed) return;
+    traceRecord('controller.hello', { cols: this.term.cols, rows: this.term.rows });
+    this.shell.sendHello(this.term.cols, this.term.rows);
   }
 
   async enterHistory(historyHost: HTMLElement): Promise<void> {

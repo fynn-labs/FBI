@@ -33,7 +33,10 @@ export function Terminal({ runId, interactive }: Props) {
   const historyHostRef = useRef<HTMLDivElement>(null);
   const controllerRef = useRef<TerminalController | null>(null);
   const [historyMode, setHistoryMode] = useState(false);
-  const [loading, setLoading] = useState(true);
+  // `ready` flips true after the opening snapshot has been parsed into xterm.
+  // Used to hide the first-load fast-forward (buffered bytes the server
+  // flushes right after the snapshot are noisy to the eye).
+  const [ready, setReady] = useState(false);
 
   const [, forceTraceRerender] = useState(0);
   useEffect(() => traceSubscribe(() => forceTraceRerender((n) => n + 1)), []);
@@ -69,7 +72,19 @@ export function Terminal({ runId, interactive }: Props) {
 
     const controller = new TerminalController(runId, term, host);
     controllerRef.current = controller;
-    setLoading(false);
+    setReady(false);
+    controller.onReady(() => setReady(true));
+
+    // Re-request a snapshot when the tab becomes visible again. Claude Code
+    // only draws its cursor cell at specific render moments; those moments
+    // can happen while the tab is hidden (rAF is throttled). The cursor
+    // cell then never makes it into xterm's visible state. Asking the
+    // server for a fresh snapshot on visibility-return captures the
+    // current screen (with cursor) and resets xterm to it.
+    const onVisibility = () => {
+      if (!document.hidden) controller.requestSnapshot();
+    };
+    document.addEventListener('visibilitychange', onVisibility);
 
     const safeFit = (): boolean => {
       const rect = host.getBoundingClientRect();
@@ -104,6 +119,7 @@ export function Terminal({ runId, interactive }: Props) {
       ro.disconnect();
       observer.disconnect();
       window.removeEventListener('resize', onWinResize);
+      document.removeEventListener('visibilitychange', onVisibility);
       // Dispose order: controller first (its `disposed` flag neutralises
       // the WS byte/snapshot callbacks), then term.dispose(). Reversing
       // would risk term.write() being called on a disposed xterm from an
@@ -133,8 +149,8 @@ export function Terminal({ runId, interactive }: Props) {
 
   return (
     <div className="relative h-full w-full bg-surface-sunken">
-      {loading && (
-        <div className="absolute inset-0 z-20 flex items-center justify-center bg-surface-sunken text-text-dim text-[12px]">
+      {!ready && !historyMode && (
+        <div className="pointer-events-none absolute inset-0 z-20 flex items-center justify-center bg-surface-sunken text-text-dim text-[12px]">
           <span>Loading terminal…</span>
         </div>
       )}
