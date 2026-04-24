@@ -124,5 +124,20 @@ defmodule FBIWeb.SettingsControllerTest do
 
       assert b["updated_at"] > a["updated_at"]
     end
+
+    test "non-range validation error returns fallback 400 body", %{conn: conn} do
+      # "yes" is not a boolean; the Queries layer flows it through to the
+      # changeset where `validate_inclusion(:notifications_enabled, [0, 1])`
+      # rejects it.  The controller's fallback branch should respond 400 with
+      # %{error: "invalid settings patch"} — the safety net for any future
+      # non-range validation.
+      conn =
+        conn
+        |> put_req_header("content-type", "application/json")
+        |> patch("/api/settings", Jason.encode!(%{notifications_enabled: "yes"}))
+
+      assert conn.status == 400
+      assert json_response(conn, 400) == %{"error" => "invalid settings patch"}
+    end
   end
 end
