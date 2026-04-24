@@ -14,6 +14,7 @@ export interface RunsListProps {
 }
 
 const TONE_TEXT: Record<RunState, string> = {
+  starting: 'text-run',
   running: 'text-run',
   waiting: 'text-attn',
   awaiting_resume: 'text-warn',
@@ -41,7 +42,7 @@ export function RunsList({ runs, toHref, currentId }: RunsListProps) {
 
   const counts: StateCounts = useMemo(() => {
     const base: StateCounts = {
-      running: 0, waiting: 0, awaiting_resume: 0, queued: 0,
+      starting: 0, running: 0, waiting: 0, awaiting_resume: 0, queued: 0,
       succeeded: 0, failed: 0, cancelled: 0,
     };
     for (const r of textFiltered) base[r.state]++;
@@ -75,7 +76,7 @@ export function RunsList({ runs, toHref, currentId }: RunsListProps) {
   useKeyBinding({ chord: 'j', handler: () => step(1), description: 'Next run' }, []);
   useKeyBinding({ chord: 'k', handler: () => step(-1), description: 'Previous run' }, []);
 
-  const running = runs.filter((r) => r.state === 'running').length;
+  const running = runs.filter((r) => r.state === 'running' || r.state === 'starting').length;
 
   return (
     <div className="h-full flex flex-col min-h-0">
