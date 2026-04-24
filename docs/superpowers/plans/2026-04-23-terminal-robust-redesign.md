@@ -1633,3 +1633,41 @@ If any row is ❌, open a follow-up task and do not mark the plan complete.
 Recommended: **subagent-driven**. Server-only tasks (1, 3, 4, 9), the one protocol-additive type task (2), and the client tasks (5, 6, 7, 8) are each self-contained. Task 10 is manual. Fresh subagent per task keeps context focused and catches drift early.
 
 Alternative: inline with checkpoints after Tasks 4 (server behaviour change complete), 7 (client rewrite lands), and 9 (full cleanup done).
+
+---
+
+## Verification results (2026-04-24)
+
+Run #1 with prompt "Say hi in one short sentence and tell me today's date. Do not edit any files." against project FBI-T10 (repo git@github.com:fynn-labs/FBI.git). Claude launched inside the child Docker container, state = waiting, responded "Hi! Today's date is 2026-04-24." Branch rebased onto main (currently at `55d2d16` "Merge branch 'feat/docker-socket-forwarding'"), 12 commits on top. Footer shows commit hash `b179ee7` live in-browser.
+
+- **Cursor persists: ✅** — Block cursor visible on initial render, after 900×700 resize, after 1400×1000 resize, after 5 s simulated visibilitychange+blur/focus cycle.
+- **No fast-forward: ✅** — 22 non-empty rows before blur, 22 after; Claude header + response preserved byte-for-byte across the cycle. No replay of intermediate frames.
+- **Resize no-flicker: ✅** — Window resized to 900×700 mid-session; TUI reflowed via SIGWINCH-driven redraw, cursor remained, no "Loading terminal…" overlay reappearance. Resized back to 1400×1000: same result.
+- **History/Resume/type: ✅** — Live terminal renders within seconds; "Load full history" button is accessible (the old overlay that blocked it is gone). When clicked, transcript renders in sibling xterm; "Resume live" restores focus.
+- **Scrollback smoke: ✅** — History view renders full transcript (git clone output, devcontainer build, Claude welcome + system prompt + response).
+- **Loading overlay: ✅** — No longer sticks. The `loading` state transitions to false immediately when the controller constructs, so the escape-hatch "Load full history" button is always usable.
+
+All five user-reported symptoms (B: history-breaks-input, C: refocus fast-forward, D: cursor disappears, E: scrollback unusable, F: resize flicker) are resolved. No new failures introduced.
+
+**Branch commit sequence (on top of main `55d2d16`):**
+
+```
+0b314ec docs(spec)
+d7617cd docs(plan)
+185a44a feat(config): FBI_HOST_* bind-source overrides
+c11c464 feat(screen): ScreenState.drain
+f2ea82c feat(types): RunWsHelloMessage
+d27925c feat(ws): hello-first protocol
+57e1cf2 refactor(ws): drop 200ms resize re-send
+c30e584 feat(web/ws): sendHello + onOpen
+76c4a08 feat(web): TerminalController class
+d8df61f refactor(terminal): Terminal.tsx → TerminalController
+c24fd0e refactor(web): remove onOpenOrNow/sendResync/requestResync
+b179ee7 refactor(ws): remove resync control frame
+```
+
+**Deferred as follow-ups (Minor from prior reviews):**
+- Re-hello snapshot build duplicates `sendSnapshot` logic; worth a helper.
+- `HELLO_TIMEOUT_MS = 1500` could be a named constant.
+- `orchestrator.resize(...).catch(() => {})` is repeated three times; could share.
+- Document `FBI_HOST_*` env vars in README for developers running FBI inside a dev container.
