@@ -96,10 +96,10 @@ defmodule FBI.Usage.CredentialsReader do
     File.mkdir_p!(dir)
 
     # `FileSystem.start_link/1` returns `:ignore` when the OS-level watcher
-     # (inotify on Linux, fsevents on macOS) can't start — most commonly when
-     # `inotify-tools` isn't installed. Treat it the same as `{:error, _}`:
-     # log and carry on without a watcher; the poller's scheduled cadence
-     # still catches credential changes within five minutes.
+    # (inotify on Linux, fsevents on macOS) can't start — most commonly when
+    # `inotify-tools` isn't installed. Treat it the same as `{:error, _}`:
+    # log and carry on without a watcher; the poller's scheduled cadence
+    # still catches credential changes within five minutes.
     watcher =
       case FileSystem.start_link(dirs: [dir]) do
         {:ok, pid} ->
