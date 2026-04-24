@@ -31,6 +31,56 @@ defmodule FBIWeb.Proxy.HttpTest do
   # Tests
   # ---------------------------------------------------------------------------
 
+  describe "body caching" do
+    # Regression: Plug.Parsers consumes the request body before the router
+    # runs, so the proxy's read_body returned empty and upstream hung waiting
+    # for bytes matching the forwarded content-length.
+    test "forwards the cached raw body when conn.assigns[:raw_body] is present" do
+      captured_body = :atomics.new(1, [])
+
+      stub = fn conn ->
+        {:ok, body, conn} = Plug.Conn.read_body(conn)
+        :atomics.put(captured_body, 1, byte_size(body))
+        # Stash the actual bytes in the response so the test can assert on them.
+        send_resp(conn, 200, body)
+      end
+
+      conn =
+        conn(:post, "/x", "")
+        |> put_req_header("content-type", "application/json")
+        |> assign(:raw_body, [~s({"name":"smoke"})])
+
+      opts =
+        Http.init(target: "http://127.0.0.1:3001", req_opts: [plug: stub])
+
+      result = Http.call(conn, opts)
+
+      assert result.status == 200
+      assert result.resp_body == ~s({"name":"smoke"})
+      assert :atomics.get(captured_body, 1) == byte_size(~s({"name":"smoke"}))
+    end
+
+    test "concatenates multiple chunks in the order they were read" do
+      stub = fn conn ->
+        {:ok, body, conn} = Plug.Conn.read_body(conn)
+        send_resp(conn, 200, body)
+      end
+
+      # RawBodyReader prepends chunks, so the cache is in reverse order.
+      # The proxy reverses before collapsing.
+      conn =
+        conn(:post, "/x", "")
+        |> put_req_header("content-type", "application/octet-stream")
+        |> assign(:raw_body, ["chunk3", "chunk2", "chunk1"])
+
+      opts = Http.init(target: "http://127.0.0.1:3001", req_opts: [plug: stub])
+
+      result = Http.call(conn, opts)
+
+      assert result.resp_body == "chunk1chunk2chunk3"
+    end
+  end
+
   describe "GET forwarding" do
     test "forwards GET and returns 200 with body" do
       stub = fn conn ->
