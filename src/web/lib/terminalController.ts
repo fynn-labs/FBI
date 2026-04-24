@@ -14,6 +14,12 @@ import type {
 
 const CHUNK_SIZE = 512 * 1024;
 const RESUME_SNAPSHOT_TIMEOUT_MS = 2000;
+// After a chunk load, we park the viewport just past the NEAR_TOP_LINES
+// prefetch threshold. Close enough that the user still sees the top of
+// what they just loaded; far enough that the settling scroll event
+// doesn't immediately re-fire loadOlderChunk and cascade-fetch everything.
+// Keep in sync with scrollDetection.NEAR_TOP_LINES (= 100).
+const NEAR_TOP_LINES_LANDING = 150;
 
 export type ChunkLoadState = 'idle' | 'loading' | 'error';
 
@@ -574,7 +580,6 @@ export class TerminalController {
         if (abort.signal.aborted) { this.setChunkState('idle'); return; }
 
         const oldBaseY = this.term.buffer.active.baseY;
-        const oldViewportY = this.term.buffer.active.viewportY;
 
         const newLoaded = concat([chunk, this.loadedBytes]);
         // Gate onScroll (and onBytes, though paused already covers that)
@@ -589,9 +594,32 @@ export class TerminalController {
           if (this.disposed) return;
           if (abort.signal.aborted) { this.setChunkState('idle'); return; }
 
+          // Infinite-scroll UX: the user scrolled to the top to load more
+          // history. Land them just past the near-top threshold so:
+          //   (1) the newly-loaded chunk is visible at the top of their
+          //       viewport — what they asked for by scrolling up;
+          //   (2) viewportY ≥ NEAR_TOP_LINES, so the settling scroll event
+          //       doesn't immediately re-trigger loadOlderChunk, which would
+          //       cascade-fetch every remaining chunk at once.
+          // Preserving the old content position (oldViewportY + addedLines)
+          // would push the scrollbar indicator further toward the bottom
+          // on every load — the user's "rubber-banding to the bottom".
           const newBaseY = this.term.buffer.active.baseY;
           const addedLines = newBaseY - oldBaseY;
-          this.term.scrollToLine(oldViewportY + addedLines);
+          this.term.scrollToLine(NEAR_TOP_LINES_LANDING);
+          // xterm's Viewport syncs DOM scrollTop to viewportY on its next
+          // render tick, but during a rebuild the writes auto-scroll the
+          // DOM to the bottom and the sync-back can lag — the user sees
+          // the scrollbar briefly at the bottom before settling. Force
+          // the DOM scrollTop now so the scrollbar lands at the correct
+          // position atomically with the rebuild. Uses scrollHeight /
+          // (baseY + rows) to derive cellHeight without depending on
+          // xterm internals.
+          const viewportEl = this.host.querySelector('.xterm-viewport') as HTMLElement | null;
+          if (viewportEl && newBaseY > 0) {
+            const cellHeight = viewportEl.scrollHeight / (newBaseY + this.term.rows);
+            viewportEl.scrollTop = NEAR_TOP_LINES_LANDING * cellHeight;
+          }
 
           this.loadedBytes = newLoaded;
           this.loadedStartOffset = start;
