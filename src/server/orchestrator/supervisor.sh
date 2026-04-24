@@ -26,26 +26,35 @@
 
 set -euo pipefail
 
+# ── styled output helpers ─────────────────────────────────────────────────────
+# Assumes UTF-8 locale + ANSI SGR terminal (xterm.js). _fbi_fatal callers must exit explicitly.
+_fbi_status() { printf '\033[97m○\033[0m  %s\n'           "$*"; }
+_fbi_cmd()    { printf '\033[32m$\033[0m  \033[36m%s\033[0m\n' "$*"; }
+_fbi_warn()   { printf '\033[33m⚠\033[0m  \033[33m%s\033[0m\n' "$*" >&2; }
+_fbi_fatal()  { printf '\033[31m✕\033[0m  \033[31m%s\033[0m\n' "$*" >&2; }
+# ─────────────────────────────────────────────────────────────────────────────
+
 export SSH_AUTH_SOCK=/ssh-agent
 
 if [ -n "${FBI_MARKETPLACES:-}" ]; then
     while IFS= read -r mkt; do
         [ -z "$mkt" ] && continue
-        echo "[fbi] adding marketplace: $mkt"
-        claude plugin marketplace add "$mkt" || echo "[fbi] warn: marketplace add failed: $mkt"
+        _fbi_status "adding marketplace $mkt"
+        claude plugin marketplace add "$mkt" || _fbi_warn "marketplace add failed: $mkt"
     done <<< "$FBI_MARKETPLACES"
 fi
 if [ -n "${FBI_PLUGINS:-}" ]; then
     while IFS= read -r plug; do
         [ -z "$plug" ] && continue
-        echo "[fbi] installing plugin: $plug"
-        claude plugin install "$plug" || echo "[fbi] warn: plugin install failed: $plug"
+        _fbi_status "installing plugin $plug"
+        claude plugin install "$plug" || _fbi_warn "plugin install failed: $plug"
     done <<< "$FBI_PLUGINS"
 fi
 
 cd /workspace
 
-git clone --recurse-submodules "$REPO_URL" . || { echo "clone failed"; exit 10; }
+_fbi_cmd "git clone $REPO_URL ."
+git clone --recurse-submodules "$REPO_URL" . || { _fbi_fatal "clone failed"; exit 10; }
 
 PRIMARY_BRANCH="${FBI_BRANCH:-claude/run-${RUN_ID}}"
 
@@ -59,7 +68,7 @@ fi
 # Register the safeguard remote. Idempotent.
 git remote add safeguard /safeguard 2>/dev/null \
     || git remote set-url safeguard /safeguard \
-    || { echo "[fbi] fatal: could not register safeguard remote"; exit 14; }
+    || { _fbi_fatal "could not register safeguard remote"; exit 14; }
 
 # Checkout the primary branch. Resume mode prefers safeguard; fresh mode
 # prefers origin; both fall back to creating the branch locally.
@@ -67,8 +76,9 @@ CHECKED_OUT=0
 if [ -n "${FBI_RESUME_SESSION_ID:-}" ]; then
     if git fetch --quiet safeguard "$PRIMARY_BRANCH" 2>/dev/null; then
         if git rev-parse --verify --quiet "safeguard/$PRIMARY_BRANCH" >/dev/null 2>&1; then
+            _fbi_cmd "git checkout -B $PRIMARY_BRANCH safeguard/$PRIMARY_BRANCH"
             git checkout -B "$PRIMARY_BRANCH" "safeguard/$PRIMARY_BRANCH" \
-                || { echo "[fbi] fatal: could not restore from safeguard/$PRIMARY_BRANCH"; exit 13; }
+                || { _fbi_fatal "could not restore from safeguard/$PRIMARY_BRANCH"; exit 13; }
             CHECKED_OUT=1
         fi
     fi
@@ -76,14 +86,17 @@ fi
 
 if [ "$CHECKED_OUT" = "0" ]; then
     if [ "$HAS_ORIGIN" = "1" ] && git rev-parse --verify --quiet "origin/$PRIMARY_BRANCH" >/dev/null 2>&1; then
+        _fbi_cmd "git checkout -B $PRIMARY_BRANCH origin/$PRIMARY_BRANCH"
         git checkout -B "$PRIMARY_BRANCH" "origin/$PRIMARY_BRANCH" \
-            || { echo "[fbi] fatal: could not switch to $PRIMARY_BRANCH"; exit 13; }
+            || { _fbi_fatal "could not switch to $PRIMARY_BRANCH"; exit 13; }
     else
+        _fbi_cmd "git checkout -b $PRIMARY_BRANCH"
         git checkout -b "$PRIMARY_BRANCH" \
-            || { echo "[fbi] fatal: could not create branch $PRIMARY_BRANCH"; exit 13; }
+            || { _fbi_fatal "could not create branch $PRIMARY_BRANCH"; exit 13; }
         if [ "$HAS_ORIGIN" = "1" ]; then
+            _fbi_cmd "git push -u origin $PRIMARY_BRANCH"
             git push -u origin "$PRIMARY_BRANCH" \
-                || echo "[fbi] warn: initial push of $PRIMARY_BRANCH to origin failed"
+                || _fbi_warn "initial push of $PRIMARY_BRANCH to origin failed"
         fi
     fi
 fi
@@ -138,7 +151,7 @@ chmod +x .git/hooks/post-commit
 #   resume: use $FBI_RESUME_SESSION_ID to continue an existing session.
 set +e
 if [ -n "${FBI_RESUME_SESSION_ID:-}" ]; then
-    echo "[fbi] resuming claude session $FBI_RESUME_SESSION_ID"
+    _fbi_status "resuming session $FBI_RESUME_SESSION_ID"
     touch /fbi-state/waiting
     claude --resume "$FBI_RESUME_SESSION_ID" --dangerously-skip-permissions
     CLAUDE_EXIT=$?
@@ -150,7 +163,7 @@ else
             printf '\n\n---\n\n' >> /tmp/prompt.txt
         fi
     done
-    [ -f /fbi/prompt.txt ] || { echo "prompt.txt not found in /fbi"; exit 12; }
+    [ -f /fbi/prompt.txt ] || { _fbi_fatal "prompt.txt not found in /fbi"; exit 12; }
     cat /fbi/prompt.txt >> /tmp/prompt.txt
     touch /fbi-state/prompted
     claude --dangerously-skip-permissions < /tmp/prompt.txt
