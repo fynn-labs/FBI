@@ -8,6 +8,8 @@ defmodule FBIWeb.Router do
   scope "/api", FBIWeb do
     pipe_through :api
 
+    get "/health", HealthController, :show
+
     get "/usage", UsageController, :show
     get "/usage/daily", UsageController, :daily
     get "/usage/runs/:id", UsageController, :run_breakdown

@@ -21,6 +21,13 @@ config :fbi, proxy_target: "http://127.0.0.1:3001"
 config :fbi, cli_dist_dir: "dist/cli"
 config :fbi, fbi_cli_version: nil
 
+# Filesystem + secrets + docker for Phases 3–8.  Overridden per-environment
+# in runtime.exs.  Defaults suit local dev / mix test.
+config :fbi, runs_dir: Path.join(System.tmp_dir!(), "fbi-runs")
+config :fbi, draft_uploads_dir: Path.join(System.tmp_dir!(), "fbi-draft-uploads")
+config :fbi, secrets_key_path: Path.join(System.tmp_dir!(), "fbi-secrets.key")
+config :fbi, docker_socket_path: "/var/run/docker.sock"
+
 # Configure the endpoint
 config :fbi, FBIWeb.Endpoint,
   url: [host: "localhost"],
