@@ -63,6 +63,7 @@ class KeyMap {
     const k = e.key.toLowerCase();
     const typing = isTyping(e.target);
     const mod = e.metaKey || e.ctrlKey;
+    const shift = e.shiftKey;
 
     if (this.pendingLeader) {
       const a = this.pendingLeader;
@@ -83,6 +84,7 @@ class KeyMap {
       if (p.kind === 'single') {
         if (p.key !== k) continue;
         if (p.mod !== mod) continue;
+        if (p.shift !== shift) continue;
         if (!p.mod && typing) continue;
         if (b.when && !b.when()) continue;
         e.preventDefault();
