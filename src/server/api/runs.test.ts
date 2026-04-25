@@ -627,6 +627,28 @@ describe('runs routes', () => {
       expect(res.statusCode).toBe(200);
       expect(received).toEqual({ op: 'push-submodule', path: 'foo' });
     });
+
+    it('returns git-unavailable with message when execHistoryOp throws', async () => {
+      const { dir, projects, runs, run } = setupRun();
+      const app = Fastify();
+      registerRunsRoutes(app, {
+        runs, projects, streams: new RunStreamRegistry(), runsDir: dir, draftUploadsDir: dir,
+        launch: async () => {}, cancel: async () => {},
+        fireResumeNow: () => {}, continueRun: async () => {},
+        markStartingForContinueRequest: () => {},
+        gh: stubGh,
+        orchestrator: {
+          ...stubOrchestrator,
+          execHistoryOp: async () => { throw new Error('Docker daemon not running'); },
+        },
+        wipRepo: stubWipRepo,
+      });
+      const res = await app.inject({ method: 'POST', url: `/api/runs/${run.id}/history`, payload: { op: 'merge' } });
+      expect(res.statusCode).toBe(200);
+      const body = res.json() as { kind: string; message: string };
+      expect(body.kind).toBe('git-unavailable');
+      expect(body.message).toBe('Docker daemon not running');
+    });
   });
 
   it('GET /api/runs/:id/transcript returns full body and X-Transcript-Total with no Range', async () => {

@@ -595,8 +595,8 @@ export function registerRunsRoutes(app: FastifyInstance, deps: Deps): void {
     let result: ParsedOpResult;
     try {
       result = await deps.orchestrator.execHistoryOp(runId, resolved);
-    } catch {
-      return { kind: 'git-unavailable' } satisfies HistoryResult;
+    } catch (e) {
+      return { kind: 'git-unavailable', message: e instanceof Error ? e.message : String(e) } satisfies HistoryResult;
     }
 
     if (result.kind === 'complete') {
