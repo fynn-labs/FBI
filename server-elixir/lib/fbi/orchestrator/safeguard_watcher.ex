@@ -22,11 +22,24 @@ defmodule FBI.Orchestrator.SafeguardWatcher do
       fs_pid: nil
     }
 
-    {:ok, fs_pid} = FileSystem.start_link(dirs: [state.bare_dir])
+    # FileSystem returns :ignore when its backend can't bootstrap (e.g.
+    # inotify-tools missing on Linux). Fall back to no-watcher mode: emit
+    # the initial snapshot once so the UI gets a baseline, then sit idle.
+    # The lifecycle must not die just because git-change notifications are
+    # unavailable.
+    state =
+      case FileSystem.start_link(dirs: [state.bare_dir]) do
+        {:ok, fs_pid} ->
+          FileSystem.subscribe(fs_pid)
+          %{state | fs_pid: fs_pid}
 
-    FileSystem.subscribe(fs_pid)
+        :ignore ->
+          state
 
-    state = %{state | fs_pid: fs_pid}
+        {:error, _reason} ->
+          state
+      end
+
     state = emit(state)
     {:ok, state}
   end

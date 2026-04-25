@@ -147,6 +147,12 @@ defmodule FBI.Orchestrator.RunServer do
 
     task =
       Task.async(fn ->
+        # Trap exits so a child watcher whose init crashes (or any other
+        # linked helper that dies mid-lifecycle) becomes an :EXIT message
+        # we can ignore via safe_start/2 instead of cascading into the
+        # lifecycle task and tearing down the docker sockets it owns.
+        Process.flag(:trap_exit, true)
+
         try do
           run_lifecycle(mode, state.run_id, state.config, parent)
         catch
@@ -225,8 +231,12 @@ defmodule FBI.Orchestrator.RunServer do
 
   @impl true
   def terminate(_reason, state) do
+    # "queued" is included so a lifecycle that dies before
+    # mark_starting_from_queued (e.g. image-resolve / create_container
+    # failures) doesn't leave the run pinned in 'queued' forever — the UI
+    # only offers Continue/retry once a run reaches a terminal state.
     case Queries.get(state.run_id) do
-      {:ok, %{state: s}} when s in ["starting", "running", "waiting"] ->
+      {:ok, %{state: s}} when s in ["queued", "starting", "running", "waiting"] ->
         Queries.mark_finished(state.run_id, %{
           state: "failed",
           error: "orchestrator process crashed"
@@ -325,10 +335,10 @@ defmodule FBI.Orchestrator.RunServer do
       Queries.mark_starting_from_queued(run_id, container_id)
       publish_state(run_id)
 
-      {:ok, tailer} = start_usage_tailer(run_id, mount_dir)
-      {:ok, title_watcher} = start_title_watcher(run_id, state_dir)
-      {:ok, safeguard_watcher} = start_safeguard_watcher(run_id, wip_repo_path, run.branch_name)
-      {:ok, mirror_poller} = start_mirror_poller(run_id, state_dir)
+      tailer = start_usage_tailer(run_id, mount_dir)
+      title_watcher = start_title_watcher(run_id, state_dir)
+      safeguard_watcher = start_safeguard_watcher(run_id, wip_repo_path, run.branch_name)
+      mirror_poller = start_mirror_poller(run_id, state_dir)
 
       result =
         await_and_complete(run_id, container_id, on_bytes, settings, config, server_pid)
@@ -427,10 +437,10 @@ defmodule FBI.Orchestrator.RunServer do
       Queries.mark_starting_for_resume(run_id, container_id)
       publish_state(run_id)
 
-      {:ok, tailer} = start_usage_tailer(run_id, mount_dir)
-      {:ok, title_watcher} = start_title_watcher(run_id, state_dir)
-      {:ok, safeguard_watcher} = start_safeguard_watcher(run_id, wip_repo_path, run.branch_name)
-      {:ok, mirror_poller} = start_mirror_poller(run_id, state_dir)
+      tailer = start_usage_tailer(run_id, mount_dir)
+      title_watcher = start_title_watcher(run_id, state_dir)
+      safeguard_watcher = start_safeguard_watcher(run_id, wip_repo_path, run.branch_name)
+      mirror_poller = start_mirror_poller(run_id, state_dir)
 
       result =
         await_and_complete(run_id, container_id, on_bytes, settings, config, server_pid)
@@ -507,10 +517,10 @@ defmodule FBI.Orchestrator.RunServer do
       Queries.mark_starting_container(run_id, container_id)
       publish_state(run_id)
 
-      {:ok, tailer} = start_usage_tailer(run_id, mount_dir)
-      {:ok, title_watcher} = start_title_watcher(run_id, state_dir)
-      {:ok, safeguard_watcher} = start_safeguard_watcher(run_id, wip_repo_path, run.branch_name)
-      {:ok, mirror_poller} = start_mirror_poller(run_id, state_dir)
+      tailer = start_usage_tailer(run_id, mount_dir)
+      title_watcher = start_title_watcher(run_id, state_dir)
+      safeguard_watcher = start_safeguard_watcher(run_id, wip_repo_path, run.branch_name)
+      mirror_poller = start_mirror_poller(run_id, state_dir)
 
       result =
         await_and_complete(run_id, container_id, on_bytes, settings, config, server_pid)
@@ -551,10 +561,10 @@ defmodule FBI.Orchestrator.RunServer do
 
       _runtime_watcher = start_runtime_watcher(run_id, state_dir)
 
-      {:ok, tailer} = start_usage_tailer(run_id, mount_dir)
-      {:ok, title_watcher} = start_title_watcher(run_id, state_dir)
-      {:ok, safeguard_watcher} = start_safeguard_watcher(run_id, wip_repo_path, run.branch_name)
-      {:ok, mirror_poller} = start_mirror_poller(run_id, state_dir)
+      tailer = start_usage_tailer(run_id, mount_dir)
+      title_watcher = start_title_watcher(run_id, state_dir)
+      safeguard_watcher = start_safeguard_watcher(run_id, wip_repo_path, run.branch_name)
+      mirror_poller = start_mirror_poller(run_id, state_dir)
 
       result =
         await_and_complete(run_id, container_id, on_bytes, settings, config, server_pid)
@@ -743,89 +753,140 @@ defmodule FBI.Orchestrator.RunServer do
   # Watcher helpers
   # ---------------------------------------------------------------------------
 
-  defp start_usage_tailer(run_id, mount_dir) do
-    UsageTailer.start_link(
-      dir: mount_dir,
-      poll_ms: 500,
-      on_usage: fn snapshot ->
-        Phoenix.PubSub.broadcast(
-          FBI.PubSub,
-          "run:#{run_id}:events",
-          {:event, %{type: "usage", snapshot: snapshot}}
-        )
-      end,
-      on_rate_limit: fn snap ->
-        case Registry.lookup(FBI.Orchestrator.Registry, run_id) do
-          [{pid, _}] -> GenServer.cast(pid, {:set_rate_limit, snap})
-          [] -> :ok
-        end
+  # Tolerantly start a linked watcher: log on any failure mode and return
+  # `nil` instead of raising. Drains the trailing :EXIT message a failed
+  # start_link leaves in the mailbox of a trap_exit-aware caller, so those
+  # don't leak into later receives in the lifecycle task. Callers must not
+  # pattern-match on `{:ok, _}` — check `is_pid(pid)` if they need it, or
+  # rely on stop_watchers/1 (which already tolerates nil/dead pids).
+  defp safe_start(label, fun) do
+    result =
+      try do
+        fun.()
+      rescue
+        e ->
+          Logger.warning("RunServer: error starting #{label}: #{inspect(e)}")
+          {:error, e}
+      catch
+        :exit, reason ->
+          Logger.warning("RunServer: exit while starting #{label}: #{inspect(reason)}")
+          {:error, reason}
+      end
 
-        if snap.reset_at, do: Queries.update_last_limit_reset_at(run_id, snap.reset_at)
-      end,
-      on_error: fn _reason -> :ok end
-    )
+    case result do
+      {:ok, pid} when is_pid(pid) ->
+        pid
+
+      other ->
+        Logger.warning("RunServer: #{label} did not start cleanly: #{inspect(other)}")
+        drain_exits()
+        nil
+    end
+  end
+
+  # trap_exit means a watcher whose init crashed has queued an :EXIT
+  # message for us. Drain any that are immediately ready so they don't
+  # accumulate in the mailbox or get mistaken for the lifecycle task ref
+  # message later.
+  defp drain_exits do
+    receive do
+      {:EXIT, _pid, _reason} -> drain_exits()
+    after
+      0 -> :ok
+    end
+  end
+
+  defp start_usage_tailer(run_id, mount_dir) do
+    safe_start("UsageTailer", fn ->
+      UsageTailer.start_link(
+        dir: mount_dir,
+        poll_ms: 500,
+        on_usage: fn snapshot ->
+          Phoenix.PubSub.broadcast(
+            FBI.PubSub,
+            "run:#{run_id}:events",
+            {:event, %{type: "usage", snapshot: snapshot}}
+          )
+        end,
+        on_rate_limit: fn snap ->
+          case Registry.lookup(FBI.Orchestrator.Registry, run_id) do
+            [{pid, _}] -> GenServer.cast(pid, {:set_rate_limit, snap})
+            [] -> :ok
+          end
+
+          if snap.reset_at, do: Queries.update_last_limit_reset_at(run_id, snap.reset_at)
+        end,
+        on_error: fn _reason -> :ok end
+      )
+    end)
   end
 
   defp start_title_watcher(run_id, state_dir) do
-    TitleWatcher.start_link(
-      path: Path.join(state_dir, "session-name"),
-      poll_ms: 1000,
-      on_title: fn title ->
-        Queries.update_title(run_id, title, false)
+    safe_start("TitleWatcher", fn ->
+      TitleWatcher.start_link(
+        path: Path.join(state_dir, "session-name"),
+        poll_ms: 1000,
+        on_title: fn title ->
+          Queries.update_title(run_id, title, false)
 
-        case Queries.get(run_id) do
-          {:ok, run} ->
-            Phoenix.PubSub.broadcast(
-              FBI.PubSub,
-              "run:#{run_id}:events",
-              {:event, %{type: "title", title: run.title, title_locked: run.title_locked}}
-            )
+          case Queries.get(run_id) do
+            {:ok, run} ->
+              Phoenix.PubSub.broadcast(
+                FBI.PubSub,
+                "run:#{run_id}:events",
+                {:event, %{type: "title", title: run.title, title_locked: run.title_locked}}
+              )
 
-          _ ->
-            :ok
+            _ ->
+              :ok
+          end
         end
-      end
-    )
+      )
+    end)
   end
 
   defp start_safeguard_watcher(run_id, wip_repo_path, branch_name) do
-    SafeguardWatcher.start_link(
-      bare_dir: wip_repo_path,
-      branch: branch_name || "claude/run-#{run_id}",
-      on_snapshot: fn snap ->
-        case Queries.get(run_id) do
-          {:ok, run} ->
-            Phoenix.PubSub.broadcast(FBI.PubSub, "run:#{run_id}:events", {
-              :event,
-              %{
-                type: "changes",
-                branch_name: run.branch_name,
-                branch_base: snap.branch_base,
-                commits: [],
-                uncommitted: snap.dirty,
-                integrations: %{},
-                dirty_submodules: [],
-                children: []
-              }
-            })
+    safe_start("SafeguardWatcher", fn ->
+      SafeguardWatcher.start_link(
+        bare_dir: wip_repo_path,
+        branch: branch_name || "claude/run-#{run_id}",
+        on_snapshot: fn snap ->
+          case Queries.get(run_id) do
+            {:ok, run} ->
+              Phoenix.PubSub.broadcast(FBI.PubSub, "run:#{run_id}:events", {
+                :event,
+                %{
+                  type: "changes",
+                  branch_name: run.branch_name,
+                  branch_base: snap.branch_base,
+                  commits: [],
+                  uncommitted: snap.dirty,
+                  integrations: %{},
+                  dirty_submodules: [],
+                  children: []
+                }
+              })
 
-          _ ->
-            :ok
+            _ ->
+              :ok
+          end
         end
-      end
-    )
+      )
+    end)
   end
 
   defp start_mirror_poller(run_id, state_dir) do
-    MirrorStatusPoller.start_link(
-      path: Path.join(state_dir, "mirror-status"),
-      poll_ms: 1000,
-      on_change: fn status -> Queries.set_mirror_status(run_id, status) end
-    )
+    safe_start("MirrorStatusPoller", fn ->
+      MirrorStatusPoller.start_link(
+        path: Path.join(state_dir, "mirror-status"),
+        poll_ms: 1000,
+        on_change: fn status -> Queries.set_mirror_status(run_id, status) end
+      )
+    end)
   end
 
   defp start_limit_monitor(_run_id, mount_dir, container_id, attach_socket, settings, on_bytes) do
-    {:ok, pid} =
+    safe_start("LimitMonitor", fn ->
       LimitMonitor.start_link(
         mount_dir: mount_dir,
         on_detect: fn ->
@@ -843,12 +904,11 @@ defmodule FBI.Orchestrator.RunServer do
           end
         end
       )
-
-    pid
+    end)
   end
 
   defp start_runtime_watcher(run_id, state_dir) do
-    {:ok, pid} =
+    safe_start("RuntimeStateWatcher", fn ->
       RuntimeStateWatcher.start_link(
         waiting_path: Path.join(state_dir, "waiting"),
         prompted_path: Path.join(state_dir, "prompted"),
@@ -866,8 +926,7 @@ defmodule FBI.Orchestrator.RunServer do
             :ok
         end
       )
-
-    pid
+    end)
   end
 
   defp stop_watchers(pids) do
