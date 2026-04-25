@@ -69,6 +69,11 @@
   --terminal-bg: #060a0f;
   --terminal-fg: #e2e8f0;
 
+  /* macOS traffic light colours — fixed, not theme-dependent */
+  --traffic-red: #FF5F56;
+  --traffic-yellow: #FFBD2E;
+  --traffic-green: #27C93F;
+
   color-scheme: dark;
 }
 

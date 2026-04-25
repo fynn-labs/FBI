@@ -61,6 +61,36 @@ function makeRateLimitContainer(logBytes: Buffer): Docker.Container {
   } as unknown as Docker.Container;
 }
 
+// Models the post-nudge clean-exit case: LimitMonitor fired (Ctrl-C^Ctrl-C),
+// Claude's TUI handled it gracefully and exited 0, finalizeBranch.sh wrote a
+// clean result.json. The bytes pushed through the attach stream contain the
+// rate-limit signal so classify() picks it up from the log tail.
+function makeNudgedCleanExitContainer(
+  logBytes: Buffer,
+  onStart: () => void,
+): Docker.Container {
+  const attachStream = new PassThrough();
+  let resultTar: NodeJS.ReadableStream | undefined;
+  return {
+    id: 'nudged-clean-exit-container',
+    putArchive: async () => {},
+    attach: async () => attachStream,
+    start: async () => {
+      attachStream.push(logBytes);
+      attachStream.push(null);
+      resultTar = await makeResultTar(0, 0, 'deadbeef', 'feat/fix');
+      onStart();
+    },
+    wait: async () => ({ StatusCode: 0 }),
+    inspect: async () => ({ State: { OOMKilled: false } }),
+    getArchive: async () => {
+      if (!resultTar) throw new Error('getArchive called before start()');
+      return resultTar;
+    },
+    remove: async () => {},
+  } as unknown as Docker.Container;
+}
+
 function makeSuccessContainer(exitCode = 0, pushExit = 0): Docker.Container {
   const attachStream = new PassThrough();
   let resultTar: NodeJS.ReadableStream | undefined;
@@ -155,6 +185,46 @@ describe('autoResume flow (stubbed Docker)', () => {
     const createArgs = vi.mocked(mockDocker.createContainer).mock.calls[0][0];
     const binds = createArgs.HostConfig!.Binds as string[];
     expect(binds).toContainEqual(`${runUploadsDir(dir, run.id)}:/fbi/uploads:ro`);
+  });
+
+  it('launch: clean exit + LimitMonitor fired transitions run to awaiting_resume', async () => {
+    // Regression: newer Claude Code shows the rate-limit message in-TUI and
+    // doesn't exit. LimitMonitor nudges with Ctrl-C^Ctrl-C; Claude's TUI
+    // handles it cleanly and exits with status 0. Without limitFired
+    // tracking, this clean exit was misclassified as 'succeeded' and the
+    // run never resumed.
+    const { dir, runs, p, settings, makeOrchestrator } = setup();
+    const run = runs.create({
+      project_id: p.id, prompt: 'fix tests',
+      log_path_tmpl: (id) => path.join(os.tmpdir(), `flow-nudged-${id}.log`),
+    });
+
+    settings.update({ auto_resume_enabled: true });
+
+    const futureEpochSecs = Math.floor((Date.now() + 60 * 60 * 1000) / 1000);
+    const rateLimitLog = Buffer.from(`Claude usage limit reached|${futureEpochSecs}\n`);
+
+    let orchRef: Orchestrator | null = null;
+    const container = makeNudgedCleanExitContainer(rateLimitLog, () => {
+      // Stand in for LimitMonitor.onDetect() — driving the real monitor
+      // would require waiting out the 60s warmup.
+      (orchRef as unknown as { limitFired: Map<number, boolean> })
+        .limitFired.set(run.id, true);
+    });
+    const mockDocker = {
+      createContainer: vi.fn().mockResolvedValue(container),
+    } as unknown as Docker;
+
+    const orch = makeOrchestrator(mockDocker);
+    orchRef = orch;
+
+    await orch.launch(run.id);
+
+    const updated = runs.get(run.id)!;
+    expect(updated.state).toBe('awaiting_resume');
+    expect(updated.next_resume_at).not.toBeNull();
+    expect(updated.resume_attempts).toBe(1);
+    expect(dir).toBeTruthy();
   });
 
   it('resume: success exit transitions run from awaiting_resume to succeeded', async () => {

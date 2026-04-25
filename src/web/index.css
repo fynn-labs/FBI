@@ -15,4 +15,16 @@
   html, body {
     overscroll-behavior: none;
   }
+
+  /*
+   * Without this, the browser has to wait for xterm's JS touch handlers
+   * before it knows whether to scroll — killing native momentum scrolling
+   * on mobile. pan-y tells it to take over vertical scroll immediately
+   * while still letting xterm see tap/selection events.
+   */
+  .xterm-viewport,
+  .xterm-screen,
+  .xterm-screen canvas {
+    touch-action: pan-y !important;
+  }
 }

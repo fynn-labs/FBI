@@ -4,7 +4,9 @@ import { Sidebar, type SidebarProject } from './Sidebar.js';
 import { Topbar } from './Topbar.js';
 import { StatusBar } from './StatusBar.js';
 import { CommandPalette } from './CommandPalette.js';
+import { ContextMenu } from './ContextMenu.js';
 import { keymap } from './KeyMap.js';
+import { PaneFocusProvider } from './PaneFocusContext.js';
 
 export interface AppShellProps {
   projects: readonly SidebarProject[];
@@ -28,14 +30,17 @@ export function AppShell({ projects, children, hideSidebar }: AppShellProps) {
   }, []);
 
   return (
-    <div className="h-screen w-screen flex flex-col bg-bg text-text">
-      <Topbar breadcrumb={breadcrumb} onOpenPalette={() => setPaletteOpen(true)} />
-      <div className="flex-1 min-h-0 flex">
-        {!hideSidebar && <Sidebar projects={projects} collapsed={sidebarCollapsed} />}
-        <main className="flex-1 min-w-0 min-h-0 overflow-auto">{children}</main>
+    <PaneFocusProvider>
+      <div className="h-screen w-screen flex flex-col bg-bg text-text">
+        <Topbar breadcrumb={breadcrumb} onOpenPalette={() => setPaletteOpen(true)} />
+        <div className="flex-1 min-h-0 flex">
+          {!hideSidebar && <Sidebar projects={projects} collapsed={sidebarCollapsed} />}
+          <main className="flex-1 min-w-0 min-h-0 overflow-auto">{children}</main>
+        </div>
+        <StatusBar />
+        <CommandPalette open={paletteOpen} onClose={() => setPaletteOpen(false)} />
+        <ContextMenu />
       </div>
-      <StatusBar />
-      <CommandPalette open={paletteOpen} onClose={() => setPaletteOpen(false)} />
-    </div>
+    </PaneFocusProvider>
   );
 }

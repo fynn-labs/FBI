@@ -1,35 +1,25 @@
-.PHONY: build test install clean dist
+.PHONY: build test install clean
 
 DIST := dist
-OUT ?= $(DIST)
-BINARIES := \
-  $(DIST)/fbi-tunnel-darwin-amd64 \
-  $(DIST)/fbi-tunnel-darwin-arm64 \
-  $(DIST)/fbi-tunnel-linux-amd64 \
-  $(DIST)/fbi-tunnel-linux-arm64
+TARGETS := \
+  aarch64-apple-darwin \
+  x86_64-apple-darwin \
+  x86_64-unknown-linux-gnu \
+  aarch64-unknown-linux-gnu
 
-build: $(BINARIES)
-
-$(DIST)/fbi-tunnel-%:
+build:
 	@mkdir -p $(DIST)
-	GOOS=$(word 1,$(subst -, ,$*)) GOARCH=$(word 2,$(subst -, ,$*)) \
-	  go build -trimpath -ldflags='-s -w' -o $@ .
-
-dist:
-	@mkdir -p $(OUT)
-	@for os in darwin linux; do \
-	  for arch in amd64 arm64; do \
-	    CGO_ENABLED=0 GOOS=$$os GOARCH=$$arch \
-	      go build -trimpath -ldflags='-s -w' \
-	      -o $(OUT)/fbi-tunnel-$$os-$$arch . ; \
-	  done ; \
+	@for target in $(TARGETS); do \
+	  echo "building $$target..."; \
+	  cargo build --release --target $$target; \
+	  cp target/$$target/release/fbi-tunnel $(DIST)/fbi-tunnel-$$target; \
 	done
 
 test:
-	go test ./...
+	cargo test
 
 install:
-	go build -trimpath -ldflags='-s -w' -o $(HOME)/.local/bin/fbi-tunnel .
+	cargo install --path . --force
 
 clean:
 	rm -rf $(DIST)

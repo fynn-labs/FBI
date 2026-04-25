@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import type { Project, Run, ChangesPayload } from '@shared/types.js';
 import type { WipResponse } from '../features/runs/ChangesTab.js';
-import { api } from '../lib/api.js';
+import { api, apiBase } from '../lib/api.js';
 import { LoadingState } from '@ui/patterns/LoadingState.js';
 import { ErrorState } from '@ui/patterns/index.js';
 import { RunHeader } from '../features/runs/RunHeader.js';
@@ -20,6 +20,9 @@ import { subscribeState, subscribeTitle, subscribeChanges } from '../features/ru
 import { UploadTray, type UploadTrayFile } from '../components/UploadTray.js';
 import { ContinueRunDialog } from '../components/ContinueRunDialog.js';
 import { acquireShell, releaseShell } from '../lib/shellRegistry.js';
+import { contextMenuRegistry } from '@ui/shell/contextMenuRegistry.js';
+import { usePaneRegistration, usePaneFocus } from '@ui/shell/PaneFocusContext.js';
+import { cn } from '@ui/cn.js';
 
 export function RunDetailPage() {
   const params = useParams();
@@ -41,6 +44,15 @@ export function RunDetailPage() {
   const { height, setHeight } = useBottomPaneHeight();
 
   useKeyBinding({ chord: 'mod+j', handler: () => setDrawerOpen((v) => !v), description: 'Toggle run drawer' }, []);
+
+  usePaneRegistration('run-terminal', 2);
+  usePaneRegistration('run-bottom', 3);
+  const { isFocused: terminalFocused, focus: focusTerminal } = usePaneFocus('run-terminal');
+  const { isFocused: bottomFocused, focus: focusBottom } = usePaneFocus('run-bottom');
+
+  useEffect(() => {
+    if (bottomFocused) setDrawerOpen(true);
+  }, [bottomFocused]);
 
   useEffect(() => {
     let alive = true;
@@ -183,6 +195,24 @@ export function RunDetailPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [run?.id, run?.state]);
 
+  useEffect(() => {
+    if (!run) return;
+    return contextMenuRegistry.register('run-detail', () => [
+      {
+        id: 'copy-run-id',
+        label: 'Copy run ID',
+        onSelect: () => void navigator.clipboard.writeText(`#${run.id}`),
+      },
+      ...(run.branch_name
+        ? [{
+            id: 'copy-branch',
+            label: 'Copy branch name',
+            onSelect: () => void navigator.clipboard.writeText(run.branch_name!),
+          }]
+        : []),
+    ]);
+  }, [run]);
+
   if (error) return <ErrorState message={error} />;
   if (!run) return <LoadingState label="Loading run…" />;
   const interactive = run.state === 'running' || run.state === 'queued' || run.state === 'waiting' || run.state === 'starting';
@@ -243,12 +273,23 @@ export function RunDetailPage() {
   const shipDot = changes ? computeShipDot(changes) : null;
 
   return (
-    <div className="h-full flex flex-col min-h-0">
+    <div
+      className="h-full flex flex-col min-h-0"
+      data-context-id="run-detail"
+      data-context-run-id={String(run.id)}
+    >
       <RunHeader run={run} onCancel={cancel} onDelete={remove} onContinue={openContinueDialog} onRenamed={setRun} />
       <div className="flex-1 min-h-0 flex flex-col">
         <div
           ref={terminalPaneRef}
-          className="flex-1 min-h-0 relative flex flex-col overflow-hidden data-[upload-drag-active=true]:ring-2 data-[upload-drag-active=true]:ring-accent data-[upload-drag-active=true]:ring-inset transition-[box-shadow] duration-fast ease-out"
+          data-pane-id="run-terminal"
+          onClick={focusTerminal}
+          className={cn(
+            'flex-1 min-h-0 relative flex flex-col overflow-hidden border-t-2',
+            'data-[upload-drag-active=true]:ring-2 data-[upload-drag-active=true]:ring-accent data-[upload-drag-active=true]:ring-inset',
+            'transition-[box-shadow,border-color] duration-fast ease-out',
+            terminalFocused ? 'border-accent' : 'border-transparent',
+          )}
         >
           <RunTerminal runId={run.id} interactive={interactive} />
         </div>
@@ -273,24 +314,29 @@ export function RunDetailPage() {
             totalBytes={attached.reduce((n, f) => n + f.size, 0)}
           />
         </div>
-        <RunDrawer
-          open={drawerOpen}
-          onToggle={setDrawerOpen}
-          changesCount={changesCount}
-          portsCount={run.state === 'running' || run.state === 'waiting' ? ports.length : null}
-          shipDot={shipDot}
-          height={height}
-          onHeightChange={setHeight}
-        >
-          {(t) =>
-            t === 'changes' ? <ChangesTab run={run} project={project} changes={changes} wip={wip} /> :
-            t === 'ship'    ? <ShipTab run={run} project={project} changes={changes}
-                                       onCreatePr={onCreatePr} creatingPr={creatingPr} onReload={onReload} /> :
-            t === 'tunnel'  ? <TunnelTab runId={run.id} runState={run.state}
-                                         origin={window.location.origin} ports={ports} /> :
-                              <MetaTab run={run} siblings={siblings} />
-          }
-        </RunDrawer>
+        <div className="relative" onClick={focusBottom}>
+          {bottomFocused && (
+            <div className="absolute inset-x-0 top-0 h-0.5 bg-accent z-10 pointer-events-none" aria-hidden="true" />
+          )}
+          <RunDrawer
+            open={drawerOpen}
+            onToggle={setDrawerOpen}
+            changesCount={changesCount}
+            portsCount={run.state === 'running' || run.state === 'waiting' ? ports.length : null}
+            shipDot={shipDot}
+            height={height}
+            onHeightChange={setHeight}
+          >
+            {(t) =>
+              t === 'changes' ? <ChangesTab run={run} project={project} changes={changes} wip={wip} /> :
+              t === 'ship'    ? <ShipTab run={run} project={project} changes={changes}
+                                         onCreatePr={onCreatePr} creatingPr={creatingPr} onReload={onReload} /> :
+              t === 'tunnel'  ? <TunnelTab runId={run.id} runState={run.state}
+                                           origin={apiBase() || window.location.origin} ports={ports} /> :
+                                <MetaTab run={run} siblings={siblings} />
+            }
+          </RunDrawer>
+        </div>
       </div>
       {run && (
         <ContinueRunDialog

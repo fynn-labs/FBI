@@ -63,3 +63,33 @@ describe('KeyMap', () => {
     expect(fn).toHaveBeenCalledOnce();
   });
 });
+
+describe('KeyMap — shift matching', () => {
+  it('shift+tab does NOT fire on plain Tab', () => {
+    const handler = vi.fn();
+    keymap.register({ chord: 'shift+tab', handler });
+    press('Tab', { shiftKey: false });
+    expect(handler).not.toHaveBeenCalled();
+  });
+
+  it('shift+tab DOES fire on Shift+Tab', () => {
+    const handler = vi.fn();
+    keymap.register({ chord: 'shift+tab', handler });
+    press('Tab', { shiftKey: true });
+    expect(handler).toHaveBeenCalledOnce();
+  });
+
+  it('plain tab binding does NOT fire on Shift+Tab', () => {
+    const handler = vi.fn();
+    keymap.register({ chord: 'tab', handler });
+    press('Tab', { shiftKey: true });
+    expect(handler).not.toHaveBeenCalled();
+  });
+
+  it('plain tab binding fires on plain Tab', () => {
+    const handler = vi.fn();
+    keymap.register({ chord: 'tab', handler });
+    press('Tab', { shiftKey: false });
+    expect(handler).toHaveBeenCalledOnce();
+  });
+});

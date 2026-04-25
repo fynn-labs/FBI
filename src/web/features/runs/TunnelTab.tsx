@@ -66,7 +66,7 @@ export function TunnelTab({ runId, runState, origin, ports, detected }: TunnelTa
             containerLive ? 'bg-accent text-surface border-accent hover:bg-accent-strong'
                        : 'bg-surface-raised text-text-faint border-border cursor-not-allowed pointer-events-none'
           }`}
-          href={`/api/cli/fbi-tunnel/${plat.os}/${plat.arch}`}
+          href={`${origin}/api/cli/fbi-tunnel/${plat.os}/${plat.arch}`}
           download
           aria-label={`Download fbi-tunnel for ${OS_LABEL[plat.os]} (${plat.arch})`}
         >
@@ -87,7 +87,7 @@ export function TunnelTab({ runId, runState, origin, ports, detected }: TunnelTa
           {ALL.filter((p) => platformKey(p) !== platformKey(plat)).map((p) => (
             <li key={platformKey(p)}>
               <a className="text-accent hover:text-accent-strong underline"
-                 href={`/api/cli/fbi-tunnel/${p.os}/${p.arch}`}
+                 href={`${origin}/api/cli/fbi-tunnel/${p.os}/${p.arch}`}
                  download
                  aria-label={`${p.os}/${p.arch}`}>
                 {p.os}/{p.arch}

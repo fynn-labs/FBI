@@ -63,7 +63,11 @@ defmodule FBIWeb.TranscriptControllerTest do
     conn = get(conn, "/api/runs/#{r.id}/transcript")
     assert conn.status == 200
     assert conn.resp_body == content
-    assert Plug.Conn.get_resp_header(conn, "x-transcript-total") == [Integer.to_string(byte_size(content))]
+
+    assert Plug.Conn.get_resp_header(conn, "x-transcript-total") == [
+             Integer.to_string(byte_size(content))
+           ]
+
     assert "text/plain; charset=utf-8" in Plug.Conn.get_resp_header(conn, "content-type")
 
     File.rm(path)

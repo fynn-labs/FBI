@@ -19,7 +19,7 @@ vi.mock('../features/runs/usageBus.js', () => ({
   publishFiles: vi.fn(),
 }));
 
-import { TerminalController } from './terminalController.js';
+import { TerminalController, CHUNK_SIZE } from './terminalController.js';
 
 function makeStubShell(opts: { openState?: 'open' | 'pending' } = {}): ShellHandle & {
   _bytes: Array<(d: Uint8Array) => void>;
@@ -426,7 +426,7 @@ describe('TerminalController', () => {
     expect(term.dataCbs).toHaveLength(0);
   });
 
-  it('seedInitialHistory fetches last 512KB via Range, rebuilds xterm with [seed, snapshot]', async () => {
+  it('seedInitialHistory fetches last CHUNK_SIZE bytes via Range, rebuilds xterm with [seed, snapshot]', async () => {
     const shell = makeStubShell({ openState: 'open' });
     acquiredShells.set(40, shell);
     const term = makeFakeXterm();
@@ -438,7 +438,7 @@ describe('TerminalController', () => {
     expect(term.writes).toEqual(['__RESET__', 'SNAP']);
 
     const FULL_TOTAL = 1_000_000;
-    const seedBytes = new Uint8Array(512 * 1024).fill(65); // 'A' * 524288
+    const seedBytes = new Uint8Array(CHUNK_SIZE).fill(65); // 'A' * CHUNK_SIZE
     fetchResponder = (call): { status: number; headers: Record<string, string>; body: Uint8Array } => {
       expect(call.url).toBe('/api/runs/40/transcript');
       if (call.headers.range === 'bytes=0-0') {
@@ -448,12 +448,12 @@ describe('TerminalController', () => {
           body: new Uint8Array([0]),
         };
       }
-      if (call.headers.range === `bytes=${FULL_TOTAL - 524288}-${FULL_TOTAL - 1}`) {
+      if (call.headers.range === `bytes=${FULL_TOTAL - CHUNK_SIZE}-${FULL_TOTAL - 1}`) {
         return {
           status: 206,
           headers: {
             'x-transcript-total': String(FULL_TOTAL),
-            'content-range': `bytes ${FULL_TOTAL - 524288}-${FULL_TOTAL - 1}/${FULL_TOTAL}`,
+            'content-range': `bytes ${FULL_TOTAL - CHUNK_SIZE}-${FULL_TOTAL - 1}/${FULL_TOTAL}`,
           },
           body: seedBytes,
         };
@@ -468,8 +468,8 @@ describe('TerminalController', () => {
     await new Promise((r) => setTimeout(r, 0));
 
     const bufs = c._debugBuffers();
-    expect(bufs.loadedBytes.byteLength).toBe(524288 + 4); // seed + 'SNAP'
-    expect(bufs.loadedStartOffset).toBe(FULL_TOTAL - 524288);
+    expect(bufs.loadedBytes.byteLength).toBe(CHUNK_SIZE + 4); // seed + 'SNAP'
+    expect(bufs.loadedStartOffset).toBe(FULL_TOTAL - CHUNK_SIZE);
     expect(bufs.liveOffset).toBe(FULL_TOTAL);
   });
 
@@ -515,7 +515,7 @@ describe('TerminalController', () => {
     expect(bufs.liveOffset).toBe(TOTAL);
   });
 
-  it('loadOlderChunk fetches a 512KB range before loadedStartOffset and prepends to loadedBytes', async () => {
+  it('loadOlderChunk fetches a CHUNK_SIZE range before loadedStartOffset and prepends to loadedBytes', async () => {
     const shell = makeStubShell({ openState: 'open' });
     acquiredShells.set(50, shell);
     const term = makeFakeXterm();
@@ -523,16 +523,16 @@ describe('TerminalController', () => {
     const c = new TerminalController(50, term as unknown as import('@xterm/xterm').Terminal, host);
 
     const TOTAL = 2_000_000;
-    const seedBytes = new Uint8Array(524288).fill(66);
-    const olderBytes = new Uint8Array(524288).fill(67);
+    const seedBytes = new Uint8Array(CHUNK_SIZE).fill(66);
+    const olderBytes = new Uint8Array(CHUNK_SIZE).fill(67);
     fetchResponder = (call): { status: number; headers: Record<string, string>; body: Uint8Array } => {
       if (call.headers.range === 'bytes=0-0') {
         return { status: 206, headers: { 'x-transcript-total': String(TOTAL) }, body: new Uint8Array([0]) };
       }
-      if (call.headers.range === `bytes=${TOTAL - 524288}-${TOTAL - 1}`) {
+      if (call.headers.range === `bytes=${TOTAL - CHUNK_SIZE}-${TOTAL - 1}`) {
         return { status: 206, headers: { 'x-transcript-total': String(TOTAL) }, body: seedBytes };
       }
-      if (call.headers.range === `bytes=${TOTAL - 1048576}-${TOTAL - 524289}`) {
+      if (call.headers.range === `bytes=${TOTAL - 2 * CHUNK_SIZE}-${TOTAL - CHUNK_SIZE - 1}`) {
         return { status: 206, headers: { 'x-transcript-total': String(TOTAL) }, body: olderBytes };
       }
       return { status: 404, headers: {}, body: new Uint8Array() };
@@ -543,19 +543,19 @@ describe('TerminalController', () => {
     // Let the seed chain settle (meta fetch + seed fetch + rebuild).
     for (let i = 0; i < 10; i++) {
       await new Promise((r) => setTimeout(r, 0));
-      if (c._debugBuffers().loadedStartOffset === TOTAL - 524288) break;
+      if (c._debugBuffers().loadedStartOffset === TOTAL - CHUNK_SIZE) break;
     }
-    expect(c._debugBuffers().loadedStartOffset).toBe(TOTAL - 524288);
+    expect(c._debugBuffers().loadedStartOffset).toBe(TOTAL - CHUNK_SIZE);
 
     c.pause();
     await c.loadOlderChunk();
 
     const b = c._debugBuffers();
-    expect(b.loadedBytes.byteLength).toBe(524288 + 524288 + 1); // older + seed + 'S'
-    expect(b.loadedStartOffset).toBe(TOTAL - 1048576);
+    expect(b.loadedBytes.byteLength).toBe(CHUNK_SIZE + CHUNK_SIZE + 1); // older + seed + 'S'
+    expect(b.loadedStartOffset).toBe(TOTAL - 2 * CHUNK_SIZE);
     expect(b.loadedBytes[0]).toBe(67);
-    expect(b.loadedBytes[524287]).toBe(67);
-    expect(b.loadedBytes[524288]).toBe(66);
+    expect(b.loadedBytes[CHUNK_SIZE - 1]).toBe(67);
+    expect(b.loadedBytes[CHUNK_SIZE]).toBe(66);
   });
 
   it('loadOlderChunk is idempotent during a pending fetch (dedup)', async () => {
@@ -566,22 +566,22 @@ describe('TerminalController', () => {
     const c = new TerminalController(51, term as unknown as import('@xterm/xterm').Terminal, host);
 
     const TOTAL = 2_000_000;
-    const seedBytes = new Uint8Array(524288).fill(1);
+    const seedBytes = new Uint8Array(CHUNK_SIZE).fill(1);
     fetchResponder = (call): { status: number; headers: Record<string, string>; body: Uint8Array } => {
       if (call.headers.range === 'bytes=0-0') {
         return { status: 206, headers: { 'x-transcript-total': String(TOTAL) }, body: new Uint8Array([0]) };
       }
-      if (call.headers.range === `bytes=${TOTAL - 524288}-${TOTAL - 1}`) {
+      if (call.headers.range === `bytes=${TOTAL - CHUNK_SIZE}-${TOTAL - 1}`) {
         return { status: 206, headers: { 'x-transcript-total': String(TOTAL) }, body: seedBytes };
       }
-      return { status: 206, headers: {}, body: new Uint8Array(524288).fill(2) };
+      return { status: 206, headers: {}, body: new Uint8Array(CHUNK_SIZE).fill(2) };
     };
 
     const snap: RunWsSnapshotMessage = { type: 'snapshot', ansi: 'S', cols: 120, rows: 40 };
     for (const cb of shell._snap) cb(snap);
     for (let i = 0; i < 10; i++) {
       await new Promise((r) => setTimeout(r, 0));
-      if (c._debugBuffers().loadedStartOffset === TOTAL - 524288) break;
+      if (c._debugBuffers().loadedStartOffset === TOTAL - CHUNK_SIZE) break;
     }
 
     c.pause();
@@ -592,7 +592,7 @@ describe('TerminalController', () => {
     const olderCalls = fetchCalls.filter((callArg) =>
       callArg.headers.range?.startsWith('bytes=')
       && callArg.headers.range !== 'bytes=0-0'
-      && !callArg.headers.range.startsWith(`bytes=${TOTAL - 524288}`)
+      && !callArg.headers.range.startsWith(`bytes=${TOTAL - CHUNK_SIZE}`)
     );
     expect(olderCalls.length).toBe(1);
   });
@@ -734,16 +734,16 @@ describe('TerminalController', () => {
       if (call.headers.range === 'bytes=0-0') {
         return { status: 206, headers: { 'x-transcript-total': String(TOTAL) }, body: new Uint8Array([0]) };
       }
-      if (call.headers.range === `bytes=${TOTAL - 524288}-${TOTAL - 1}`) {
-        return { status: 206, headers: { 'x-transcript-total': String(TOTAL) }, body: new Uint8Array(524288) };
+      if (call.headers.range === `bytes=${TOTAL - CHUNK_SIZE}-${TOTAL - 1}`) {
+        return { status: 206, headers: { 'x-transcript-total': String(TOTAL) }, body: new Uint8Array(CHUNK_SIZE) };
       }
-      return { status: 206, headers: {}, body: new Uint8Array(524288) };
+      return { status: 206, headers: {}, body: new Uint8Array(CHUNK_SIZE) };
     };
 
     for (const cb of shell._snap) cb({ type: 'snapshot', ansi: 'X', cols: 120, rows: 40 });
     for (let i = 0; i < 10; i++) {
       await new Promise((r) => setTimeout(r, 0));
-      if (c._debugBuffers().loadedStartOffset === TOTAL - 524288) break;
+      if (c._debugBuffers().loadedStartOffset === TOTAL - CHUNK_SIZE) break;
     }
     for (const cb of shell._events) cb({ type: 'state', state: 'succeeded' } as unknown as { type: string });
     c.pause();
@@ -906,20 +906,20 @@ describe('TerminalController', () => {
     const c = new TerminalController(80, term as unknown as import('@xterm/xterm').Terminal, host);
 
     const TOTAL = 2_000_000;
-    const seedBytes = new Uint8Array(524288).fill(1);
+    const seedBytes = new Uint8Array(CHUNK_SIZE).fill(1);
     fetchResponder = (call): { status: number; headers: Record<string, string>; body: Uint8Array } => {
       if (call.headers.range === 'bytes=0-0') {
         return { status: 206, headers: { 'x-transcript-total': String(TOTAL) }, body: new Uint8Array([0]) };
       }
-      if (call.headers.range === `bytes=${TOTAL - 524288}-${TOTAL - 1}`) {
+      if (call.headers.range === `bytes=${TOTAL - CHUNK_SIZE}-${TOTAL - 1}`) {
         return { status: 206, headers: {}, body: seedBytes };
       }
-      return { status: 206, headers: {}, body: new Uint8Array(524288).fill(2) };
+      return { status: 206, headers: {}, body: new Uint8Array(CHUNK_SIZE).fill(2) };
     };
     for (const cb of shell._snap) cb({ type: 'snapshot', ansi: 'S', cols: 120, rows: 40 });
     for (let i = 0; i < 10; i++) {
       await new Promise((r) => setTimeout(r, 0));
-      if (c._debugBuffers().loadedStartOffset === TOTAL - 524288) break;
+      if (c._debugBuffers().loadedStartOffset === TOTAL - CHUNK_SIZE) break;
     }
 
     c.pause();
@@ -937,12 +937,12 @@ describe('TerminalController', () => {
     const c = new TerminalController(81, term as unknown as import('@xterm/xterm').Terminal, host);
 
     const TOTAL = 2_000_000;
-    const seedBytes = new Uint8Array(524288).fill(1);
+    const seedBytes = new Uint8Array(CHUNK_SIZE).fill(1);
     fetchResponder = (call): { status: number; headers: Record<string, string>; body: Uint8Array } => {
       if (call.headers.range === 'bytes=0-0') {
         return { status: 206, headers: { 'x-transcript-total': String(TOTAL) }, body: new Uint8Array([0]) };
       }
-      if (call.headers.range === `bytes=${TOTAL - 524288}-${TOTAL - 1}`) {
+      if (call.headers.range === `bytes=${TOTAL - CHUNK_SIZE}-${TOTAL - 1}`) {
         return { status: 206, headers: {}, body: seedBytes };
       }
       return { status: 500, headers: {}, body: new Uint8Array() };
@@ -950,7 +950,7 @@ describe('TerminalController', () => {
     for (const cb of shell._snap) cb({ type: 'snapshot', ansi: 'S', cols: 120, rows: 40 });
     for (let i = 0; i < 10; i++) {
       await new Promise((r) => setTimeout(r, 0));
-      if (c._debugBuffers().loadedStartOffset === TOTAL - 524288) break;
+      if (c._debugBuffers().loadedStartOffset === TOTAL - CHUNK_SIZE) break;
     }
 
     c.pause();
@@ -968,21 +968,21 @@ describe('TerminalController', () => {
     const c = new TerminalController(82, term as unknown as import('@xterm/xterm').Terminal, host);
 
     const TOTAL = 2_000_000;
-    const seedBytes = new Uint8Array(524288).fill(1);
+    const seedBytes = new Uint8Array(CHUNK_SIZE).fill(1);
     fetchResponder = (call): { status: number; headers: Record<string, string>; body: Uint8Array } => {
       if (call.headers.range === 'bytes=0-0') {
         return { status: 206, headers: { 'x-transcript-total': String(TOTAL) }, body: new Uint8Array([0]) };
       }
-      if (call.headers.range === `bytes=${TOTAL - 524288}-${TOTAL - 1}`) {
+      if (call.headers.range === `bytes=${TOTAL - CHUNK_SIZE}-${TOTAL - 1}`) {
         return { status: 206, headers: {}, body: seedBytes };
       }
       // Older chunk: succeeds, but we'll abort before the rebuild.
-      return { status: 206, headers: {}, body: new Uint8Array(524288).fill(2) };
+      return { status: 206, headers: {}, body: new Uint8Array(CHUNK_SIZE).fill(2) };
     };
     for (const cb of shell._snap) cb({ type: 'snapshot', ansi: 'S', cols: 120, rows: 40 });
     for (let i = 0; i < 10; i++) {
       await new Promise((r) => setTimeout(r, 0));
-      if (c._debugBuffers().loadedStartOffset === TOTAL - 524288) break;
+      if (c._debugBuffers().loadedStartOffset === TOTAL - CHUNK_SIZE) break;
     }
     for (const cb of shell._events) cb({ type: 'state', state: 'succeeded' } as unknown as { type: string });
     c.pause();

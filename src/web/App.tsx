@@ -118,6 +118,22 @@ export function App() {
     return () => { void unlisten.then((f) => f()); };
   }, [nav]);
 
+  useEffect(() => {
+    if (!isTauri()) return;
+    const unlisten = listen<string>('navigate', (e) => {
+      nav(e.payload);
+    });
+    return () => { void unlisten.then((f) => f()); };
+  }, [nav]);
+
+  useEffect(() => {
+    if (!isTauri()) return;
+    const unlisten = listen('open-cheatsheet', () => {
+      setCheatsheet(true);
+    });
+    return () => { void unlisten.then((f) => f()); };
+  }, []);
+
   const dataRef = useRef({ projects, runs });
   dataRef.current = { projects, runs };
 

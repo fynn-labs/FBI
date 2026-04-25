@@ -55,7 +55,9 @@ class KeyMap {
 
   private attach(): void {
     if (this.attached || typeof window === 'undefined') return;
-    window.addEventListener('keydown', this.onKey);
+    // Capture phase so global shortcuts fire before element handlers (e.g. xterm's
+    // textarea listener which calls stopPropagation on keys it handles).
+    window.addEventListener('keydown', this.onKey, true);
     this.attached = true;
   }
 
@@ -63,6 +65,7 @@ class KeyMap {
     const k = e.key.toLowerCase();
     const typing = isTyping(e.target);
     const mod = e.metaKey || e.ctrlKey;
+    const shift = e.shiftKey;
 
     if (this.pendingLeader) {
       const a = this.pendingLeader;
@@ -83,6 +86,7 @@ class KeyMap {
       if (p.kind === 'single') {
         if (p.key !== k) continue;
         if (p.mod !== mod) continue;
+        if (p.shift !== shift) continue;
         if (!p.mod && typing) continue;
         if (b.when && !b.when()) continue;
         e.preventDefault();

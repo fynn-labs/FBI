@@ -1,10 +1,14 @@
+use std::collections::HashMap;
 use tauri::{
     menu::{Menu, MenuItem, PredefinedMenuItem},
     tray::TrayIconBuilder,
     AppHandle, Emitter, Manager,
 };
+use tokio::sync::Mutex;
 
-#[derive(serde::Deserialize)]
+use crate::tunnel::TunnelState;
+
+#[derive(serde::Deserialize, Clone, Debug)]
 pub struct TrayRunInfo {
     pub id: u32,
     pub title: Option<String>,
@@ -12,12 +16,14 @@ pub struct TrayRunInfo {
 }
 
 pub fn setup_tray(app: &mut tauri::App) -> tauri::Result<()> {
-    let menu = build_runs_menu(app, &[])?;
+    let menu = build_runs_menu(app, &[], &HashMap::new())?;
 
     #[cfg(target_os = "macos")]
-    let icon = tauri::image::Image::from_bytes(include_bytes!("../icons/tray-template.png")).unwrap();
+    let icon =
+        tauri::image::Image::from_bytes(include_bytes!("../icons/tray-template.png")).unwrap();
     #[cfg(not(target_os = "macos"))]
-    let icon = tauri::image::Image::from_bytes(include_bytes!("../icons/tray-linux.png")).unwrap();
+    let icon =
+        tauri::image::Image::from_bytes(include_bytes!("../icons/tray-linux.png")).unwrap();
 
     TrayIconBuilder::with_id("main")
         .tooltip("FBI")
@@ -53,11 +59,18 @@ fn show_main_window(app: &AppHandle) {
 fn build_runs_menu<R: tauri::Runtime>(
     manager: &impl Manager<R>,
     runs: &[TrayRunInfo],
+    tunnel_ports: &HashMap<u32, Vec<u16>>,
 ) -> tauri::Result<Menu<R>> {
     let menu = Menu::new(manager)?;
 
     if runs.is_empty() {
-        menu.append(&MenuItem::with_id(manager, "no-runs", "No active runs", false, None::<&str>)?)?;
+        menu.append(&MenuItem::with_id(
+            manager,
+            "no-runs",
+            "No active runs",
+            false,
+            None::<&str>,
+        )?)?;
     } else {
         for run in runs {
             let state_label = match run.state.as_str() {
@@ -68,22 +81,50 @@ fn build_runs_menu<R: tauri::Runtime>(
                 other => other,
             };
             let name = run.title.as_deref().unwrap_or("Untitled");
-            let label = format!("{}  ·  {}", name, state_label);
-            menu.append(&MenuItem::with_id(manager, format!("run-{}", run.id), label, true, None::<&str>)?)?;
+            let tunnel_suffix = if let Some(ports) = tunnel_ports.get(&run.id) {
+                format!(
+                    "  ·  ↔ {} port{}",
+                    ports.len(),
+                    if ports.len() == 1 { "" } else { "s" }
+                )
+            } else {
+                String::new()
+            };
+            let label = format!("{}  ·  {}{}", name, state_label, tunnel_suffix);
+            menu.append(&MenuItem::with_id(
+                manager,
+                format!("run-{}", run.id),
+                label,
+                true,
+                None::<&str>,
+            )?)?;
         }
     }
 
     menu.append(&PredefinedMenuItem::separator(manager)?)?;
-    menu.append(&MenuItem::with_id(manager, "show", "Open FBI", true, None::<&str>)?)?;
+    menu.append(&MenuItem::with_id(
+        manager,
+        "show",
+        "Open FBI",
+        true,
+        None::<&str>,
+    )?)?;
     menu.append(&PredefinedMenuItem::separator(manager)?)?;
     menu.append(&MenuItem::with_id(manager, "quit", "Quit", true, None::<&str>)?)?;
 
     Ok(menu)
 }
 
-#[tauri::command]
-pub fn update_tray_runs(app: AppHandle, runs: Vec<TrayRunInfo>) -> Result<(), String> {
-    let has_waiting = runs.iter().any(|r| r.state == "waiting" || r.state == "awaiting_resume");
+/// Rebuilds the tray menu with current runs and tunnel state.
+/// Called by tunnel.rs when a poll task transitions a run to Active.
+pub fn rebuild_tray(
+    app: &AppHandle,
+    runs: &[TrayRunInfo],
+    tunnel_ports: &HashMap<u32, Vec<u16>>,
+) {
+    let has_waiting = runs
+        .iter()
+        .any(|r| r.state == "waiting" || r.state == "awaiting_resume");
     let active = runs.len();
 
     let tooltip = if active > 0 {
@@ -92,11 +133,13 @@ pub fn update_tray_runs(app: AppHandle, runs: Vec<TrayRunInfo>) -> Result<(), St
         "FBI".to_string()
     };
 
-    let menu = build_runs_menu(&app, &runs).map_err(|e| e.to_string())?;
+    let Ok(menu) = build_runs_menu(app, runs, tunnel_ports) else {
+        return;
+    };
 
     if let Some(tray) = app.tray_by_id("main") {
-        tray.set_menu(Some(menu)).map_err(|e| e.to_string())?;
-        tray.set_tooltip(Some(&tooltip)).map_err(|e| e.to_string())?;
+        let _ = tray.set_menu(Some(menu));
+        let _ = tray.set_tooltip(Some(&tooltip));
 
         #[cfg(target_os = "macos")]
         {
@@ -105,9 +148,10 @@ pub fn update_tray_runs(app: AppHandle, runs: Vec<TrayRunInfo>) -> Result<(), St
             } else {
                 include_bytes!("../icons/tray-template.png")
             };
-            let icon = tauri::image::Image::from_bytes(icon_data).map_err(|e| e.to_string())?;
-            tray.set_icon(Some(icon)).map_err(|e| e.to_string())?;
-            tray.set_icon_as_template(true).map_err(|e| e.to_string())?;
+            if let Ok(icon) = tauri::image::Image::from_bytes(icon_data) {
+                let _ = tray.set_icon(Some(icon));
+                let _ = tray.set_icon_as_template(true);
+            }
         }
 
         #[cfg(not(target_os = "macos"))]
@@ -117,21 +161,56 @@ pub fn update_tray_runs(app: AppHandle, runs: Vec<TrayRunInfo>) -> Result<(), St
             } else {
                 include_bytes!("../icons/tray-linux.png")
             };
-            let icon = tauri::image::Image::from_bytes(icon_data).map_err(|e| e.to_string())?;
-            tray.set_icon(Some(icon)).map_err(|e| e.to_string())?;
+            if let Ok(icon) = tauri::image::Image::from_bytes(icon_data) {
+                let _ = tray.set_icon(Some(icon));
+            }
         }
     }
+}
+
+#[tauri::command]
+pub async fn update_tray_runs(app: AppHandle, runs: Vec<TrayRunInfo>) -> Result<(), String> {
+    // Read current tunnel state for menu building
+    let tunnel_ports = {
+        let state_ref = app.state::<Mutex<TunnelState>>();
+        let state = state_ref.lock().await;
+        state
+            .tunnels
+            .iter()
+            .filter_map(|(id, e)| {
+                if let crate::tunnel::TunnelEntry::Active { ports, .. } = e {
+                    Some((*id, ports.clone()))
+                } else {
+                    None
+                }
+            })
+            .collect::<HashMap<u32, Vec<u16>>>()
+    };
+
+    rebuild_tray(&app, &runs, &tunnel_ports);
+
+    // Reconcile tunnel sidecars
+    crate::tunnel::reconcile(&app, runs).await;
 
     Ok(())
 }
 
 #[tauri::command]
 pub fn notify(app: AppHandle, title: String, body: String) -> Result<(), String> {
+    notify_raw(&app, title, body)
+}
+
+/// Internal notification helper usable from other modules without going through Tauri invoke.
+pub fn notify_raw(
+    app: &AppHandle,
+    title: impl Into<String>,
+    body: impl Into<String>,
+) -> Result<(), String> {
     use tauri_plugin_notification::NotificationExt;
     app.notification()
         .builder()
-        .title(&title)
-        .body(&body)
+        .title(&title.into())
+        .body(&body.into())
         .show()
         .map_err(|e| e.to_string())
 }

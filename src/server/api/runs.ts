@@ -27,7 +27,12 @@ interface GhDeps {
   prChecks(repo: string, branch: string): Promise<Check[]>;
   createPr(repo: string, p: { head: string; base: string; title: string; body: string }): Promise<{ number: number; url: string; state: 'OPEN' | 'CLOSED' | 'MERGED'; title: string }>;
   compareFiles(repo: string, base: string, head: string): Promise<Array<{ filename: string; additions: number; deletions: number; status: string }>>;
-  commitsOnBranch(repo: string, branch: string): Promise<Array<{ sha: string; subject: string; committed_at: number; pushed: boolean }>>;
+  compareBranch(repo: string, baseBranch: string, branch: string): Promise<{
+    commits: Array<{ sha: string; subject: string; committed_at: number; pushed: boolean }>;
+    aheadBy: number;
+    behindBy: number;
+    mergeBaseSha: string;
+  }>;
 }
 
 interface OrchestratorDep {
@@ -366,29 +371,41 @@ export function registerRunsRoutes(app: FastifyInstance, deps: Deps): void {
 
     const commits: ChangeCommit[] = [];
     let ghPayload: ChangesPayload['integrations']['github'] | undefined;
+    let branchBase: ChangesPayload['branch_base'] = null;
 
-    // Read commits from the safeguard bare repo. These are not-yet-pushed
-    // from GitHub's POV until we hear back from gh; we set pushed=false for
-    // everything from the safeguard and flip to true for those gh reports.
     const safeguard = new SafeguardRepo(path.join(deps.runsDir, String(runId), 'wip.git'));
-    const safeguardCommits = run.branch_name ? safeguard.listCommits(run.branch_name, '') : [];
 
-    if (repo && ghAvail && run.branch_name) {
-      const [pr, checks, ghCommits] = await Promise.all([
+    if (repo && ghAvail && run.branch_name && project) {
+      const [pr, checks, ghCompare] = await Promise.all([
         deps.gh.prForBranch(repo, run.branch_name).catch(() => null),
         deps.gh.prChecks(repo, run.branch_name).catch(() => [] as Check[]),
-        deps.gh.commitsOnBranch(repo, run.branch_name).catch(() => []),
+        deps.gh.compareBranch(repo, project.default_branch, run.branch_name)
+          .catch(() => ({ commits: [], aheadBy: 0, behindBy: 0, mergeBaseSha: '' })),
       ]);
-      const ghShas = new Set(ghCommits.map((c) => c.sha));
-      for (const c of ghCommits) {
+      const ghShas = new Set(ghCompare.commits.map((c) => c.sha));
+      for (const c of ghCompare.commits) {
         commits.push({
           sha: c.sha, subject: c.subject, committed_at: c.committed_at,
           pushed: true, files: [], files_loaded: false, submodule_bumps: [],
         });
       }
+      // Safeguard commits not yet pushed to GitHub. Use merge base to exclude
+      // pre-run history that was already on the base branch. The safeguard
+      // always stores commits under claude/run-N (the fixed mirror ref), so
+      // fall back to that name when the primary branch has been renamed.
+      const mirrorBranch = `claude/run-${runId}`;
+      const safeguardBranch = safeguard.refExists(run.branch_name)
+        ? run.branch_name
+        : mirrorBranch;
+      const safeguardCommits = safeguard.listCommits(safeguardBranch, ghCompare.mergeBaseSha);
       for (const c of safeguardCommits) {
         if (!ghShas.has(c.sha)) commits.push(c);
       }
+      branchBase = {
+        base: project.default_branch,
+        ahead: ghCompare.aheadBy,
+        behind: ghCompare.behindBy,
+      };
       const passed = checks.filter((c) => c.conclusion === 'success').length;
       const failed = checks.filter((c) => c.conclusion === 'failure').length;
       const total = checks.length;
@@ -404,6 +421,11 @@ export function registerRunsRoutes(app: FastifyInstance, deps: Deps): void {
         },
       };
     } else {
+      const mirrorBranch = `claude/run-${runId}`;
+      const safeguardBranch = run.branch_name && safeguard.refExists(run.branch_name)
+        ? run.branch_name
+        : (safeguard.refExists(mirrorBranch) ? mirrorBranch : null);
+      const safeguardCommits = safeguardBranch ? safeguard.listCommits(safeguardBranch, '') : [];
       for (const c of safeguardCommits) commits.push(c);
     }
 
@@ -422,7 +444,7 @@ export function registerRunsRoutes(app: FastifyInstance, deps: Deps): void {
 
     const payload: ChangesPayload = {
       branch_name: run.branch_name || null,
-      branch_base: null,  // UI no longer depends on this in safeguard mode
+      branch_base: branchBase,
       commits,
       uncommitted: [],  // scope A — no uncommitted
       integrations: ghPayload ? { github: ghPayload } : {},
@@ -574,7 +596,7 @@ export function registerRunsRoutes(app: FastifyInstance, deps: Deps): void {
     try {
       result = await deps.orchestrator.execHistoryOp(runId, resolved);
     } catch {
-      return reply.code(503).send({ kind: 'git-unavailable' } satisfies HistoryResult);
+      return { kind: 'git-unavailable' } satisfies HistoryResult;
     }
 
     if (result.kind === 'complete') {

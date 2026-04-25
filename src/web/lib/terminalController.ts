@@ -13,7 +13,7 @@ import type {
   RunState,
 } from '@shared/types.js';
 
-const CHUNK_SIZE = 512 * 1024;
+export const CHUNK_SIZE = 128 * 1024;
 const RESUME_SNAPSHOT_TIMEOUT_MS = 2000;
 
 export type ChunkLoadState = 'idle' | 'loading' | 'error';
@@ -128,16 +128,17 @@ export class TerminalController {
       }
       this.term.reset();
       this.term.write(snap.ansi);
-      // Kick off the byte-silence timer synchronously. xterm's write-complete
-      // callback is unreliable here (term.reset() appears to drop pending
-      // callbacks), and we only need this to *start* a settling window —
-      // exact "parsed" timing doesn't matter.
       this.onSnapshotParsed();
-      // Each snapshot (initial AND reconnect-served) gets a deferred redraw
-      // nudge so Claude paints its cursor cell — its first redraw frame
-      // sometimes omits it. This matters most on WS reconnect after a
-      // container restart, where the first snapshot lands without cursor.
       this.scheduleCursorRedraw();
+      // If the server rendered this snapshot at a different size than our
+      // terminal (another viewer's hello resized the PTY), immediately
+      // reclaim the correct size. Without this, all subsequent PTY output
+      // comes in at the wrong width, making content look narrow.
+      if (snap.cols !== this.term.cols || snap.rows !== this.term.rows) {
+        queueMicrotask(() => {
+          if (!this.disposed) this.shell.sendHello(this.term.cols, this.term.rows);
+        });
+      }
       if (!this.seeded) {
         this.seeded = true;
         // Defer to a microtask so synchronous subscribers (tests, or any
@@ -485,11 +486,22 @@ export class TerminalController {
   /**
    * Reset xterm and replay a sequence of byte buffers. Returns after all
    * writes have been acknowledged by xterm's parser.
+   *
+   * Uint8Array buffers are written in 64 KB slices so the main thread
+   * yields to the event loop between slices — keeps the browser
+   * responsive on mobile during long rebuilds.
    */
   private async rebuildXterm(buffers: Array<Uint8Array | string>): Promise<void> {
+    const SUB_CHUNK = 64 * 1024;
     this.term.reset();
     for (const b of buffers) {
-      await this.writeAndWait(b);
+      if (typeof b === 'string') {
+        await this.writeAndWait(b);
+      } else {
+        for (let off = 0; off < b.byteLength; off += SUB_CHUNK) {
+          await this.writeAndWait(b.subarray(off, Math.min(off + SUB_CHUNK, b.byteLength)));
+        }
+      }
     }
   }
 
