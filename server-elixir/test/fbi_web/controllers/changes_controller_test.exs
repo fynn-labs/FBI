@@ -72,5 +72,10 @@ defmodule FBIWeb.ChangesControllerTest do
       src = File.read!("lib/fbi_web/controllers/changes_controller.ex")
       assert src =~ "Docker.exec_create"
     end
+
+    test "submodule_files exits the always-empty stub" do
+      src = File.read!("lib/fbi_web/controllers/changes_controller.ex")
+      refute src =~ ~r/submodule_files.*?json\(conn,\s*%\{files:\s*\[\]\}\)/s
+    end
   end
 end

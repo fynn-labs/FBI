@@ -110,16 +110,50 @@ defmodule FBIWeb.ChangesController do
 
   def submodule_files(conn, %{"id" => id_str, "path" => raw_path}) do
     case Regex.run(~r|^(.+)/commits/([0-9a-f]{7,40})/files$|, raw_path) do
-      [_, _submodule_path, _sha] ->
-        with {:ok, run_id} <- parse_id(id_str),
-             {:ok, _run} <- RunQ.get(run_id) do
-          json(conn, %{files: []})
-        else
-          _ -> conn |> put_status(404) |> json(%{error: "not found"})
+      [_, submodule_path, sha] ->
+        cond do
+          String.contains?(submodule_path, "..") ->
+            conn |> put_status(400) |> json(%{error: "invalid path"})
+
+          true ->
+            with {:ok, run_id} <- parse_id(id_str),
+                 {:ok, run} <- RunQ.get(run_id) do
+              files =
+                case files_via_submodule(run, submodule_path, sha) do
+                  {:ok, list} -> list
+                  :no_container -> []
+                end
+
+              json(conn, %{files: files})
+            else
+              _ -> conn |> put_status(404) |> json(%{error: "not found"})
+            end
         end
 
       _ ->
         conn |> put_status(404) |> json(%{error: "not found"})
+    end
+  end
+
+  defp files_via_submodule(run, submodule_path, sha) do
+    case run.container_id do
+      cid when is_binary(cid) and cid != "" ->
+        case Docker.exec_create(cid, [
+               "git", "-C", "/workspace/#{submodule_path}",
+               "show", "--numstat", "--format=", sha
+             ]) do
+          {:ok, exec_id} ->
+            case Docker.exec_start(exec_id, timeout_ms: 5_000) do
+              {:ok, output} -> {:ok, parse_numstat(output)}
+              _ -> :no_container
+            end
+
+          _ ->
+            :no_container
+        end
+
+      _ ->
+        :no_container
     end
   end
 
