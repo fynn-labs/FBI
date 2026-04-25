@@ -43,13 +43,50 @@ defmodule FBI.Orchestrator.ClaudeJson do
     Jason.encode!(obj)
   end
 
-  @doc "Build the claude settings JSON to inject."
+  @doc """
+  Build the claude settings JSON to inject at /home/agent/.claude/settings.json.
+
+  Mirrors `buildClaudeSettingsJson` in src/server/orchestrator/index.ts.
+
+  - `skipDangerousModePermissionPrompt` suppresses Claude Code's bypass-
+    permissions confirmation dialog at session start.
+  - `hooks.Stop` writes /fbi-state/waiting when Claude finishes a turn.
+  - `hooks.UserPromptSubmit` clears /fbi-state/waiting and writes
+    /fbi-state/prompted when the user submits a prompt.
+
+  RuntimeStateWatcher polls those sentinels to derive run state
+  (starting / running / waiting). If this JSON is wrong, the run never
+  leaves "starting" and the bypass dialog blocks the agent before it
+  even reads its prompt.
+  """
   @spec build_claude_settings_json() :: String.t()
   def build_claude_settings_json do
     Jason.encode!(%{
-      "autoUpdates" => false,
-      "hasCompletedOnboarding" => true,
-      "primaryApiKey" => "placeholder"
+      "skipDangerousModePermissionPrompt" => true,
+      "hooks" => %{
+        "Stop" => [
+          %{
+            "hooks" => [
+              %{
+                "type" => "command",
+                "command" => "touch /fbi-state/waiting",
+                "timeout" => 5
+              }
+            ]
+          }
+        ],
+        "UserPromptSubmit" => [
+          %{
+            "hooks" => [
+              %{
+                "type" => "command",
+                "command" => "rm -f /fbi-state/waiting && touch /fbi-state/prompted",
+                "timeout" => 5
+              }
+            ]
+          }
+        ]
+      }
     })
   end
 
