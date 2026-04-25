@@ -304,21 +304,20 @@ defmodule FBI.Orchestrator.RunServer do
         config
       )
 
-      # Start the container *before* attaching. Pre-start attach over the raw
-      # HTTP-Upgrade path lets Docker close the socket immediately (no PTY
-      # allocated yet for a Created container) — read_stdout_loop then exits
-      # with :closed and we miss every byte. The very first lines are the
-      # `[fbi] …` notices we generated ourselves, so attaching post-start
-      # doesn't lose anything user-visible.
       :ok = FBI.Docker.start_container(container_id)
 
-      {:ok, attach_socket} = FBI.Docker.attach_container(container_id)
-      :ok = set_container(server_pid, container_id, attach_socket)
+      # Read stdout/stderr from /containers/:id/logs?follow=1 (regular streaming
+      # HTTP, no upgrade hijacking). Sending stdin still needs /attach, but
+      # stdin-only — that one stays open without the upgrade-close issue we hit
+      # using full-duplex attach.
+      {:ok, stdout_socket} = FBI.Docker.container_logs(container_id)
+      {:ok, stdin_socket} = FBI.Docker.attach_container_stdin_only(container_id)
+      :ok = set_container(server_pid, container_id, stdin_socket)
 
-      reader_pid = spawn(fn -> read_stdout_loop(attach_socket, run_id, on_bytes) end)
+      reader_pid = spawn(fn -> read_stdout_loop(stdout_socket, run_id, on_bytes) end)
 
       _limit_monitor_pid =
-        start_limit_monitor(run_id, mount_dir, container_id, attach_socket, settings, on_bytes)
+        start_limit_monitor(run_id, mount_dir, container_id, stdin_socket, settings, on_bytes)
 
       clear_runtime_sentinels(state_dir)
       _runtime_watcher = start_runtime_watcher(run_id, state_dir)
@@ -407,21 +406,20 @@ defmodule FBI.Orchestrator.RunServer do
         inject_claude_settings(container_id, project, effective_mcps, project_secrets, config)
       end
 
-      # Start the container *before* attaching. Pre-start attach over the raw
-      # HTTP-Upgrade path lets Docker close the socket immediately (no PTY
-      # allocated yet for a Created container) — read_stdout_loop then exits
-      # with :closed and we miss every byte. The very first lines are the
-      # `[fbi] …` notices we generated ourselves, so attaching post-start
-      # doesn't lose anything user-visible.
       :ok = FBI.Docker.start_container(container_id)
 
-      {:ok, attach_socket} = FBI.Docker.attach_container(container_id)
-      :ok = set_container(server_pid, container_id, attach_socket)
+      # Read stdout/stderr from /containers/:id/logs?follow=1 (regular streaming
+      # HTTP, no upgrade hijacking). Sending stdin still needs /attach, but
+      # stdin-only — that one stays open without the upgrade-close issue we hit
+      # using full-duplex attach.
+      {:ok, stdout_socket} = FBI.Docker.container_logs(container_id)
+      {:ok, stdin_socket} = FBI.Docker.attach_container_stdin_only(container_id)
+      :ok = set_container(server_pid, container_id, stdin_socket)
 
-      reader_pid = spawn(fn -> read_stdout_loop(attach_socket, run_id, on_bytes) end)
+      reader_pid = spawn(fn -> read_stdout_loop(stdout_socket, run_id, on_bytes) end)
 
       _limit_monitor_pid =
-        start_limit_monitor(run_id, mount_dir, container_id, attach_socket, settings, on_bytes)
+        start_limit_monitor(run_id, mount_dir, container_id, stdin_socket, settings, on_bytes)
 
       clear_runtime_sentinels(state_dir)
       _runtime_watcher = start_runtime_watcher(run_id, state_dir)
@@ -488,21 +486,20 @@ defmodule FBI.Orchestrator.RunServer do
       {:ok, container_id} = FBI.Docker.create_container(container_spec)
       inject_claude_settings(container_id, project, effective_mcps, project_secrets, config)
 
-      # Start the container *before* attaching. Pre-start attach over the raw
-      # HTTP-Upgrade path lets Docker close the socket immediately (no PTY
-      # allocated yet for a Created container) — read_stdout_loop then exits
-      # with :closed and we miss every byte. The very first lines are the
-      # `[fbi] …` notices we generated ourselves, so attaching post-start
-      # doesn't lose anything user-visible.
       :ok = FBI.Docker.start_container(container_id)
 
-      {:ok, attach_socket} = FBI.Docker.attach_container(container_id)
-      :ok = set_container(server_pid, container_id, attach_socket)
+      # Read stdout/stderr from /containers/:id/logs?follow=1 (regular streaming
+      # HTTP, no upgrade hijacking). Sending stdin still needs /attach, but
+      # stdin-only — that one stays open without the upgrade-close issue we hit
+      # using full-duplex attach.
+      {:ok, stdout_socket} = FBI.Docker.container_logs(container_id)
+      {:ok, stdin_socket} = FBI.Docker.attach_container_stdin_only(container_id)
+      :ok = set_container(server_pid, container_id, stdin_socket)
 
-      reader_pid = spawn(fn -> read_stdout_loop(attach_socket, run_id, on_bytes) end)
+      reader_pid = spawn(fn -> read_stdout_loop(stdout_socket, run_id, on_bytes) end)
 
       _limit_monitor_pid =
-        start_limit_monitor(run_id, mount_dir, container_id, attach_socket, settings, on_bytes)
+        start_limit_monitor(run_id, mount_dir, container_id, stdin_socket, settings, on_bytes)
 
       clear_runtime_sentinels(state_dir)
       _runtime_watcher = start_runtime_watcher(run_id, state_dir)
