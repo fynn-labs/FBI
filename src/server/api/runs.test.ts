@@ -20,7 +20,7 @@ const stubGh = {
   prChecks: async () => [],
   createPr: async () => ({ number: 1, url: 'u', state: 'OPEN' as const, title: 't' }),
   compareFiles: async () => [],
-  commitsOnBranch: async () => [],
+  compareBranch: async () => ({ commits: [], aheadBy: 0, behindBy: 0, mergeBaseSha: '' }),
 };
 
 const stubOrchestrator = {
@@ -416,7 +416,7 @@ describe('runs routes', () => {
       launch: async () => {}, cancel: async () => {},
       fireResumeNow: () => {}, continueRun: async () => {},
       markStartingForContinueRequest: () => {},
-      gh: { ...stubGh, commitsOnBranch: async () => { ghCalls++; return []; } },
+      gh: { ...stubGh, compareBranch: async () => { ghCalls++; return { commits: [], aheadBy: 0, behindBy: 0, mergeBaseSha: '' }; } },
       orchestrator: stubOrchestrator,
       wipRepo: stubWipRepo,
     });
@@ -828,9 +828,10 @@ describe('runs routes', () => {
       markStartingForContinueRequest: () => {},
       gh: {
         ...stubGh,
-        commitsOnBranch: async () => [
-          { sha: 'abc1234567890', subject: 'feat: bump submodule', committed_at: 1000, pushed: true },
-        ],
+        compareBranch: async () => ({
+          commits: [{ sha: 'abc1234567890', subject: 'feat: bump submodule', committed_at: 1000, pushed: true }],
+          aheadBy: 1, behindBy: 0, mergeBaseSha: '',
+        }),
       },
       orchestrator: stubOrchestrator,
       wipRepo: stubWipRepo,
