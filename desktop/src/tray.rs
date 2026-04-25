@@ -15,6 +15,20 @@ pub struct TrayRunInfo {
     pub state: String,
 }
 
+pub struct TrayState {
+    pub runs: Vec<TrayRunInfo>,
+    pub tunnel_ports: HashMap<u32, Vec<u16>>,
+}
+
+impl TrayState {
+    pub fn new() -> Self {
+        Self {
+            runs: Vec::new(),
+            tunnel_ports: HashMap::new(),
+        }
+    }
+}
+
 pub fn setup_tray(app: &mut tauri::App) -> tauri::Result<()> {
     let menu = build_runs_menu(app, &[], &HashMap::new())?;
 
