@@ -19,7 +19,7 @@ export interface ShipTabProps {
 }
 
 export function ShipTab({ run, project, changes, onCreatePr, creatingPr, onReload }: ShipTabProps) {
-  const { busy, msg, run: runOp } = useHistoryOp(run.id, onReload);
+  const { busy, msg, msgIsError, run: runOp } = useHistoryOp(run.id, onReload);
 
   if (!changes) return <p className="p-4 text-[13px] text-text-faint">Loading ship data…</p>;
   if (!changes.branch_name) return <p className="p-4 text-[13px] text-text-faint">This run didn&apos;t produce a branch.</p>;
@@ -36,7 +36,15 @@ export function ShipTab({ run, project, changes, onCreatePr, creatingPr, onReloa
         onRebase={() => void runOp({ op: 'sync' })}
       />
       <ShipHeader changes={changes} runState={run.state} />
-      {msg && <p className="px-4 py-1 text-[12px] text-text-dim bg-surface-raised border-y border-border">{msg}</p>}
+      {msg && (
+        <p className={`px-4 py-1 text-[12px] border-y ${
+          msgIsError
+            ? 'text-fail bg-fail-subtle border-fail/30'
+            : 'text-text-dim bg-surface-raised border-border'
+        }`}>
+          {msg}
+        </p>
+      )}
       <MergePrimary
         changes={changes}
         projectDefault={defaultStrategy}
