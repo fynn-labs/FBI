@@ -58,14 +58,27 @@ defmodule FBI.Orchestrator.ImageBuilder do
   end
 
   defp compute_config_hash(devcontainer_files, override_json, postbuild) do
-    parts = [
-      Jason.encode!(devcontainer_files || %{}),
-      override_json || "",
-      Enum.join(@always_packages, ","),
-      postbuild
-    ]
+    dc_part =
+      if devcontainer_files do
+        devcontainer_files
+        |> Map.keys()
+        |> Enum.sort()
+        |> Enum.map_join("", fn k -> "#{k}:#{devcontainer_files[k]}\n" end)
+      else
+        ""
+      end
 
-    :crypto.hash(:sha256, Enum.join(parts, "\n"))
+    content =
+      "dev:" <>
+        dc_part <>
+        "\nover:" <>
+        (override_json || "") <>
+        "\nalways:" <>
+        (Enum.sort(@always_packages) |> Enum.join(",")) <>
+        "\npostbuild:" <>
+        postbuild
+
+    :crypto.hash(:sha256, content)
     |> Base.encode16(case: :lower)
     |> String.slice(0, 16)
   end

@@ -57,14 +57,30 @@ defmodule FBI.Orchestrator.ImageGc do
   end
 
   defp compute_config_hash(project, always_packages, postbuild) do
-    parts = [
-      Jason.encode!(project[:devcontainer_files] || %{}),
-      project[:devcontainer_override_json] || "",
-      Enum.join(always_packages, ","),
-      postbuild
-    ]
+    devcontainer_files = project[:devcontainer_files]
+    override_json = project[:devcontainer_override_json]
 
-    :crypto.hash(:sha256, Enum.join(parts, "\n"))
+    dc_part =
+      if devcontainer_files do
+        devcontainer_files
+        |> Map.keys()
+        |> Enum.sort()
+        |> Enum.map_join("", fn k -> "#{k}:#{devcontainer_files[k]}\n" end)
+      else
+        ""
+      end
+
+    content =
+      "dev:" <>
+        dc_part <>
+        "\nover:" <>
+        (override_json || "") <>
+        "\nalways:" <>
+        (Enum.sort(always_packages) |> Enum.join(",")) <>
+        "\npostbuild:" <>
+        postbuild
+
+    :crypto.hash(:sha256, content)
     |> Base.encode16(case: :lower)
     |> String.slice(0, 16)
   end
