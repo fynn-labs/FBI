@@ -12,7 +12,7 @@ describe('contextMenuRegistry', () => {
   it('returns items from a registered factory', () => {
     const el = document.createElement('div');
     el.dataset.contextRunId = '42';
-    contextMenuRegistry.register('run-row', (target) => [
+    contextMenuRegistry.register('run-row', (_target) => [
       { id: 'copy-id', label: 'Copy run ID', onSelect: () => {} },
     ]);
     const items = contextMenuRegistry.resolve('run-row', el);
