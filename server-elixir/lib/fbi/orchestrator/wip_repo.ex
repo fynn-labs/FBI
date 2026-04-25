@@ -123,9 +123,100 @@ defmodule FBI.Orchestrator.WipRepo do
     :ok
   end
 
+  @doc """
+  Return a parsed unified diff for `file_path` between the wip tip's parent
+  and the wip tip itself. Returns `%{path, ref: "wip", hunks: [], truncated: false}`
+  when there is no wip commit or no parent.
+  """
+  @spec read_snapshot_diff(Path.t(), pos_integer(), String.t()) :: map()
+  def read_snapshot_diff(runs_dir, run_id, file_path) do
+    empty = %{path: file_path, ref: "wip", hunks: [], truncated: false}
+
+    with snap when snap != nil <- snapshot_sha(runs_dir, run_id),
+         parent when parent != nil <- parent_sha(runs_dir, run_id) do
+      p = path(runs_dir, run_id)
+
+      case git(p, ["diff", "--no-color", "--no-ext-diff", "-U3",
+                   "#{parent}..#{snap}", "--", file_path]) do
+        {:ok, out} -> parse_unified_diff(out, file_path, "wip")
+        {:error, _} -> empty
+      end
+    else
+      _ -> empty
+    end
+  end
+
+  @doc """
+  Return a `git format-patch` string for the wip tip against its parent,
+  suitable for download as a `.patch` file. Returns "" when no wip exists.
+  """
+  @spec read_snapshot_patch(Path.t(), pos_integer()) :: String.t()
+  def read_snapshot_patch(runs_dir, run_id) do
+    with snap when snap != nil <- snapshot_sha(runs_dir, run_id),
+         parent when parent != nil <- parent_sha(runs_dir, run_id) do
+      p = path(runs_dir, run_id)
+
+      case git(p, ["format-patch", "--stdout", "#{parent}..#{snap}"]) do
+        {:ok, out} -> out
+        {:error, _} -> ""
+      end
+    else
+      _ -> ""
+    end
+  end
+
   # ---------------------------------------------------------------------------
   # Private helpers
   # ---------------------------------------------------------------------------
+
+  @max_hunks 50
+
+  defp parse_unified_diff(raw, path, ref) do
+    lines = String.split(raw, "\n")
+    hunks = parse_hunks(lines)
+    truncated = length(hunks) > @max_hunks
+    %{path: path, ref: ref, hunks: Enum.take(hunks, @max_hunks), truncated: truncated}
+  end
+
+  defp parse_hunks(lines) do
+    {acc, current} =
+      Enum.reduce(lines, {[], nil}, fn line, {acc, current} ->
+        case Regex.run(~r/^@@ -(\d+)(?:,(\d+))? \+(\d+)(?:,(\d+))? @@/, line) do
+          [_, os, ol, ns, nl] ->
+            hunk = %{
+              old_start: String.to_integer(os),
+              old_lines: String.to_integer(ol || "1"),
+              new_start: String.to_integer(ns),
+              new_lines: String.to_integer(nl || "1"),
+              lines: []
+            }
+            new_acc = if current, do: acc ++ [current], else: acc
+            {new_acc, hunk}
+
+          nil when not is_nil(current) ->
+            type =
+              case line do
+                "+" <> _ -> "add"
+                "-" <> _ -> "del"
+                "\\ " <> _ -> nil
+                _ -> "ctx"
+              end
+
+            if type do
+              updated = Map.update!(current, :lines,
+                &(&1 ++ [%{type: type, content: String.slice(line, 1..-1//1)}]))
+              {acc, updated}
+            else
+              {acc, current}
+            end
+
+          _ ->
+            {acc, current}
+        end
+      end)
+
+    if current, do: acc ++ [current], else: acc
+  end
 
   defp git(cwd, args) do
     case System.cmd("git", args, cd: cwd, stderr_to_stdout: true) do
