@@ -17,13 +17,19 @@ defmodule FBIWeb.WipController do
     end
   end
 
+  @safe_path ~r|^[\w./@:+-]+$|
+
   def file(conn, %{"id" => id} = params) do
     run_id = String.to_integer(id)
     runs_dir = Application.get_env(:fbi, :runs_dir, "/tmp/fbi-runs")
     file_path = params["path"] || ""
 
-    result = WipRepo.read_snapshot_diff(runs_dir, run_id, file_path)
-    json(conn, result)
+    if file_path != "" and not Regex.match?(@safe_path, file_path) do
+      conn |> put_status(400) |> json(%{error: "invalid path"})
+    else
+      result = WipRepo.read_snapshot_diff(runs_dir, run_id, file_path)
+      json(conn, result)
+    end
   end
 
   def patch(conn, %{"id" => id}) do
