@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import type { Project, Run, ChangesPayload } from '@shared/types.js';
 import type { WipResponse } from '../features/runs/ChangesTab.js';
-import { api } from '../lib/api.js';
+import { api, apiBase } from '../lib/api.js';
 import { LoadingState } from '@ui/patterns/LoadingState.js';
 import { ErrorState } from '@ui/patterns/index.js';
 import { RunHeader } from '../features/runs/RunHeader.js';
@@ -332,7 +332,7 @@ export function RunDetailPage() {
               t === 'ship'    ? <ShipTab run={run} project={project} changes={changes}
                                          onCreatePr={onCreatePr} creatingPr={creatingPr} onReload={onReload} /> :
               t === 'tunnel'  ? <TunnelTab runId={run.id} runState={run.state}
-                                           origin={window.location.origin} ports={ports} /> :
+                                           origin={apiBase() || window.location.origin} ports={ports} /> :
                                 <MetaTab run={run} siblings={siblings} />
             }
           </RunDrawer>
