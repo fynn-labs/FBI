@@ -144,6 +144,71 @@ defmodule FBI.Docker do
   defp ok_unit(status, _body) when status in 200..299, do: :ok
   defp ok_unit(status, body), do: {:error, {status, body}}
 
+  # Post-condition helpers
+  # ----------------------------------------------------------------------------
+  # Each side-effecting Docker call verifies the side effect actually happened
+  # before returning success. The pattern: do the call, check Docker's reply,
+  # then re-`inspect_container` (or equivalent) to confirm the post-condition.
+  # If the post-condition fails the helper raises with a descriptive message.
+  #
+  # Why this exists: Docker's API has several modes where a request returns
+  # success but the side effect didn't fully complete (notably the build →
+  # tag race fixed in commit 15446fb). Without a post-condition check, those
+  # silent failures cascade into confusing 404s several layers downstream
+  # (e.g. "Could not find /fbi in container <id>" really meaning "the image
+  # built for that container didn't get tagged"). Asserting at the boundary
+  # keeps each fault visible at its source.
+  #
+  # `inspect_predicate!/3` polls inspect_container with a short retry budget
+  # to absorb the brief async window between Docker acking a state change and
+  # `State` reflecting it. `predicate` runs against the parsed inspect body
+  # and returns true once the post-condition is met.
+
+  @inspect_retry_attempts 30
+  @inspect_retry_delay_ms 100
+
+  defp inspect_predicate!(id, label, predicate, attempts \\ @inspect_retry_attempts) do
+    case inspect_container(id) do
+      {:ok, body} ->
+        if predicate.(body) do
+          :ok
+        else
+          if attempts > 0 do
+            Process.sleep(@inspect_retry_delay_ms)
+            inspect_predicate!(id, label, predicate, attempts - 1)
+          else
+            raise "docker post-condition failed for container #{id}: " <>
+                    "#{label} (last state: #{inspect(body["State"])})"
+          end
+        end
+
+      {:error, {404, _}} ->
+        raise "docker post-condition failed: container #{id} not found while waiting for #{label}"
+
+      {:error, reason} ->
+        raise "docker inspect for post-condition '#{label}' on container #{id} failed: #{inspect(reason)}"
+    end
+  end
+
+  # Verify the container is gone (inspect returns 404). Used after remove.
+  defp inspect_gone!(id, attempts \\ @inspect_retry_attempts) do
+    case inspect_container(id) do
+      {:error, {404, _}} ->
+        :ok
+
+      {:ok, _body} ->
+        if attempts > 0 do
+          Process.sleep(@inspect_retry_delay_ms)
+          inspect_gone!(id, attempts - 1)
+        else
+          raise "docker post-condition failed: container #{id} still exists after remove"
+        end
+
+      {:error, reason} ->
+        raise "docker inspect after remove on #{id} failed: #{inspect(reason)}"
+    end
+  end
+
   # Container operations
 
   def create_container(spec) do
@@ -163,20 +228,55 @@ defmodule FBI.Docker do
     {status, body} = rest("POST", path, body_spec)
 
     case ok_json(status, body) do
-      {:ok, %{"Id" => id}} -> {:ok, id}
-      {:ok, other} -> {:error, other}
-      err -> err
+      {:ok, %{"Id" => id}} ->
+        # Boundary check: if Docker returned 201 with an ID but the container
+        # isn't actually inspectable, surface that here rather than letting
+        # downstream calls 404 in confusing ways.
+        inspect_predicate!(id, "exists after create", fn body ->
+          body["Id"] == id or String.starts_with?(id, body["Id"] || "")
+        end)
+
+        {:ok, id}
+
+      {:ok, other} ->
+        {:error, other}
+
+      err ->
+        err
     end
   end
 
   def start_container(id) do
     {status, body} = rest("POST", "/containers/#{id}/start")
-    ok_unit(status, body)
+
+    case ok_unit(status, body) do
+      :ok ->
+        # Boundary check: Docker returns 204 once it has dispatched the start,
+        # but the OCI runtime can take a few ms to flip State.Running. Poll
+        # until either Running flips to true or the container has already
+        # exited (in which case `start` did its job — the container's own
+        # entrypoint problem is a separate concern caller code can detect via
+        # wait_container).
+        inspect_predicate!(id, "started", fn body ->
+          state = body["State"] || %{}
+          state["Running"] == true or state["Status"] in ["running", "exited", "dead"]
+        end)
+
+        :ok
+
+      err ->
+        err
+    end
   end
 
   def stop_container(id, opts \\ []) do
     t = Keyword.get(opts, :t, 10)
     {status, body} = rest("POST", "/containers/#{id}/stop?t=#{t}")
+    # No post-condition check here on purpose: stop's contract is "send
+    # signals and possibly wait up to t seconds before SIGKILL". Whether the
+    # process has actually exited is `wait_container/1`'s job. Adding an
+    # inspect-poll here would block the cancel path's GenServer.call past
+    # its 10s timeout for legitimate slow shutdowns.
     ok_unit(status, body)
   end
 
@@ -201,7 +301,20 @@ defmodule FBI.Docker do
     force = if Keyword.get(opts, :force, false), do: "1", else: "0"
     v = if Keyword.get(opts, :v, false), do: "1", else: "0"
     {status, body} = rest("DELETE", "/containers/#{id}?force=#{force}&v=#{v}")
-    ok_unit(status, body)
+
+    case ok_unit(status, body) do
+      :ok ->
+        # 204 means Docker accepted the removal; the actual unlink can lag
+        # by a few hundred ms while Docker tears down mounts, networks, and
+        # volumes. inspect_gone!/1 polls until inspect returns 404, so a
+        # subsequent caller (e.g. a fresh create_container with the same
+        # name) doesn't race a stale container.
+        inspect_gone!(id)
+        :ok
+
+      err ->
+        err
+    end
   end
 
   def inspect_container(id) do
