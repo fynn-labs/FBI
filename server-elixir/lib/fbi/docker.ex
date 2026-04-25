@@ -79,8 +79,21 @@ defmodule FBI.Docker do
     conn
   end
 
+  # Read until the peer closes the connection. Uses an infinite timeout
+  # because some endpoints (notably /containers/:id/wait) only respond when
+  # the container actually exits, which can be arbitrarily long. A finite
+  # timeout here would silently truncate the body to "" and make ok_json
+  # crash with Jason.DecodeError — that's how runs 2/3 silently failed
+  # 60s after launch in the original implementation.
+  #
+  # All callers send `Connection: close` (rest/4 unconditionally,
+  # wait_container/1 explicitly), so Docker is guaranteed to close the
+  # socket once the response body is complete; the kernel surfaces that
+  # as `:closed` here. If the connection somehow never closes, the
+  # caller's overall context (cancel call, container removal, GenServer
+  # termination) is responsible for closing the socket from our side.
   defp recv_until_close(conn, acc) do
-    case :gen_tcp.recv(conn, 0, 60_000) do
+    case :gen_tcp.recv(conn, 0, :infinity) do
       {:ok, data} -> recv_until_close(conn, acc <> data)
       {:error, :closed} -> split_http(acc)
       {:error, _} -> split_http(acc)
@@ -197,7 +210,14 @@ defmodule FBI.Docker do
   end
 
   def wait_container(id) do
-    conn = stream_start("POST", "/containers/#{id}/wait")
+    # Connection: close so Docker closes the socket the moment it has sent
+    # the wait response, signalling the end of the body to recv_until_close.
+    # Without it Docker would keep the keepalive connection open, and our
+    # infinite-timeout recv would block forever waiting for a close that
+    # never comes.
+    conn =
+      stream_start("POST", "/containers/#{id}/wait", nil, [{"Connection", "close"}])
+
     {status, body} = recv_until_close(conn, "")
     :gen_tcp.close(conn)
 
