@@ -338,7 +338,7 @@ defmodule FBI.Docker do
   end
 
   def inject_files(container_id, target_dir, files, uid \\ nil) do
-    tar = build_tar(files)
+    tar = FBI.Orchestrator.Tar.build(files)
 
     {:ok, exec_id} =
       exec_create(container_id, ["tar", "x", "-C", target_dir],
@@ -359,51 +359,4 @@ defmodule FBI.Docker do
 
     :ok
   end
-
-  defp build_tar(files) do
-    Enum.reduce(files, "", fn {name, content}, acc ->
-      name_bin = :erlang.iolist_to_binary([name])
-      name_padded = binary_pad(name_bin, 100)
-      size = byte_size(content)
-      size_str = Integer.to_string(size, 8) |> String.pad_leading(11, "0")
-
-      header_pre =
-        name_padded <>
-          "0006440\0" <>
-          "0001750\0" <>
-          "0001750\0" <>
-          <<size_str::binary, 0>> <>
-          "00000000000\0" <>
-          "        " <>
-          "0" <>
-          binary_pad("", 100) <>
-          "ustar  \0" <>
-          binary_pad("", 32) <>
-          binary_pad("", 32) <>
-          "00000000000\0" <>
-          "00000000000\0"
-
-      header_pre = binary_pad(header_pre, 512)
-
-      chksum =
-        :binary.bin_to_list(header_pre)
-        |> Enum.sum()
-        |> Integer.to_string(8)
-        |> String.pad_leading(6, "0")
-
-      header =
-        binary_part(header_pre, 0, 148) <>
-          chksum <> "\0 " <> binary_part(header_pre, 156, 512 - 156)
-
-      pad_size = if rem(size, 512) == 0, do: 0, else: 512 - rem(size, 512)
-      data_padded = content <> :binary.copy(<<0>>, pad_size)
-      acc <> header <> data_padded
-    end) <> :binary.copy(<<0>>, 1024)
-  end
-
-  defp binary_pad(bin, target) when byte_size(bin) >= target,
-    do: binary_part(bin, 0, target)
-
-  defp binary_pad(bin, target),
-    do: bin <> :binary.copy(<<0>>, target - byte_size(bin))
 end
