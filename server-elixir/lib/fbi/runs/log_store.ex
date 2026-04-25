@@ -22,10 +22,25 @@ defmodule FBI.Runs.LogStore do
     %{fd: fd, path: path}
   end
 
-  @doc "Append `data` (binary) to an open LogStore handle."
-  @spec append(t(), binary()) :: :ok
+  @doc """
+  Append `data` (binary) to an open LogStore handle, or directly to a file path
+  (which is opened, written, and closed). The path-based form creates parent
+  directories as needed.
+  """
+  @spec append(t() | Path.t(), binary()) :: :ok
   def append(%{fd: fd}, data) when is_binary(data) do
     :ok = :file.write(fd, data)
+  end
+
+  def append(path, data) when is_binary(path) and is_binary(data) do
+    path |> Path.dirname() |> File.mkdir_p!()
+    {:ok, fd} = :file.open(path, [:append, :raw, :binary])
+
+    try do
+      :ok = :file.write(fd, data)
+    after
+      :file.close(fd)
+    end
   end
 
   @doc "Close the file handle."
