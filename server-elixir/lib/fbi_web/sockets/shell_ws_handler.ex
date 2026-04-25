@@ -27,12 +27,39 @@ defmodule FBIWeb.Sockets.ShellWSHandler do
     case Jason.decode(text) do
       {:ok, %{"type" => "hello", "cols" => cols, "rows" => rows}} ->
         FBI.Orchestrator.resize(run_id, cols, rows)
-        snapshot = FBI.Orchestrator.ScreenState.snapshot(run_id)
-        reply = Jason.encode!(%{type: "snapshot", ansi: snapshot})
+        reply = Jason.encode!(%{type: "snapshot", ansi: build_snapshot(run_id)})
         {:push, {:text, reply}, %{state | greeted: true}}
 
       _ ->
         {:ok, state}
+    end
+  end
+
+  # Build the initial-connect snapshot from the run's persisted log file
+  # rather than the in-memory ring buffer. The log is the source of truth and
+  # never evicts content, so refresh produces the same screen as the live
+  # stream did. Cap the tail at 2 MiB to keep xterm.js replay snappy and the
+  # WS frame small; older bytes scroll out of xterm's own scrollback the same
+  # way they would have during live streaming.
+  @snapshot_cap 2 * 1024 * 1024
+  @clear_screen "\e[2J\e[H"
+
+  defp build_snapshot(run_id) do
+    case FBI.Runs.Queries.get(run_id) do
+      {:ok, %{log_path: path}} when is_binary(path) ->
+        size = FBI.Runs.LogStore.byte_size(path)
+
+        tail =
+          if size > @snapshot_cap do
+            FBI.Runs.LogStore.read_range(path, size - @snapshot_cap, size - 1)
+          else
+            FBI.Runs.LogStore.read_all(path)
+          end
+
+        @clear_screen <> tail
+
+      _ ->
+        @clear_screen
     end
   end
 
