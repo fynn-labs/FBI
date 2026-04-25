@@ -128,16 +128,17 @@ export class TerminalController {
       }
       this.term.reset();
       this.term.write(snap.ansi);
-      // Kick off the byte-silence timer synchronously. xterm's write-complete
-      // callback is unreliable here (term.reset() appears to drop pending
-      // callbacks), and we only need this to *start* a settling window —
-      // exact "parsed" timing doesn't matter.
       this.onSnapshotParsed();
-      // Each snapshot (initial AND reconnect-served) gets a deferred redraw
-      // nudge so Claude paints its cursor cell — its first redraw frame
-      // sometimes omits it. This matters most on WS reconnect after a
-      // container restart, where the first snapshot lands without cursor.
       this.scheduleCursorRedraw();
+      // If the server rendered this snapshot at a different size than our
+      // terminal (another viewer's hello resized the PTY), immediately
+      // reclaim the correct size. Without this, all subsequent PTY output
+      // comes in at the wrong width, making content look narrow.
+      if (snap.cols !== this.term.cols || snap.rows !== this.term.rows) {
+        queueMicrotask(() => {
+          if (!this.disposed) this.shell.sendHello(this.term.cols, this.term.rows);
+        });
+      }
       if (!this.seeded) {
         this.seeded = true;
         // Defer to a microtask so synchronous subscribers (tests, or any
