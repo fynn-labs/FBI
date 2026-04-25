@@ -1,15 +1,7 @@
 defmodule FBIWeb.FileDiffController do
-  @moduledoc """
-  GET /api/runs/:id/file-diff?path=<path>&ref=<ref>
-
-  Returns a parsed unified diff for a file. In Phase 7a, only WipRepo diffs
-  are available. Worktree ref returns 409 (no live container yet).
-  """
-
   use FBIWeb, :controller
 
   alias FBI.Runs.Queries, as: RunQ
-  alias FBI.Orchestrator.WipRepo
 
   @path_re ~r|^[\w./@:+-]+$|
 
@@ -31,7 +23,7 @@ defmodule FBIWeb.FileDiffController do
         case parse_id(id_str) do
           {:ok, run_id} ->
             case RunQ.get(run_id) do
-              {:ok, _run} -> serve_diff(conn, run_id, file_path, ref)
+              {:ok, run} -> serve_diff(conn, run, file_path, ref)
               :not_found -> conn |> put_status(404) |> json(%{error: "not found"})
             end
 
@@ -41,62 +33,33 @@ defmodule FBIWeb.FileDiffController do
     end
   end
 
-  defp serve_diff(conn, _run_id, _file_path, "worktree") do
-    conn |> put_status(409) |> json(%{error: "no container", message: "container not active"})
-  end
+  defp serve_diff(conn, run, file_path, ref) do
+    if run.container_id do
+      cmd =
+        if ref == "worktree" do
+          ["git", "-C", "/workspace", "diff", "--", file_path]
+        else
+          ["git", "-C", "/workspace", "show", ref, "--", file_path]
+        end
 
-  defp serve_diff(conn, run_id, file_path, ref) do
-    runs_dir = Application.get_env(:fbi, :runs_dir, "/var/lib/agent-manager/runs")
-    bare_dir = WipRepo.path(runs_dir, run_id)
-    diff = read_diff_from_wip(bare_dir, ref, file_path)
-    json(conn, diff)
-  end
-
-  defp read_diff_from_wip(bare_dir, ref, file_path) do
-    snap = snap_sha(bare_dir)
-    parent = snap && parent_sha(bare_dir, snap)
-
-    if is_nil(snap) or is_nil(parent) do
-      %{path: file_path, ref: ref, hunks: [], truncated: false}
-    else
-      case System.cmd(
-             "git",
-             [
-               "-C",
-               bare_dir,
-               "diff",
-               "--no-color",
-               "--no-ext-diff",
-               "-U3",
-               "#{parent}..#{snap}",
-               "--",
-               file_path
-             ],
-             stderr_to_stdout: true
-           ) do
-        {out, 0} -> parse_unified_diff(out, file_path, ref)
-        _ -> %{path: file_path, ref: ref, hunks: [], truncated: false}
+      case exec_git_in_container(run.container_id, cmd) do
+        {:ok, stdout} -> json(conn, parse_unified_diff(stdout, file_path, ref))
+        {:error, reason} -> conn |> put_status(409) |> json(%{error: "no container", message: reason})
       end
+    else
+      conn |> put_status(409) |> json(%{error: "no container", message: "container not active"})
     end
   end
 
-  defp snap_sha(bare_dir) do
-    case System.cmd("git", ["-C", bare_dir, "rev-parse", "--verify", "-q", "refs/heads/wip"],
-           stderr_to_stdout: true
-         ) do
-      {sha, 0} ->
-        trimmed = String.trim(sha)
-        if trimmed == "", do: nil, else: trimmed
-
-      _ ->
-        nil
-    end
-  end
-
-  defp parent_sha(bare_dir, snap) do
-    case System.cmd("git", ["-C", bare_dir, "rev-parse", "#{snap}^"], stderr_to_stdout: true) do
-      {sha, 0} -> String.trim(sha)
-      _ -> nil
+  defp exec_git_in_container(container_id, cmd) do
+    try do
+      {:ok, exec_id} = FBI.Docker.exec_create(container_id, cmd)
+      {:ok, output} = FBI.Docker.exec_start(exec_id, timeout_ms: 5_000)
+      {:ok, output}
+    rescue
+      e -> {:error, Exception.message(e)}
+    catch
+      _, reason -> {:error, inspect(reason)}
     end
   end
 
