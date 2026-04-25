@@ -268,7 +268,7 @@ defmodule FBIWeb.ChangesController do
     end
   end
 
-  defp runs_dir, do: Application.get_env(:fbi, :runs_dir, "/var/lib/agent-manager/runs")
+  defp runs_dir, do: Application.get_env(:fbi, :runs_dir, "/tmp/fbi-runs")
 
   defp gh_compare_files(run, sha) do
     repo =
