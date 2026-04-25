@@ -408,11 +408,16 @@ defmodule FBI.Docker do
     conn = connect!()
     len = byte_size(tar_binary)
 
+    # Connection: close so Docker shuts the socket as soon as the response
+    # body is complete. Without it, Docker keeps the keepalive socket open
+    # past the final "Successfully tagged …" line and we'd block waiting
+    # for an EOF that never comes — see comment in stream_build_output.
     req =
       "POST /build?t=#{URI.encode(tag, &URI.char_unreserved?/1)}&rm=1 HTTP/1.1\r\n" <>
         "Host: docker\r\n" <>
         "Content-Type: application/x-tar\r\n" <>
         "Content-Length: #{len}\r\n" <>
+        "Connection: close\r\n" <>
         "\r\n"
 
     :ok = :gen_tcp.send(conn, req)
@@ -423,20 +428,23 @@ defmodule FBI.Docker do
     result
   end
 
+  # Read the streaming /build response until Docker closes the socket. We
+  # MUST NOT bail early on `{"aux":{"ID":...}}` or even on
+  # `Successfully built …`: Docker emits both BEFORE applying the `t=` tag
+  # to the resulting image. The tag is only finalized by the time
+  # `Successfully tagged …` is sent (or shortly after), so closing the
+  # client side any earlier races the tagging step and leaves the image
+  # untagged — which manifests downstream as `create_container` 404'ing
+  # with "No such image: <tag>". With `Connection: close` on the request
+  # Docker drops the socket promptly after the response, so waiting for
+  # `:closed` is cheap.
   defp stream_build_output(conn, on_chunk) do
-    case :gen_tcp.recv(conn, 0, 120_000) do
+    case :gen_tcp.recv(conn, 0, :infinity) do
       {:ok, data} ->
         for line <- String.split(data, "\n"), line != "" do
           case Jason.decode(line) do
             {:ok, %{"stream" => text}} ->
               on_chunk.(text)
-              # Docker holds the keep-alive connection open after the final
-              # `Successfully built …` line, so we'd otherwise block in recv
-              # until the 120s timeout. Bail out the moment the build is done.
-              if String.contains?(text, "Successfully built"), do: throw(:build_done)
-
-            {:ok, %{"aux" => %{"ID" => _}}} ->
-              throw(:build_done)
 
             {:ok, %{"error" => err}} ->
               throw({:build_error, err})
@@ -455,9 +463,6 @@ defmodule FBI.Docker do
         {:error, reason}
     end
   catch
-    :build_done ->
-      :ok
-
     {:build_error, err} ->
       {:error, err}
   end
