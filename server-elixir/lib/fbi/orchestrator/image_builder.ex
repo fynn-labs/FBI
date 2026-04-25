@@ -113,8 +113,8 @@ defmodule FBI.Orchestrator.ImageBuilder do
     try do
       on_log.("[fbi] building devcontainer image #{tag}\n")
 
-      {output, exit_code} =
-        System.cmd(
+      exit_code =
+        stream_cmd(
           "npx",
           [
             "-y",
@@ -125,10 +125,9 @@ defmodule FBI.Orchestrator.ImageBuilder do
             "--image-name",
             tag
           ],
-          stderr_to_stdout: true
+          on_log
         )
 
-      on_log.(output)
       if exit_code != 0, do: raise("devcontainer build failed (exit #{exit_code})")
     after
       File.rm_rf!(work_dir)
@@ -187,6 +186,37 @@ defmodule FBI.Orchestrator.ImageBuilder do
     case FBI.Docker.build_image(tar, final_tag, on_log) do
       :ok -> :ok
       {:error, err} -> raise "post-layer build failed: #{err}"
+    end
+  end
+
+  # Run a command, streaming combined stdout/stderr to `on_log` chunk-by-chunk.
+  # Returns the integer exit status. Used for the long-running devcontainer
+  # build so progress reaches the UI as it happens, not after the build ends.
+  defp stream_cmd(cmd, args, on_log) do
+    bin = System.find_executable(cmd) || cmd
+
+    port =
+      Port.open(
+        {:spawn_executable, bin},
+        [
+          :binary,
+          :exit_status,
+          :stderr_to_stdout,
+          {:args, args}
+        ]
+      )
+
+    stream_loop(port, on_log)
+  end
+
+  defp stream_loop(port, on_log) do
+    receive do
+      {^port, {:data, chunk}} ->
+        on_log.(chunk)
+        stream_loop(port, on_log)
+
+      {^port, {:exit_status, code}} ->
+        code
     end
   end
 end
