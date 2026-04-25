@@ -150,8 +150,13 @@ defmodule FBIWeb.ChangesController do
     case run.container_id do
       cid when is_binary(cid) and cid != "" ->
         case Docker.exec_create(cid, [
-               "git", "-C", "/workspace/#{submodule_path}",
-               "show", "--numstat", "--format=", sha
+               "git",
+               "-C",
+               "/workspace/#{submodule_path}",
+               "show",
+               "--numstat",
+               "--format=",
+               sha
              ]) do
           {:ok, exec_id} ->
             case Docker.exec_start(exec_id, timeout_ms: 5_000) do
