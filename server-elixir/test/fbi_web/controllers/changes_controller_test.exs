@@ -52,4 +52,12 @@ defmodule FBIWeb.ChangesControllerTest do
       assert body["files"] == []
     end
   end
+
+  describe "controller source contract" do
+    test "build_changes uses GH compare_branch for branch-unique commits" do
+      src = File.read!("lib/fbi_web/controllers/changes_controller.ex")
+      assert src =~ "GH.compare_branch"
+      refute src =~ "GH.commits_on_branch"
+    end
+  end
 end

@@ -54,8 +54,7 @@ defmodule FBIWeb.ChangesController do
   end
 
   defp build_changes(run) do
-    runs_dir = Application.get_env(:fbi, :runs_dir, "/var/lib/agent-manager/runs")
-    bare_dir = WipRepo.path(runs_dir, run.id)
+    bare_dir = WipRepo.path(runs_dir(), run.id)
     branch = run.branch_name
 
     safeguard_commits =
@@ -65,7 +64,7 @@ defmodule FBIWeb.ChangesController do
         []
       end
 
-    {commits, gh_payload} = maybe_enrich_with_github(run, safeguard_commits)
+    {commits, gh_payload, branch_base} = maybe_enrich_with_github(run, safeguard_commits)
 
     children =
       RunQ.list_by_parent(run.id)
@@ -73,7 +72,7 @@ defmodule FBIWeb.ChangesController do
 
     %{
       branch_name: branch,
-      branch_base: nil,
+      branch_base: branch_base,
       commits: commits,
       uncommitted: [],
       integrations: if(gh_payload, do: %{github: gh_payload}, else: %{}),
@@ -83,48 +82,71 @@ defmodule FBIWeb.ChangesController do
   end
 
   defp maybe_enrich_with_github(run, safeguard_commits) do
-    repo =
+    result =
       with pid when not is_nil(pid) <- run.project_id,
            {:ok, project} <- ProjQ.get(pid),
-           {:ok, repo_str} <- GHRepo.parse(project.repo_url) do
-        repo_str
+           {:ok, repo_str} <- GHRepo.parse(project.repo_url),
+           true <- run.branch_name not in [nil, ""],
+           true <- GH.available?() do
+        {repo_str, project.default_branch, run.branch_name}
       else
         _ -> nil
       end
 
-    branch = run.branch_name
+    case result do
+      nil ->
+        {safeguard_commits, nil, nil}
 
-    if repo && branch && GH.available?() do
-      pr =
-        case GH.pr_for_branch(repo, branch) do
-          {:ok, v} -> v
-          _ -> nil
-        end
+      {repo, base_branch, branch} ->
+        pr =
+          case GH.pr_for_branch(repo, branch) do
+            {:ok, v} -> v
+            _ -> nil
+          end
 
-      gh_commits =
-        case GH.commits_on_branch(repo, branch) do
-          {:ok, list} -> list
-          _ -> []
-        end
+        {gh_commits, ahead_by, behind_by, merge_base_sha} =
+          case GH.compare_branch(repo, base_branch, branch) do
+            {:ok, %{commits: c, ahead_by: a, behind_by: b, merge_base_sha: m}} ->
+              {c, a, b, m}
 
-      gh_shas = MapSet.new(gh_commits, & &1.sha)
+            _ ->
+              {[], 0, 0, ""}
+          end
 
-      all_commits =
-        Enum.map(gh_commits, fn c ->
-          Map.merge(c, %{pushed: true, files: [], files_loaded: false, submodule_bumps: []})
-        end) ++
-          Enum.reject(safeguard_commits, fn c -> MapSet.member?(gh_shas, c.sha) end)
+        gh_shas = MapSet.new(gh_commits, & &1.sha)
 
-      gh_payload = %{
-        pr: pr && Map.take(pr, [:number, :url, :state, :title]),
-        checks: nil
-      }
+        filtered_safeguard =
+          if merge_base_sha == "" do
+            safeguard_commits
+          else
+            # Re-list safeguard commits scoped to the merge base. Cheaper than
+            # post-filtering by SHA because list_commits with a base argument
+            # already excludes pre-base commits.
+            SafeguardRepo.list_commits(
+              WipRepo.path(runs_dir(), run.id),
+              run.branch_name,
+              merge_base_sha
+            )
+          end
 
-      {all_commits, gh_payload}
-    else
-      {safeguard_commits, nil}
+        all_commits =
+          Enum.map(gh_commits, fn c ->
+            Map.merge(c, %{pushed: true, files: [], files_loaded: false, submodule_bumps: []})
+          end) ++
+            Enum.reject(filtered_safeguard, fn c -> MapSet.member?(gh_shas, c.sha) end)
+
+        gh_payload = %{
+          pr: pr && Map.take(pr, [:number, :url, :state, :title]),
+          checks: nil
+        }
+
+        branch_base = %{ahead_by: ahead_by, behind_by: behind_by, merge_base_sha: merge_base_sha}
+
+        {all_commits, gh_payload, branch_base}
     end
   end
+
+  defp runs_dir, do: Application.get_env(:fbi, :runs_dir, "/var/lib/agent-manager/runs")
 
   defp gh_compare_files(run, sha) do
     repo =
