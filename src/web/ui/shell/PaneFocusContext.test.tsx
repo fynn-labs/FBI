@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeEach } from 'vitest';
 import { render, screen, act } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import { PaneFocusProvider, usePaneFocus, usePaneRegistration, useFocusedPane } from './PaneFocusContext.js';
+import { PaneFocusProvider, usePaneFocus, usePaneRegistration, useFocusedPane, type PaneId } from './PaneFocusContext.js';
 import { keymap } from './KeyMap.js';
 
 beforeEach(() => { keymap._reset(); });
@@ -17,7 +17,7 @@ function FocusDisplay() {
   return <div data-testid="focused">{f ?? 'none'}</div>;
 }
 
-function App({ panes = ['projects-sidebar', 'runs-sidebar', 'run-terminal'] as const }) {
+function App({ panes = ['projects-sidebar', 'runs-sidebar', 'run-terminal'] }: { panes?: PaneId[] } = {}) {
   return (
     <PaneFocusProvider>
       <FocusDisplay />
