@@ -1,4 +1,4 @@
-import { useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { RunsFilter } from './RunsFilter.js';
 import { RunRow } from './RunRow.js';
@@ -6,6 +6,7 @@ import { useRunsView, applyRunsView } from './useRunsView.js';
 import type { StateCounts } from './StateFilterButton.js';
 import type { Run, RunState } from '@shared/types.js';
 import { useKeyBinding } from '@ui/shell/KeyMap.js';
+import { contextMenuRegistry } from '@ui/shell/contextMenuRegistry.js';
 
 export interface RunsListProps {
   runs: readonly Run[];
@@ -76,6 +77,32 @@ export function RunsList({ runs, toHref, currentId }: RunsListProps) {
 
   useKeyBinding({ chord: 'j', handler: () => step(1), description: 'Next run' }, []);
   useKeyBinding({ chord: 'k', handler: () => step(-1), description: 'Previous run' }, []);
+
+  useEffect(() => {
+    return contextMenuRegistry.register('run-row', (el) => {
+      const runId = el.dataset.contextRunId ?? '';
+      const branch = el.dataset.contextBranch ?? '';
+      return [
+        {
+          id: 'open',
+          label: 'Open run',
+          onSelect: () => nav(`/runs/${runId}`),
+        },
+        {
+          id: 'copy-run-id',
+          label: 'Copy run ID',
+          onSelect: () => void navigator.clipboard.writeText(`#${runId}`),
+        },
+        ...(branch
+          ? [{
+              id: 'copy-branch',
+              label: 'Copy branch name',
+              onSelect: () => void navigator.clipboard.writeText(branch),
+            }]
+          : []),
+      ];
+    });
+  }, [nav]);
 
   const running = runs.filter((r) => r.state === 'running' || r.state === 'starting').length;
 

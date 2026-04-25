@@ -30,6 +30,9 @@ export function RunRow({ run, to }: RunRowProps) {
   return (
     <NavLink
       to={to}
+      data-context-id="run-row"
+      data-context-run-id={String(run.id)}
+      data-context-branch={run.branch_name ?? ''}
       className={({ isActive }) =>
         `flex items-center gap-2 px-3 py-1.5 border-b border-border text-[14px] transition-colors duration-fast ease-out ${
           isActive ? 'bg-accent-subtle text-accent-strong' : 'text-text-dim hover:bg-surface-raised hover:text-text'

@@ -20,6 +20,7 @@ import { subscribeState, subscribeTitle, subscribeChanges } from '../features/ru
 import { UploadTray, type UploadTrayFile } from '../components/UploadTray.js';
 import { ContinueRunDialog } from '../components/ContinueRunDialog.js';
 import { acquireShell, releaseShell } from '../lib/shellRegistry.js';
+import { contextMenuRegistry } from '@ui/shell/contextMenuRegistry.js';
 
 export function RunDetailPage() {
   const params = useParams();
@@ -183,6 +184,24 @@ export function RunDetailPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [run?.id, run?.state]);
 
+  useEffect(() => {
+    if (!run) return;
+    return contextMenuRegistry.register('run-detail', () => [
+      {
+        id: 'copy-run-id',
+        label: 'Copy run ID',
+        onSelect: () => void navigator.clipboard.writeText(`#${run.id}`),
+      },
+      ...(run.branch_name
+        ? [{
+            id: 'copy-branch',
+            label: 'Copy branch name',
+            onSelect: () => void navigator.clipboard.writeText(run.branch_name!),
+          }]
+        : []),
+    ]);
+  }, [run]);
+
   if (error) return <ErrorState message={error} />;
   if (!run) return <LoadingState label="Loading run…" />;
   const interactive = run.state === 'running' || run.state === 'queued' || run.state === 'waiting' || run.state === 'starting';
@@ -243,7 +262,11 @@ export function RunDetailPage() {
   const shipDot = changes ? computeShipDot(changes) : null;
 
   return (
-    <div className="h-full flex flex-col min-h-0">
+    <div
+      className="h-full flex flex-col min-h-0"
+      data-context-id="run-detail"
+      data-context-run-id={String(run.id)}
+    >
       <RunHeader run={run} onCancel={cancel} onDelete={remove} onContinue={openContinueDialog} onRenamed={setRun} />
       <div className="flex-1 min-h-0 flex flex-col">
         <div
