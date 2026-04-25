@@ -4,7 +4,7 @@ use tauri::{
     tray::TrayIconBuilder,
     AppHandle, Emitter, Manager,
 };
-use tokio::sync::Mutex;
+use tokio::sync::Mutex as TokioMutex;
 
 use crate::tunnel::TunnelState;
 
@@ -181,6 +181,8 @@ pub fn rebuild_tray(
             }
 
             if has_waiting {
+                // Fall back to Dark: the template icon renders correctly on any background,
+                // so it is the safe default when the window is unavailable.
                 let theme = app
                     .get_webview_window("main")
                     .and_then(|w| w.theme().ok())
@@ -217,7 +219,7 @@ pub fn rebuild_tray(
 pub async fn update_tray_runs(app: AppHandle, runs: Vec<TrayRunInfo>) -> Result<(), String> {
     // Read current tunnel state for menu building
     let tunnel_ports = {
-        let state_ref = app.state::<Mutex<TunnelState>>();
+        let state_ref = app.state::<TokioMutex<TunnelState>>();
         let state = state_ref.lock().await;
         state
             .tunnels
