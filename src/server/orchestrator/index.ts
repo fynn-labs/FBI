@@ -513,9 +513,15 @@ export class Orchestrator {
 
       const failedNormally =
         !(waitRes.StatusCode === 0 && parsed && parsed.push_exit === 0);
+      const limitFired = this.limitFired.get(runId) ?? false;
       const settings = this.deps.settings.get();
 
-      if (failedNormally && !wasCancelled && settings.auto_resume_enabled) {
+      // Newer Claude Code displays the rate-limit message in-TUI and the
+      // LimitMonitor nudges it out via Ctrl-C^Ctrl-C; the TUI exits cleanly
+      // with status 0 in response. Without `limitFired`, that clean exit
+      // would slip through to 'succeeded' and the resume timer would never
+      // be scheduled.
+      if ((failedNormally || limitFired) && !wasCancelled && settings.auto_resume_enabled) {
         const logTail = Buffer.from(LogStore.readAll(this.deps.runs.get(runId)!.log_path)).toString('utf8');
         const snap = this.lastRateLimit.get(runId) ?? null;
         const rlsInput: RateLimitStateInput | null = snap ? {
@@ -525,7 +531,15 @@ export class Orchestrator {
           tokens_limit: snap.tokens_limit,
           reset_at: snap.reset_at,
         } : null;
-        const verdict = classify(logTail, rlsInput, Date.now());
+        let verdict = classify(logTail, rlsInput, Date.now());
+
+        // LimitMonitor's `containsLimitSignal` and classify's lenient match
+        // overlap, so this is rare — but the rate-limit message may have
+        // scrolled outside classify's 8 KB tail by the time we run. Trust
+        // the LimitMonitor and apply a 5-minute fallback clamp.
+        if (limitFired && verdict.kind !== 'rate_limit') {
+          verdict = { kind: 'rate_limit', reset_at: Date.now() + 5 * 60_000, source: 'fallback_clamp' };
+        }
 
         if (verdict.kind === 'rate_limit' && verdict.reset_at !== null) {
           const run = this.deps.runs.get(runId)!;
@@ -603,6 +617,7 @@ export class Orchestrator {
       this.deps.streams.release(runId);
     } finally {
       this.lastRateLimit.delete(runId);
+      this.limitFired.delete(runId);
       void this.deps.poller.nudge();
     }
   }
@@ -809,6 +824,7 @@ export class Orchestrator {
       mountDir: this.mountDirFor(runId),
       onDetect: () => {
         if (!this.deps.settings.get().auto_resume_enabled) return;
+        this.limitFired.set(runId, true);
         nudgeClaudeToExit({
           writeStdin: (b) => attach.write(Buffer.from(b)),
           killContainer: () => container.kill().then(() => undefined),
@@ -852,6 +868,13 @@ export class Orchestrator {
   >();
   private lastRateLimit = new Map<number, RateLimitSnapshot>();
   private lastFiles = new Map<number, FilesPayload>();
+  // Set when the run's LimitMonitor fires its onDetect — i.e., we nudged
+  // Claude out of the in-TUI rate-limit message. Claude's TUI handles the
+  // double-Ctrl-C as a clean shutdown and may exit with status 0, which
+  // would otherwise let the run slip through to 'succeeded' instead of
+  // 'awaiting_resume'. awaitAndComplete reads this flag to force the
+  // rate-limit detection branch even on a clean exit.
+  private limitFired = new Map<number, boolean>();
 
   /** Forward stdin bytes from the UI to the container. */
   writeStdin(runId: number, bytes: Uint8Array): void {

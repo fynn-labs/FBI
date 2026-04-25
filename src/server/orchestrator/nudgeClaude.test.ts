@@ -52,7 +52,7 @@ describe('nudgeClaudeToExit', () => {
       killAfterMs: 30_000,
     });
     expect(messages.join('\n')).toMatch(/rate-limit/);
-    expect(messages.join('\n')).toMatch(/claude/i);
+    expect(messages.join('\n')).toMatch(/\^C\^C/);
   });
 
   it('swallows writeStdin errors (stream may already be closed)', () => {
