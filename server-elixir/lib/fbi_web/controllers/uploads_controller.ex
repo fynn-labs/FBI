@@ -133,14 +133,14 @@ defmodule FBIWeb.UploadsController do
   end
 
   defp append_notice(log_path, filename, size) when is_binary(log_path) do
-    File.write(log_path, "[fbi] user uploaded #{filename} (#{human_size(size)})\n", [:append])
+    File.write(
+      log_path,
+      "[fbi] user uploaded #{filename} (#{FBI.Uploads.HumanSize.format(size)})\n",
+      [:append]
+    )
   end
 
   defp append_notice(_, _, _), do: :ok
-
-  defp human_size(n) when n >= 1024 * 1024, do: "#{Float.round(n / 1024 / 1024, 2)} MB"
-  defp human_size(n) when n >= 1024, do: "#{Float.round(n / 1024, 2)} KB"
-  defp human_size(n), do: "#{n} B"
 
   defp erl_to_ms({{y, m, d}, {h, mi, s}}) do
     {:ok, dt} = NaiveDateTime.new(y, m, d, h, mi, s)
