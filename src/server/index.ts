@@ -92,6 +92,7 @@ async function main() {
   await app.register(fastifyWebsocket);
   await app.register(fastifyCors, {
     origin: ['tauri://localhost', 'http://localhost:5173'],
+    exposedHeaders: ['X-Transcript-Total'],
   });
   await app.register(fastifyMultipart, {
     limits: { fileSize: 100 * 1024 * 1024, files: 1, fields: 2 },
