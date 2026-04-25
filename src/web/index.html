@@ -10,7 +10,7 @@
     <link rel="icon" href="/favicon.ico" sizes="any" />
     <link rel="manifest" href="/manifest.json" />
     <script>
-  (function(){try{var s=localStorage.getItem('fbi-theme');var m=window.matchMedia('(prefers-color-scheme: light)').matches;if(s==='light'||(!s&&m)){document.documentElement.classList.add('light');}}catch(e){}})();
+  (function(){try{var s=localStorage.getItem('fbi-theme');var m=window.matchMedia('(prefers-color-scheme: light)').matches;if(s==='light'||(s!=='dark'&&m)){document.documentElement.classList.add('light');}}catch(e){}})();
 </script>
   </head>
   <body>
