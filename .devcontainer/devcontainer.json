@@ -13,7 +13,7 @@
     "4000": { "label": "FBI API (Elixir/Phoenix)" },
     "5173": { "label": "FBI Web (Vite)" }
   },
-  "postCreateCommand": "npm install",
+  "postCreateCommand": "npm install && git config core.hooksPath .githooks",
   "remoteEnv": {
     "HOST_CLAUDE_DIR": "${localEnv:HOME}/.claude",
     "PUPPETEER_EXECUTABLE_PATH": "/usr/bin/chromium",

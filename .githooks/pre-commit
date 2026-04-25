@@ -1,0 +1,29 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+ROOT="$(git rev-parse --show-toplevel)"
+fail=0
+
+# Elixir format check — runs only when .ex/.exs files are staged
+if git diff --cached --name-only | grep -qE '\.(ex|exs)$'; then
+  if command -v mix >/dev/null 2>&1; then
+    echo "→ mix format --check-formatted"
+    if ! (cd "$ROOT/server-elixir" && mix format --check-formatted 2>&1); then
+      echo "  Fix: cd server-elixir && mix format"
+      fail=1
+    fi
+  fi
+fi
+
+# Rust format check — runs only when .rs or Cargo files are staged
+if git diff --cached --name-only | grep -qE '\.rs$|Cargo\.(toml|lock)$'; then
+  if command -v cargo >/dev/null 2>&1; then
+    echo "→ cargo fmt --check"
+    if ! (cd "$ROOT" && cargo fmt --check 2>&1); then
+      echo "  Fix: cargo fmt"
+      fail=1
+    fi
+  fi
+fi
+
+exit $fail
