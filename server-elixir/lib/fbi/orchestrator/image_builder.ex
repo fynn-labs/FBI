@@ -7,8 +7,12 @@ defmodule FBI.Orchestrator.ImageBuilder do
 
   @dockerfile_tmpl """
   FROM __BASE_IMAGE__
-  USER root
-  RUN apt-get update && apt-get install -y --no-install-recommends __APT_PACKAGES__ && rm -rf /var/lib/apt/lists/*
+
+  ENV DEBIAN_FRONTEND=noninteractive
+  RUN apt-get update && \\
+      apt-get install -y --no-install-recommends ca-certificates curl gnupg __APT_PACKAGES__ && \\
+      rm -rf /var/lib/apt/lists/*
+
   __ENV_EXPORTS__
   """
 
@@ -140,10 +144,7 @@ defmodule FBI.Orchestrator.ImageBuilder do
 
     base_image = cfg["base"] || "ubuntu:24.04"
 
-    apt_packages =
-      ((cfg["apt"] || []) ++ @always_packages)
-      |> Enum.uniq()
-      |> Enum.join(" ")
+    apt_packages = (cfg["apt"] || []) |> Enum.uniq() |> Enum.join(" ")
 
     env_lines =
       (cfg["env"] || %{})
