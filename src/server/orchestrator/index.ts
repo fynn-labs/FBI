@@ -619,7 +619,7 @@ export class Orchestrator {
     const onBytes = makeOnBytes(store, broadcaster, screen);
 
     onBytes(Buffer.from(
-      `\n[fbi] resuming (attempt ${run.resume_attempts} of ${this.deps.settings.get().auto_resume_max_attempts})\n`,
+      '\n' + fbi.status(`resuming (attempt ${run.resume_attempts} of ${this.deps.settings.get().auto_resume_max_attempts})`),
     ));
 
     try {
@@ -632,7 +632,7 @@ export class Orchestrator {
       );
 
       if (!sessionId) {
-        onBytes(Buffer.from(`[fbi] resume: no session captured, starting fresh\n`));
+        onBytes(Buffer.from(fbi.status('resume: no session captured, starting fresh')));
         const project = this.deps.projects.get(run.project_id)!;
         const preamble = [
           `You are working in /workspace on ${project.repo_url}.`,
@@ -700,7 +700,7 @@ export class Orchestrator {
       }
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
-      onBytes(Buffer.from(`\n[fbi] resume error: ${msg}\n`));
+      onBytes(Buffer.from('\n' + fbi.fatal(`resume error: ${msg}`)));
       this.deps.runs.markFinished(runId, { state: 'failed', error: `resume failed: ${msg}` });
       this.publishState(runId);
       this.active.delete(runId); this.lastFiles.delete(runId);
@@ -724,7 +724,7 @@ export class Orchestrator {
     const broadcaster = this.deps.streams.getOrCreate(runId);
     const screen = this.deps.streams.getOrCreateScreen(runId);
     const onBytes = makeOnBytes(store, broadcaster, screen);
-    onBytes(Buffer.from(`\n[fbi] continuing from session ${run.claude_session_id}\n`));
+    onBytes(Buffer.from('\n' + fbi.status(`continuing from session ${run.claude_session_id}`)));
 
     try {
       const { container } = await this.createContainerForRun(
@@ -781,7 +781,7 @@ export class Orchestrator {
     } catch (err) {
       if (err instanceof ContinueNotEligibleError) throw err;
       const msg = err instanceof Error ? err.message : String(err);
-      onBytes(Buffer.from(`\n[fbi] continue error: ${msg}\n`));
+      onBytes(Buffer.from('\n' + fbi.fatal(`continue error: ${msg}`)));
       this.deps.runs.markFinished(runId, { state: 'failed', error: `continue failed: ${msg}` });
       this.publishState(runId);
       this.active.delete(runId); this.lastFiles.delete(runId);
@@ -1025,7 +1025,7 @@ export class Orchestrator {
     const screen = this.deps.streams.getOrCreateScreen(runId);
     const onBytes = makeOnBytes(store, broadcaster, screen);
 
-    onBytes(Buffer.from(`\n[fbi] reattached after orchestrator restart\n`));
+    onBytes(Buffer.from('\n' + fbi.status('reattached after orchestrator restart')));
 
     // Stdin: fresh attach with only stdin.
     const attachStream = await container.attach({
@@ -1303,7 +1303,7 @@ async function fetchDevcontainerFile(
         files[entry] = fs.readFileSync(full, 'utf8');
       }
     }
-    onLog(Buffer.from(`[fbi] using repo .devcontainer/devcontainer.json\n`));
+    onLog(Buffer.from(fbi.status('using repo .devcontainer/devcontainer.json')));
     return files;
   } catch {
     return null;
