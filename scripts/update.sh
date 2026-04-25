@@ -32,6 +32,28 @@ sudo VITE_VERSION="$VITE_VERSION" npm --prefix "$APP_DIR" run build
 
 sudo chown -R fbi:fbi "$APP_DIR"
 
+# ── Download CLI dist binaries ─────────────────────────────────────────────────
+# Pre-built for all platforms by CI; downloading avoids needing Rust on the
+# server and gets the darwin binaries that can't be built on Linux.
+echo "Downloading CLI binaries..."
+REPO="fynn-labs/FBI"
+RELEASE_TAG=$(curl -sf "https://api.github.com/repos/$REPO/releases/latest" | \
+  grep -m1 '"tag_name"' | sed 's/.*"tag_name"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/')
+
+if [ -n "$RELEASE_TAG" ]; then
+  CLI_DIR="$APP_DIR/dist/cli"
+  sudo mkdir -p "$CLI_DIR"
+  BASE_URL="https://github.com/$REPO/releases/download/$RELEASE_TAG"
+  for name in darwin-arm64 darwin-amd64 linux-amd64 linux-arm64; do
+    echo "  fbi-tunnel-$name ($RELEASE_TAG)"
+    sudo curl -fsSL "$BASE_URL/fbi-tunnel-$name" -o "$CLI_DIR/fbi-tunnel-$name"
+    sudo chmod +x "$CLI_DIR/fbi-tunnel-$name"
+  done
+  sudo chown -R fbi:fbi "$CLI_DIR"
+else
+  echo "Warning: could not determine latest release tag; CLI binaries not updated"
+fi
+
 # ── Restart ────────────────────────────────────────────────────────────────────
 sudo systemctl start fbi.service
 
