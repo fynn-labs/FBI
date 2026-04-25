@@ -1,9 +1,13 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { NavLink } from 'react-router-dom';
+import { NavLink, useNavigate } from 'react-router-dom';
 import { cn } from '../cn.js';
 import { StatusDot } from '../primitives/StatusDot.js';
+import { Kbd } from '../primitives/Kbd.js';
 import { sidebarRegistry, type SidebarView } from './sidebarRegistry.js';
 import { SidebarUsage } from '../../features/usage/SidebarUsage.js';
+import { usePaneRegistration, usePaneFocus } from './PaneFocusContext.js';
+import { useModifierKeyHeld } from '../../hooks/useModifierKeyHeld.js';
+import { keymap } from './KeyMap.js';
 
 export interface SidebarProject {
   id: number;
@@ -24,6 +28,7 @@ const MIN_WIDTH = 180;
 const MAX_WIDTH = 360;
 const DEFAULT_WIDTH = 220;
 const STORAGE_KEY = 'fbi-splitpane:shell-sidebar';
+const MOD_SYMBOL = typeof navigator !== 'undefined' && navigator.platform.includes('Mac') ? '⌘' : 'Ctrl ';
 
 function readStoredWidth(): number {
   if (typeof window === 'undefined') return DEFAULT_WIDTH;
@@ -39,11 +44,38 @@ export function Sidebar({ projects, collapsed }: SidebarProps) {
   const [width, setWidth] = useState<number>(readStoredWidth);
   const [dragging, setDragging] = useState(false);
   const asideRef = useRef<HTMLElement>(null);
+  const nav = useNavigate();
+  const modHeld = useModifierKeyHeld();
+  usePaneRegistration('projects-sidebar', 0);
+  const { isFocused, focus } = usePaneFocus('projects-sidebar');
+
+  // Active projects (hasRunning or hasWaiting), first 9 for shortcuts.
+  const activeProjects = projects.filter((p) => p.hasRunning || p.hasWaiting).slice(0, 9);
+  const activeProjectsRef = useRef(activeProjects);
+  activeProjectsRef.current = activeProjects;
+  const isFocusedRef = useRef(isFocused);
+  isFocusedRef.current = isFocused;
 
   useEffect(() => {
     const update = () => setViews(sidebarRegistry.list());
     update();
     return sidebarRegistry.subscribe(update);
+  }, []);
+
+  // Register mod+1–9 for projects once; use refs inside handlers.
+  useEffect(() => {
+    const offs = [1, 2, 3, 4, 5, 6, 7, 8, 9].map((n) =>
+      keymap.register({
+        chord: `mod+${n}`,
+        description: n === 1 ? 'Jump to active project 1–9' : undefined,
+        when: () => isFocusedRef.current,
+        handler: () => {
+          const project = activeProjectsRef.current[n - 1];
+          if (project) nav(`/projects/${project.id}`);
+        },
+      }),
+    );
+    return () => offs.forEach((off) => off());
   }, []);
 
   const handleMouseDown = useCallback((e: React.MouseEvent) => {
@@ -93,45 +125,63 @@ export function Sidebar({ projects, collapsed }: SidebarProps) {
 
   const asideWidth = collapsed ? COLLAPSED_WIDTH : width;
 
+  // Shortcut label for a project: only when modifier held, pane focused, project is active.
+  const shortcutFor = (p: SidebarProject): string | undefined => {
+    if (!modHeld || !isFocused) return undefined;
+    const idx = activeProjects.indexOf(p);
+    return idx >= 0 ? String(idx + 1) : undefined;
+  };
+
   return (
     <>
       <aside
         ref={asideRef}
         style={{ width: asideWidth }}
-        className="shrink-0 h-full flex flex-col bg-surface"
+        className={cn(
+          'shrink-0 h-full flex flex-col bg-surface border-t-2',
+          isFocused ? 'border-accent' : 'border-transparent',
+        )}
+        onClick={focus}
       >
         {!collapsed && <Group label="Projects" />}
-        {projects.map((p) => (
-          <NavLink
-            key={p.id}
-            to={`/projects/${p.id}`}
-            title={collapsed ? p.name : undefined}
-            className={({ isActive }) => cn(
-              'flex items-center gap-2 px-2 py-1 mx-1 rounded-md text-[14px] transition-colors duration-fast ease-out',
-              collapsed && 'justify-center',
-              isActive ? 'bg-accent-subtle text-accent-strong' : 'text-text-dim hover:bg-surface-raised hover:text-text',
-            )}
-          >
-            {collapsed ? (
-              <span className="relative w-8 h-8 flex items-center justify-center rounded-md text-lg font-semibold">
-                {p.name[0]?.toUpperCase() ?? '·'}
-                {p.hasWaiting ? (
-                  <StatusDot tone="attn" aria-label="waiting for input" className="absolute -top-0.5 -right-0.5" />
-                ) : p.hasRunning ? (
-                  <StatusDot tone="run" aria-label="running" className="absolute -top-0.5 -right-0.5" />
-                ) : null}
-              </span>
-            ) : (
-              <>
-                {p.hasWaiting ? <StatusDot tone="attn" aria-label="waiting for input" />
-                 : p.hasRunning ? <StatusDot tone="run" aria-label="running" />
-                 : null}
-                <span className="truncate">{p.name}</span>
-                <span className="ml-auto font-mono text-[12px] text-text-faint">{p.runs}</span>
-              </>
-            )}
-          </NavLink>
-        ))}
+        {projects.map((p) => {
+          const label = shortcutFor(p);
+          return (
+            <NavLink
+              key={p.id}
+              to={`/projects/${p.id}`}
+              title={collapsed ? p.name : undefined}
+              className={({ isActive }) => cn(
+                'flex items-center gap-2 px-2 py-1 mx-1 rounded-md text-[14px] transition-colors duration-fast ease-out',
+                collapsed && 'justify-center',
+                isActive ? 'bg-accent-subtle text-accent-strong' : 'text-text-dim hover:bg-surface-raised hover:text-text',
+              )}
+            >
+              {collapsed ? (
+                <span className="relative w-8 h-8 flex items-center justify-center rounded-md text-lg font-semibold">
+                  {p.name[0]?.toUpperCase() ?? '·'}
+                  {p.hasWaiting ? (
+                    <StatusDot tone="attn" aria-label="waiting for input" className="absolute -top-0.5 -right-0.5" />
+                  ) : p.hasRunning ? (
+                    <StatusDot tone="run" aria-label="running" className="absolute -top-0.5 -right-0.5" />
+                  ) : null}
+                </span>
+              ) : (
+                <>
+                  {p.hasWaiting ? <StatusDot tone="attn" aria-label="waiting for input" />
+                   : p.hasRunning ? <StatusDot tone="run" aria-label="running" />
+                   : null}
+                  <span className="truncate">{p.name}</span>
+                  {label ? (
+                    <Kbd className="ml-auto text-[11px] shrink-0">{MOD_SYMBOL}{label}</Kbd>
+                  ) : (
+                    <span className="ml-auto font-mono text-[12px] text-text-faint">{p.runs}</span>
+                  )}
+                </>
+              )}
+            </NavLink>
+          );
+        })}
         {collapsed
           ? <div className="border-t border-border mx-3 my-2" />
           : <Group label="Views" />}

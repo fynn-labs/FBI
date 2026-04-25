@@ -1,5 +1,6 @@
 import { NavLink } from 'react-router-dom';
 import { Pill, type PillTone } from '@ui/primitives/index.js';
+import { Kbd } from '@ui/primitives/Kbd.js';
 import type { Run } from '@shared/types.js';
 
 function fmt(n: number): string {
@@ -20,12 +21,16 @@ const TONE: Record<Run['state'], PillTone> = {
   resume_failed: 'fail',
 };
 
+const MOD_SYMBOL = typeof navigator !== 'undefined' && navigator.platform.includes('Mac') ? '⌘' : 'Ctrl ';
+
 export interface RunRowProps {
   run: Run;
   to: string;
+  /** When provided, renders a keyboard shortcut hint badge (e.g. "1" → "⌘1"). */
+  shortcutLabel?: string;
 }
 
-export function RunRow({ run, to }: RunRowProps) {
+export function RunRow({ run, to, shortcutLabel }: RunRowProps) {
   const label = run.title || run.branch_name || run.prompt.split('\n')[0] || 'untitled';
   return (
     <NavLink
@@ -43,6 +48,9 @@ export function RunRow({ run, to }: RunRowProps) {
       <span className="flex-1 min-w-0 truncate">{label}</span>
       {run.tokens_input + run.tokens_output > 0 && (
         <span className="font-mono text-[12px] text-text-faint">{fmt(run.tokens_input + run.tokens_output)}</span>
+      )}
+      {shortcutLabel && (
+        <Kbd className="text-[11px] shrink-0">{MOD_SYMBOL}{shortcutLabel}</Kbd>
       )}
       <Pill tone={TONE[run.state]}>{run.state}</Pill>
       <time
