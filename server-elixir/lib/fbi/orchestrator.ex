@@ -41,6 +41,7 @@ defmodule FBI.Orchestrator do
       {:ok, %{state: "awaiting_resume"}} ->
         RunSupervisor.start_run(run_id, :resume, config)
         :ok
+
       _ ->
         :ok
     end
