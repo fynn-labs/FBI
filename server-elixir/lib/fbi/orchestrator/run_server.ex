@@ -1032,8 +1032,14 @@ defmodule FBI.Orchestrator.RunServer do
       ],
       fn {dest, src} ->
         if src && File.exists?(src) do
-          File.cp!(src, Path.join(dir, dest))
-          File.chmod!(Path.join(dir, dest), 0o755)
+          dest_path = Path.join(dir, dest)
+          # If a previous run failed before ensure_scripts_dir wrote a file,
+          # Docker may have auto-created a directory at the bind-mount path.
+          # File.cp! refuses to overwrite a directory with a file, so wipe it
+          # first.
+          File.rm_rf!(dest_path)
+          File.cp!(src, dest_path)
+          File.chmod!(dest_path, 0o755)
         end
       end
     )
