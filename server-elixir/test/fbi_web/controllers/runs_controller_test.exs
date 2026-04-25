@@ -335,6 +335,30 @@ defmodule FBIWeb.RunsControllerTest do
 
       assert %{"error" => "invalid_token"} = json_response(conn, 400)
     end
+
+    test "rollback on promote failure: 422 + run row deleted", %{conn: conn} do
+      draft_dir = Application.fetch_env!(:fbi, :draft_uploads_dir)
+
+      # Use a syntactically-valid token that has NO directory on disk, so promote
+      # will return {:error, :enoent}.
+      token = "deadbeefdeadbeefdeadbeefdeadbeef"
+      refute File.exists?(Path.join(draft_dir, token))
+
+      {:ok, p} =
+        ProjectsQueries.create(%{
+          name: "p-#{System.unique_integer([:positive])}",
+          repo_url: "git@github.com:o/r.git",
+          default_branch: "main"
+        })
+
+      before_count = FBI.Repo.aggregate(FBI.Runs.Run, :count, :id)
+
+      conn = json_post(conn, "/api/projects/#{p.id}/runs", %{prompt: "x", draft_token: token})
+      assert %{"error" => "promotion_failed"} = json_response(conn, 422)
+
+      after_count = FBI.Repo.aggregate(FBI.Runs.Run, :count, :id)
+      assert after_count == before_count, "rollback should have removed the inserted run row"
+    end
   end
 
   describe "DELETE /api/runs/:id" do

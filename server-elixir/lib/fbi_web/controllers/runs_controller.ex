@@ -149,61 +149,64 @@ defmodule FBIWeb.RunsController do
   defp do_create(conn, project_id, params, prompt, branch_hint, model, effort, subagent_model) do
     runs_dir = Application.get_env(:fbi, :runs_dir, "/tmp/fbi-runs")
     draft_dir = Application.fetch_env!(:fbi, :draft_uploads_dir)
-    # branch_name and log_path are required by the schema; use defaults that
-    # will be overwritten by the orchestrator during launch.
     branch_name = if branch_hint && branch_hint != "", do: branch_hint, else: "main"
-
     token = params["draft_token"] || ""
 
-    cond do
-      token != "" and not FBI.Uploads.Draft.valid_token?(token) ->
+    with :ok <- validate_draft_token(token),
+         attrs = build_create_attrs(project_id, prompt, branch_name, model, effort, subagent_model),
+         {:ok, run} <- create_run_with_log_path(attrs, runs_dir),
+         :ok <- maybe_promote_draft(token, draft_dir, runs_dir, run.id) do
+      FBI.Orchestrator.init_safeguard(run.id)
+      FBI.Orchestrator.launch(run.id)
+      conn |> put_status(201) |> json(run)
+    else
+      {:error, :invalid_token} ->
         conn |> put_status(400) |> json(%{error: "invalid_token"})
 
-      true ->
-        attrs = %{
-          project_id: project_id,
-          prompt: prompt,
-          branch_name: branch_name,
-          model: model,
-          effort: effort,
-          subagent_model: subagent_model,
-          # Placeholder: overwritten immediately after insert once we know the id.
-          log_path: "_pending_",
-          state: "queued"
-        }
+      {:error, {:promotion_failed, run_id}} ->
+        Queries.delete(run_id)
+        File.rm_rf(Path.join(runs_dir, Integer.to_string(run_id)))
+        conn |> put_status(422) |> json(%{error: "promotion_failed"})
 
-        try do
-          run = Queries.create(attrs)
-          log_path = Path.join(runs_dir, "#{run.id}.log")
-          Queries.set_log_path(run.id, log_path)
-          run = %{run | log_path: log_path}
+      {:error, reason} ->
+        conn |> put_status(422) |> json(%{error: inspect(reason)})
+    end
+  end
 
-          promote_result =
-            if token != "" do
-              FBI.Uploads.Draft.promote(draft_dir, runs_dir, token, run.id)
-            else
-              :ok
-            end
+  defp validate_draft_token(""), do: :ok
 
-          case promote_result do
-            :ok ->
-              FBI.Orchestrator.init_safeguard(run.id)
-              FBI.Orchestrator.launch(run.id)
-              conn |> put_status(201) |> json(run)
+  defp validate_draft_token(token) do
+    if FBI.Uploads.Draft.valid_token?(token), do: :ok, else: {:error, :invalid_token}
+  end
 
-            {:ok, _files} ->
-              FBI.Orchestrator.init_safeguard(run.id)
-              FBI.Orchestrator.launch(run.id)
-              conn |> put_status(201) |> json(run)
+  defp build_create_attrs(project_id, prompt, branch_name, model, effort, subagent_model) do
+    %{
+      project_id: project_id,
+      prompt: prompt,
+      branch_name: branch_name,
+      model: model,
+      effort: effort,
+      subagent_model: subagent_model,
+      # Placeholder: overwritten immediately after insert once we know the id.
+      log_path: "_pending_",
+      state: "queued"
+    }
+  end
 
-            {:error, _reason} ->
-              Queries.delete(run.id)
-              File.rm_rf(Path.join(runs_dir, Integer.to_string(run.id)))
-              conn |> put_status(422) |> json(%{error: "promotion_failed"})
-          end
-        rescue
-          e -> conn |> put_status(422) |> json(%{error: inspect(e)})
-        end
+  defp create_run_with_log_path(attrs, runs_dir) do
+    run = Queries.create(attrs)
+    log_path = Path.join(runs_dir, "#{run.id}.log")
+    Queries.set_log_path(run.id, log_path)
+    {:ok, %{run | log_path: log_path}}
+  end
+
+  defp maybe_promote_draft("", _draft_dir, _runs_dir, _run_id), do: :ok
+
+  defp maybe_promote_draft(token, draft_dir, runs_dir, run_id) do
+    case FBI.Uploads.Draft.promote(draft_dir, runs_dir, token, run_id) do
+      {:ok, _files} -> :ok
+      :ok -> :ok
+      {:error, _reason} -> {:error, {:promotion_failed, run_id}}
     end
   end
 
