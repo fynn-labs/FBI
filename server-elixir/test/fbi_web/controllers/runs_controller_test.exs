@@ -39,6 +39,12 @@ defmodule FBIWeb.RunsControllerTest do
     |> patch(url, Jason.encode!(body))
   end
 
+  defp json_post(conn, url, body) do
+    conn
+    |> put_req_header("content-type", "application/json")
+    |> post(url, Jason.encode!(body))
+  end
+
   describe "GET /api/runs" do
     test "returns an array when no paging params", %{conn: conn, project_id: pid} do
       _ = make_run(pid)
@@ -155,6 +161,68 @@ defmodule FBIWeb.RunsControllerTest do
       Phoenix.PubSub.subscribe(FBI.PubSub, "run:#{run.id}:events")
       json_patch(conn, "/api/runs/#{run.id}", %{title: "Hello"})
       assert_receive {:run_event, %{type: "title", title: "Hello", title_locked: 1}}, 500
+    end
+  end
+
+  describe "POST /api/runs/:id/continue model params" do
+    setup do
+      # Provide a runs_dir with a populated claude-projects subtree so
+      # ContinueEligibility.check/2 passes for the persistence test.
+      runs_dir =
+        Path.join(System.tmp_dir!(), "fbi-runs-test-#{System.unique_integer([:positive])}")
+
+      File.mkdir_p!(runs_dir)
+      prev = Application.get_env(:fbi, :runs_dir)
+      Application.put_env(:fbi, :runs_dir, runs_dir)
+
+      on_exit(fn ->
+        if prev,
+          do: Application.put_env(:fbi, :runs_dir, prev),
+          else: Application.delete_env(:fbi, :runs_dir)
+
+        File.rm_rf!(runs_dir)
+      end)
+
+      %{runs_dir: runs_dir}
+    end
+
+    defp seed_session_files(runs_dir, run_id) do
+      sub = Path.join([runs_dir, to_string(run_id), "claude-projects", "-workspace"])
+      File.mkdir_p!(sub)
+      File.write!(Path.join(sub, "00000000-0000-0000-0000-000000000000.jsonl"), "{}\n")
+    end
+
+    test "rejects invalid model with 400", %{conn: conn, project_id: pid} do
+      run = make_run(pid, %{state: "succeeded"})
+      conn = json_post(conn, "/api/runs/#{run.id}/continue", %{model: "gpt"})
+      assert %{"error" => "invalid model: gpt"} = json_response(conn, 400)
+    end
+
+    test "persists provided model params before continuing", %{
+      conn: conn,
+      project_id: pid,
+      runs_dir: runs_dir
+    } do
+      run =
+        make_run(pid, %{
+          state: "succeeded",
+          claude_session_id: "00000000-0000-0000-0000-000000000000"
+        })
+
+      seed_session_files(runs_dir, run.id)
+
+      # The orchestrator continue_run/1 may fail (no daemon in unit tests).
+      # We only assert the DB write landed, not the response status.
+      json_post(conn, "/api/runs/#{run.id}/continue", %{
+        model: "opus",
+        effort: "xhigh",
+        subagent_model: "haiku"
+      })
+
+      {:ok, fresh} = FBI.Runs.Queries.get(run.id)
+      assert fresh.model == "opus"
+      assert fresh.effort == "xhigh"
+      assert fresh.subagent_model == "haiku"
     end
   end
 

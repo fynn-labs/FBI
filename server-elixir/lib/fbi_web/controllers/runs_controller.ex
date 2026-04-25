@@ -156,25 +156,30 @@ defmodule FBIWeb.RunsController do
     end
   end
 
-  def continue_run(conn, %{"id" => id}) do
+  def continue_run(conn, %{"id" => id} = params) do
     run_id = String.to_integer(id)
 
-    case Queries.get(run_id) do
+    with {:ok, run} <- Queries.get(run_id) |> from_get(),
+         :ok <- FBI.Runs.ModelParams.validate(params),
+         :ok <- FBI.Orchestrator.ContinueEligibility.check(run, runs_dir()) do
+      Queries.update_model_params(run_id, %{
+        model: params["model"],
+        effort: params["effort"],
+        subagent_model: params["subagent_model"]
+      })
+
+      FBI.Orchestrator.mark_starting_for_continue_request(run_id)
+      FBI.Orchestrator.continue_run(run_id)
+      send_resp(conn, 204, "")
+    else
       :not_found ->
         conn |> put_status(404) |> json(%{error: "not found"})
 
-      {:ok, run} ->
-        runs_dir = Application.get_env(:fbi, :runs_dir, "/tmp/fbi-runs")
+      {:error, code, message} ->
+        conn |> put_status(409) |> json(%{code: code, message: message})
 
-        case FBI.Orchestrator.ContinueEligibility.check(run, runs_dir) do
-          :ok ->
-            FBI.Orchestrator.mark_starting_for_continue_request(run_id)
-            FBI.Orchestrator.continue_run(run_id)
-            send_resp(conn, 204, "")
-
-          {:error, code, message} ->
-            conn |> put_status(409) |> json(%{code: code, message: message})
-        end
+      {:error, message} when is_binary(message) ->
+        conn |> put_status(400) |> json(%{error: message})
     end
   end
 
@@ -200,6 +205,12 @@ defmodule FBIWeb.RunsController do
       _ -> :error
     end
   end
+
+  defp from_get({:ok, run}), do: {:ok, run}
+  defp from_get(:not_found), do: :not_found
+
+  defp runs_dir,
+    do: Application.get_env(:fbi, :runs_dir, "/tmp/fbi-runs")
 
   defp parse_int(nil), do: nil
 
