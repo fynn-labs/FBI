@@ -14,6 +14,7 @@ fn main() {
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_shell::init())
         .manage(tokio::sync::Mutex::new(tunnel::TunnelState::new()))
+        .manage(std::sync::Mutex::new(tray::TrayState::new()))
         .invoke_handler(tauri::generate_handler![
             config::get_server_url,
             config::set_server_url,

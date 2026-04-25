@@ -4,7 +4,7 @@ use tauri::{
     tray::TrayIconBuilder,
     AppHandle, Emitter, Manager,
 };
-use tokio::sync::Mutex;
+use tokio::sync::Mutex as TokioMutex;
 
 use crate::tunnel::TunnelState;
 
@@ -13,6 +13,35 @@ pub struct TrayRunInfo {
     pub id: u32,
     pub title: Option<String>,
     pub state: String,
+}
+
+pub struct TrayState {
+    pub runs: Vec<TrayRunInfo>,
+    pub tunnel_ports: HashMap<u32, Vec<u16>>,
+}
+
+impl TrayState {
+    pub fn new() -> Self {
+        Self {
+            runs: Vec::new(),
+            tunnel_ports: HashMap::new(),
+        }
+    }
+}
+
+#[cfg(target_os = "macos")]
+fn select_waiting_icon(theme: tauri::Theme) -> (&'static [u8], bool) {
+    match theme {
+        tauri::Theme::Light => (
+            include_bytes!("../icons/tray-waiting-light.png"),
+            false,
+        ),
+        _ => (
+            // Dark and any future unknown variants fall back to the template icon.
+            include_bytes!("../icons/tray-waiting-template.png"),
+            true,
+        ),
+    }
 }
 
 pub fn setup_tray(app: &mut tauri::App) -> tauri::Result<()> {
@@ -45,6 +74,26 @@ pub fn setup_tray(app: &mut tauri::App) -> tauri::Result<()> {
             }
         })
         .build(app)?;
+
+    // On macOS, rebuild the tray immediately when the user switches light/dark mode.
+    #[cfg(target_os = "macos")]
+    {
+        let handle = app.handle().clone();
+        if let Some(window) = app.get_webview_window("main") {
+            window.on_window_event(move |event| {
+                if let tauri::WindowEvent::ThemeChanged(_) = event {
+                    let state = handle.state::<std::sync::Mutex<TrayState>>();
+                    let (runs, tunnel_ports) = {
+                        let s = state.lock().unwrap();
+                        (s.runs.clone(), s.tunnel_ports.clone())
+                    };
+                    rebuild_tray(&handle, &runs, &tunnel_ports);
+                }
+            });
+        } else {
+            eprintln!("[tray] warning: 'main' window not found at setup; theme-change listener not registered");
+        }
+    }
 
     Ok(())
 }
@@ -143,14 +192,32 @@ pub fn rebuild_tray(
 
         #[cfg(target_os = "macos")]
         {
-            let icon_data: &[u8] = if has_waiting {
-                include_bytes!("../icons/tray-waiting-template.png")
+            // Persist run data so the theme-change handler can rebuild without a frontend message.
+            {
+                let tray_state = app.state::<std::sync::Mutex<TrayState>>();
+                let mut state = tray_state.lock().unwrap();
+                state.runs = runs.to_vec();
+                state.tunnel_ports = tunnel_ports.clone();
+            }
+
+            if has_waiting {
+                // Fall back to Dark: the template icon renders correctly on any background,
+                // so it is the safe default when the window is unavailable.
+                let theme = app
+                    .get_webview_window("main")
+                    .and_then(|w| w.theme().ok())
+                    .unwrap_or(tauri::Theme::Dark);
+                let (icon_data, as_template) = select_waiting_icon(theme);
+                if let Ok(icon) = tauri::image::Image::from_bytes(icon_data) {
+                    let _ = tray.set_icon(Some(icon));
+                    let _ = tray.set_icon_as_template(as_template);
+                }
             } else {
-                include_bytes!("../icons/tray-template.png")
-            };
-            if let Ok(icon) = tauri::image::Image::from_bytes(icon_data) {
-                let _ = tray.set_icon(Some(icon));
-                let _ = tray.set_icon_as_template(true);
+                let icon_data = include_bytes!("../icons/tray-template.png");
+                if let Ok(icon) = tauri::image::Image::from_bytes(icon_data) {
+                    let _ = tray.set_icon(Some(icon));
+                    let _ = tray.set_icon_as_template(true);
+                }
             }
         }
 
@@ -172,7 +239,7 @@ pub fn rebuild_tray(
 pub async fn update_tray_runs(app: AppHandle, runs: Vec<TrayRunInfo>) -> Result<(), String> {
     // Read current tunnel state for menu building
     let tunnel_ports = {
-        let state_ref = app.state::<Mutex<TunnelState>>();
+        let state_ref = app.state::<TokioMutex<TunnelState>>();
         let state = state_ref.lock().await;
         state
             .tunnels
@@ -213,4 +280,33 @@ pub fn notify_raw(
         .body(&body.into())
         .show()
         .map_err(|e| e.to_string())
+}
+
+#[cfg(all(test, target_os = "macos"))]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn select_waiting_icon_light_returns_no_template() {
+        let (_, as_template) = select_waiting_icon(tauri::Theme::Light);
+        assert!(!as_template, "light mode icon must not use template mode");
+    }
+
+    #[test]
+    fn select_waiting_icon_dark_returns_template() {
+        let (_, as_template) = select_waiting_icon(tauri::Theme::Dark);
+        assert!(as_template, "dark mode icon must use template mode");
+    }
+
+    #[test]
+    fn select_waiting_icon_light_returns_light_bytes() {
+        let (bytes, _) = select_waiting_icon(tauri::Theme::Light);
+        assert_eq!(bytes, include_bytes!("../icons/tray-waiting-light.png"));
+    }
+
+    #[test]
+    fn select_waiting_icon_dark_returns_template_bytes() {
+        let (bytes, _) = select_waiting_icon(tauri::Theme::Dark);
+        assert_eq!(bytes, include_bytes!("../icons/tray-waiting-template.png"));
+    }
 }
