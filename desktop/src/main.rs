@@ -6,6 +6,8 @@ mod menu;
 mod tray;
 mod tunnel;
 
+use tauri::Emitter;
+
 fn main() {
     tauri::Builder::default()
         .plugin(tauri_plugin_store::Builder::default().build())
