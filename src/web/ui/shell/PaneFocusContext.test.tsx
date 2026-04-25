@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, beforeEach } from 'vitest';
 import { render, screen, act } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { PaneFocusProvider, usePaneFocus, usePaneRegistration, useFocusedPane } from './PaneFocusContext.js';
@@ -70,6 +70,13 @@ describe('PaneFocusContext', () => {
     await userEvent.click(screen.getByTestId('run-terminal'));
     fireKey('ArrowRight');
     expect(screen.getByTestId('focused').textContent).toBe('run-terminal');
+  });
+
+  it('ArrowLeft clamps at first horizontal pane', async () => {
+    render(<App />);
+    await userEvent.click(screen.getByTestId('projects-sidebar'));
+    fireKey('ArrowLeft');
+    expect(screen.getByTestId('focused').textContent).toBe('projects-sidebar');
   });
 
   it('ArrowDown from run-terminal sets run-bottom', async () => {

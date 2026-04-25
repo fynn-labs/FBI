@@ -47,7 +47,10 @@ export function PaneFocusProvider({ children }: { children: ReactNode }) {
 
   useEffect(() => {
     const activeEl = (): Element | null => document.activeElement;
-    const canNav = (): boolean => !isSeparatorEl(activeEl()) && !isInsideTerminal(activeEl());
+    const canNav = (): boolean =>
+      !isSeparatorEl(activeEl()) &&
+      !isInsideTerminal(activeEl()) &&
+      focusedRef.current !== 'run-bottom';
 
     const offRight = keymap.register({
       chord: 'ArrowRight',
