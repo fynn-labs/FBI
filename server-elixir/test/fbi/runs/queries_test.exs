@@ -218,4 +218,30 @@ defmodule FBI.Runs.QueriesTest do
       assert :ok = Queries.delete(9_999_999)
     end
   end
+
+  test "create_with_log_path/2 inserts run + sets log_path atomically" do
+    {:ok, p} =
+      FBI.Projects.Queries.create(%{
+        name: "p-#{System.unique_integer([:positive])}",
+        repo_url: "git@github.com:o/r.git",
+        default_branch: "main"
+      })
+
+    attrs = %{
+      project_id: p.id,
+      prompt: "x",
+      branch_name: "feat",
+      state: "queued",
+      log_path: "_pending_"
+    }
+
+    log_path_fn = fn id -> "/tmp/fbi-runs/#{id}.log" end
+
+    assert {:ok, run} = FBI.Runs.Queries.create_with_log_path(attrs, log_path_fn)
+    assert run.log_path == "/tmp/fbi-runs/#{run.id}.log"
+
+    # The DB row reflects the final log_path, not the placeholder.
+    {:ok, fresh} = FBI.Runs.Queries.get(run.id)
+    assert fresh.log_path == "/tmp/fbi-runs/#{run.id}.log"
+  end
 end

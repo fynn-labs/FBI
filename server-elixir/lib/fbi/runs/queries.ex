@@ -7,6 +7,7 @@ defmodule FBI.Runs.Queries do
 
   import Ecto.Query
 
+  alias Ecto.Multi
   alias FBI.Repo
   alias FBI.Runs.Run
 
@@ -432,6 +433,42 @@ defmodule FBI.Runs.Queries do
       |> Repo.insert!()
 
     decode(run)
+  end
+
+  @doc """
+  Insert a run row and set its `log_path` atomically. The caller provides a
+  function `id -> path` so the path can reference the freshly-inserted id.
+  """
+  @spec create_with_log_path(map(), (integer() -> String.t())) ::
+          {:ok, decoded()} | {:error, term()}
+  def create_with_log_path(attrs, log_path_fn) when is_function(log_path_fn, 1) do
+    now = now_ms()
+
+    params =
+      Map.merge(
+        %{state: "queued", created_at: now, state_entered_at: now, kind: "work"},
+        attrs
+      )
+
+    result =
+      Multi.new()
+      |> Multi.insert(:run, Run.changeset(%Run{}, params))
+      |> Multi.update_all(
+        :set_log_path,
+        fn %{run: r} ->
+          from(x in Run, where: x.id == ^r.id, update: [set: [log_path: ^log_path_fn.(r.id)]])
+        end,
+        []
+      )
+      |> Repo.transaction()
+
+    case result do
+      {:ok, %{run: r}} ->
+        {:ok, decode(%{r | log_path: log_path_fn.(r.id)})}
+
+      {:error, _step, reason, _changes} ->
+        {:error, reason}
+    end
   end
 
   @doc "Build the plain JSON-ready map for a run. All keys mirror TS exactly."

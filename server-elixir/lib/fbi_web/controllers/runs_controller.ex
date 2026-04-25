@@ -153,7 +153,8 @@ defmodule FBIWeb.RunsController do
     token = params["draft_token"] || ""
 
     with :ok <- validate_draft_token(token),
-         attrs = build_create_attrs(project_id, prompt, branch_name, model, effort, subagent_model),
+         attrs =
+           build_create_attrs(project_id, prompt, branch_name, model, effort, subagent_model),
          {:ok, run} <- create_run_with_log_path(attrs, runs_dir),
          :ok <- maybe_promote_draft(token, draft_dir, runs_dir, run.id) do
       FBI.Orchestrator.init_safeguard(run.id)
@@ -194,10 +195,7 @@ defmodule FBIWeb.RunsController do
   end
 
   defp create_run_with_log_path(attrs, runs_dir) do
-    run = Queries.create(attrs)
-    log_path = Path.join(runs_dir, "#{run.id}.log")
-    Queries.set_log_path(run.id, log_path)
-    {:ok, %{run | log_path: log_path}}
+    Queries.create_with_log_path(attrs, fn id -> Path.join(runs_dir, "#{id}.log") end)
   end
 
   defp maybe_promote_draft("", _draft_dir, _runs_dir, _run_id), do: :ok
