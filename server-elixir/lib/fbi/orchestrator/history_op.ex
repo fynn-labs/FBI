@@ -80,7 +80,10 @@ defmodule FBI.Orchestrator.HistoryOp do
     tar = FBI.Orchestrator.Tar.build(%{"fbi-history-op.sh" => script_content})
 
     {:ok, exec_id} =
-      FBI.Docker.exec_create(container_id, ["tar", "x", "-C", "/usr/local/bin"], user: "0")
+      FBI.Docker.exec_create(container_id, ["tar", "x", "-C", "/usr/local/bin"],
+        user: "0",
+        stdin: true
+      )
 
     conn = FBI.Docker.stream_exec_with_stdin(exec_id, tar)
     FBI.Docker.close_socket(conn)
@@ -130,6 +133,9 @@ defmodule FBI.Orchestrator.HistoryOp do
     :ok = FBI.Docker.start_container(container_id)
     {:ok, status_code} = FBI.Docker.wait_container(container_id)
     FBI.Docker.remove_container(container_id, force: true)
+    # Transient container stdout is not captured; only the exit code is available.
+    # Success (exit 0) returns :completed with an empty sha; the caller should not
+    # rely on the sha field from this path.
     parse_result("", status_code)
   end
 end
