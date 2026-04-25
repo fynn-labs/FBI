@@ -20,7 +20,6 @@ export default defineConfig({
     alias: {
       '@shared': path.resolve(__dirname, 'src/shared'),
       '@ui': path.resolve(__dirname, 'src/web/ui'),
-      '@tauri-apps/plugin-clipboard-manager': path.resolve(__dirname, 'src/web/lib/__mocks__/tauri-clipboard.ts'),
     },
   },
 });
