@@ -462,7 +462,7 @@ export class Orchestrator {
       await this.awaitAndComplete(runId, container, onBytes, store, broadcaster);
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
-      onBytes(Buffer.from(`\n[fbi] error: ${msg}\n`));
+      onBytes(Buffer.from('\n' + fbi.fatal(msg)));
       this.deps.runs.markFinished(runId, { state: 'failed', error: msg });
       this.publishState(runId);
       this.active.delete(runId); this.lastFiles.delete(runId);
@@ -501,7 +501,7 @@ export class Orchestrator {
       // Resume-restore failure: set resume_failed state and bail out early.
       if (classification.kind === 'resume_failed') {
         const errMsg = `restore failed (${classification.error})`;
-        onBytes(Buffer.from(`\n[fbi] ${errMsg}\n`));
+        onBytes(Buffer.from('\n' + fbi.fatal(errMsg)));
         this.deps.runs.markResumeFailed(runId, errMsg);
         this.publishState(runId);
         await container.remove({ force: true, v: true }).catch(() => {});
@@ -531,7 +531,7 @@ export class Orchestrator {
           const run = this.deps.runs.get(runId)!;
           if (run.resume_attempts + 1 > settings.auto_resume_max_attempts) {
             onBytes(Buffer.from(
-              `\n[fbi] rate limited; exceeded auto-resume cap (${settings.auto_resume_max_attempts} attempts)\n`,
+              '\n' + fbi.warn(`rate limited; exceeded auto-resume cap (${settings.auto_resume_max_attempts} attempts)`),
             ));
             this.deps.runs.markFinished(runId, {
               state: 'failed',
@@ -547,7 +547,7 @@ export class Orchestrator {
               last_limit_reset_at: verdict.reset_at,
             });
             onBytes(Buffer.from(
-              `\n[fbi] awaiting resume until ${new Date(verdict.reset_at).toISOString()}\n`,
+              '\n' + fbi.info(`awaiting resume until ${new Date(verdict.reset_at).toISOString()}`),
             ));
             this.publishState(runId);
             this.scheduler.schedule(runId, verdict.reset_at);
@@ -564,7 +564,7 @@ export class Orchestrator {
           return;
         }
         if (verdict.kind === 'rate_limit') {
-          onBytes(Buffer.from(`\n[fbi] rate limited but no reset time available; failing\n`));
+          onBytes(Buffer.from('\n' + fbi.warn('rate limited; no reset time available; failing')));
         }
       }
 
@@ -595,7 +595,7 @@ export class Orchestrator {
       if (parsed?.title) {
         this.publishTitleUpdate(runId, parsed.title);
       }
-      onBytes(Buffer.from(`\n[fbi] run ${state}\n`));
+      onBytes(Buffer.from('\n' + fbi.runState(state)));
       this.publishState(runId);
       await container.remove({ force: true, v: true }).catch(() => {});
       this.active.delete(runId); this.lastFiles.delete(runId);
