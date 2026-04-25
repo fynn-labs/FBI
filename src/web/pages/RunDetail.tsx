@@ -20,7 +20,7 @@ import { subscribeState, subscribeTitle, subscribeChanges } from '../features/ru
 import { UploadTray, type UploadTrayFile } from '../components/UploadTray.js';
 import { ContinueRunDialog } from '../components/ContinueRunDialog.js';
 import { acquireShell, releaseShell } from '../lib/shellRegistry.js';
-import { usePaneRegistration, usePaneFocus, useFocusedPane } from '@ui/shell/PaneFocusContext.js';
+import { usePaneRegistration, usePaneFocus } from '@ui/shell/PaneFocusContext.js';
 import { cn } from '@ui/cn.js';
 
 export function RunDetailPage() {
@@ -48,11 +48,10 @@ export function RunDetailPage() {
   usePaneRegistration('run-bottom', 3);
   const { isFocused: terminalFocused, focus: focusTerminal } = usePaneFocus('run-terminal');
   const { isFocused: bottomFocused, focus: focusBottom } = usePaneFocus('run-bottom');
-  const focusedPane = useFocusedPane();
 
   useEffect(() => {
-    if (focusedPane === 'run-bottom') setDrawerOpen(true);
-  }, [focusedPane]);
+    if (bottomFocused) setDrawerOpen(true);
+  }, [bottomFocused]);
 
   useEffect(() => {
     let alive = true;
