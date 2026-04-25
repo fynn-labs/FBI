@@ -18,10 +18,8 @@ set -euo pipefail
 if command -v apt-get >/dev/null 2>&1; then
   export DEBIAN_FRONTEND=noninteractive
   # Remove any third-party apt sources from the base image (stale keys, etc.).
-  # We add back what we need explicitly (NodeSource, gh CLI) below. Preserve
-  # ubuntu.sources (Noble+ deb822 format) — deleting it leaves apt with no
-  # repos at all, since /etc/apt/sources.list is empty on Ubuntu 24.04+.
-  find /etc/apt/sources.list.d -mindepth 1 ! -name 'ubuntu.sources' -delete 2>/dev/null || true
+  # We add back what we need explicitly (NodeSource, gh CLI) below.
+  find /etc/apt/sources.list.d -mindepth 1 -delete 2>/dev/null || true
   apt-get update
   apt-get install -y --no-install-recommends \
       git openssh-client ca-certificates curl gnupg
@@ -42,12 +40,20 @@ if ! command -v gh >/dev/null 2>&1; then
   apt-get install -y gh
 fi
 
-# Install Claude Code CLI via npm so the binary lands in npm's global bin
-# (typically /usr/bin/claude) and is accessible to all users without any
-# PATH hacks. The curl installer puts a wrapper in ~/. that breaks when
-# called from a different directory via a symlink.
+# Install Claude Code CLI via npm. Recent versions of @anthropic-ai/claude-code
+# bundle a "native build" installer that drops the actual binary in
+# $HOME/.local/bin rather than npm's global prefix — postbuild runs as root, so
+# that translates to /root/.local/bin/claude, which the non-root `agent` user
+# can't even reach (default /root mode is 0700). Surface it at /usr/local/bin
+# so it's on every user's PATH. Copy rather than symlink to avoid /root
+# traversal entirely.
 if ! command -v claude >/dev/null 2>&1; then
   npm install -g @anthropic-ai/claude-code
+fi
+
+if [ ! -x /usr/local/bin/claude ] && [ -x /root/.local/bin/claude ]; then
+  cp /root/.local/bin/claude /usr/local/bin/claude
+  chmod 0755 /usr/local/bin/claude
 fi
 
 # Create agent user.
