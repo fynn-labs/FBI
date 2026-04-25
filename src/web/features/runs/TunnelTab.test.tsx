@@ -17,7 +17,7 @@ describe('TunnelTab', () => {
     );
     expect(screen.getByText('fbi-tunnel https://fbi.tailnet:3000 42')).toBeInTheDocument();
     expect(screen.getByRole('link', { name: /download fbi-tunnel for macos \(arm64\)/i }))
-      .toHaveAttribute('href', '/api/cli/fbi-tunnel/darwin/arm64');
+      .toHaveAttribute('href', `${origin}/api/cli/fbi-tunnel/darwin/arm64`);
     expect(screen.getByText('5173')).toBeInTheDocument();
     expect(screen.getByText('9229')).toBeInTheDocument();
   });
@@ -104,9 +104,9 @@ describe('TunnelTab', () => {
         detected={{ os: 'darwin', arch: 'arm64' }} />,
     );
     fireEvent.click(screen.getByRole('button', { name: /other platforms/i }));
-    expect(screen.getByRole('link', { name: /darwin\/amd64/i })).toHaveAttribute('href', '/api/cli/fbi-tunnel/darwin/amd64');
-    expect(screen.getByRole('link', { name: /linux\/amd64/i })).toHaveAttribute('href', '/api/cli/fbi-tunnel/linux/amd64');
-    expect(screen.getByRole('link', { name: /linux\/arm64/i })).toHaveAttribute('href', '/api/cli/fbi-tunnel/linux/arm64');
+    expect(screen.getByRole('link', { name: /darwin\/amd64/i })).toHaveAttribute('href', `${origin}/api/cli/fbi-tunnel/darwin/amd64`);
+    expect(screen.getByRole('link', { name: /linux\/amd64/i })).toHaveAttribute('href', `${origin}/api/cli/fbi-tunnel/linux/amd64`);
+    expect(screen.getByRole('link', { name: /linux\/arm64/i })).toHaveAttribute('href', `${origin}/api/cli/fbi-tunnel/linux/arm64`);
     // The detected one should not also appear in the "other" list.
     expect(screen.queryByRole('link', { name: /darwin\/arm64/i })).toBeNull();
   });
