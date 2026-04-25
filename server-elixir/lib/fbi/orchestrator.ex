@@ -179,10 +179,30 @@ defmodule FBI.Orchestrator do
       container_pids: Application.get_env(:fbi, :container_pids, 1024),
       git_author_name: Application.get_env(:fbi, :git_author_name, "FBI Agent"),
       git_author_email: Application.get_env(:fbi, :git_author_email, "agent@fbi.local"),
-      supervisor_sh_path: Application.get_env(:fbi, :supervisor_sh_path),
-      finalize_branch_sh_path: Application.get_env(:fbi, :finalize_branch_sh_path),
-      history_op_sh_path: Application.get_env(:fbi, :history_op_sh_path),
-      postbuild_sh_path: Application.get_env(:fbi, :postbuild_sh_path)
+      supervisor_sh_path:
+        Application.get_env(
+          :fbi,
+          :supervisor_sh_path,
+          Path.join(:code.priv_dir(:fbi), "static/supervisor.sh")
+        ),
+      finalize_branch_sh_path:
+        Application.get_env(
+          :fbi,
+          :finalize_branch_sh_path,
+          Path.join(:code.priv_dir(:fbi), "static/finalizeBranch.sh")
+        ),
+      history_op_sh_path:
+        Application.get_env(
+          :fbi,
+          :history_op_sh_path,
+          Path.join(:code.priv_dir(:fbi), "static/fbi-history-op.sh")
+        ),
+      postbuild_sh_path:
+        Application.get_env(
+          :fbi,
+          :postbuild_sh_path,
+          Path.join(:code.priv_dir(:fbi), "static/postbuild.sh")
+        )
     })
   end
 
