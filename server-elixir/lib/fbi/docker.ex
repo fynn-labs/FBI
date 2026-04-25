@@ -192,6 +192,19 @@ defmodule FBI.Docker do
     {:ok, conn}
   end
 
+  def attach_container_stdin_only(id) do
+    conn =
+      stream_start(
+        "POST",
+        "/containers/#{id}/attach?stream=1&stdin=1&stdout=0&stderr=0",
+        nil,
+        [{"Upgrade", "tcp"}, {"Connection", "Upgrade"}]
+      )
+
+    skip_http_headers(conn)
+    {:ok, conn}
+  end
+
   def container_logs(id, opts \\ []) do
     since = Keyword.get(opts, :since, 0)
     conn = stream_start("GET", "/containers/#{id}/logs?follow=1&stdout=1&stderr=1&since=#{since}")
