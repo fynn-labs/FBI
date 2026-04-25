@@ -224,11 +224,15 @@ defmodule FBIWeb.ChangesControllerTest do
       stub_gh(fn args ->
         send(parent, {:gh_call, args, System.monotonic_time(:millisecond)})
         Process.sleep(80)
+
         cond do
           Enum.any?(args, &String.contains?(&1, "compare/")) ->
-            {:ok, ~s|{"ahead_by": 0, "behind_by": 0, "merge_base_commit": {"sha": ""}, "commits": []}|}
+            {:ok,
+             ~s|{"ahead_by": 0, "behind_by": 0, "merge_base_commit": {"sha": ""}, "commits": []}|}
+
           Enum.any?(args, &String.contains?(&1, "/pulls?")) ->
             {:ok, "[]"}
+
           true ->
             {:ok, "[]"}
         end
