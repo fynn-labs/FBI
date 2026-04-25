@@ -98,6 +98,9 @@ DATABASE_PATH=/var/lib/agent-manager/db.sqlite
 PROXY_TARGET=http://127.0.0.1:3001
 CLAUDE_CREDENTIALS=/home/fbi/.claude/.credentials.json
 SECRET_KEY_BASE=${SECRET_KEY_BASE_DEFAULT}
+# Forwarded into agent containers for git auth, and used on the host to
+# sparse-clone repos for .devcontainer detection.
+# HOST_SSH_AUTH_SOCK=/run/user/1000/ssh-agent.sock
 ENV
   chmod 640 /etc/default/fbi-elixir
   chown root:fbi /etc/default/fbi-elixir

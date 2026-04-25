@@ -41,6 +41,10 @@ if config_env() == :prod do
     config :fbi, credentials_path: credentials
   end
 
+  config :fbi,
+    host_ssh_auth_sock:
+      System.get_env("HOST_SSH_AUTH_SOCK") || System.get_env("SSH_AUTH_SOCK")
+
   database_path =
     System.get_env("DATABASE_PATH") ||
       raise """

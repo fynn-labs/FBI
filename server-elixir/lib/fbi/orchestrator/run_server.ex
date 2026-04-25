@@ -247,13 +247,7 @@ defmodule FBI.Orchestrator.RunServer do
       on_bytes = make_on_bytes(run_id, log_path)
       on_bytes.("[fbi] resolving image\n")
 
-      {:ok, image_tag} =
-        FBI.Orchestrator.ImageBuilder.resolve(%{
-          project_id: project.id,
-          devcontainer_files: nil,
-          override_json: project.devcontainer_override_json,
-          on_log: on_bytes
-        })
+      image_tag = resolve_image_tag(project, config, on_bytes)
 
       on_bytes.("[fbi] image: #{image_tag}\n")
 
@@ -862,11 +856,18 @@ defmodule FBI.Orchestrator.RunServer do
   # Container helpers
   # ---------------------------------------------------------------------------
 
-  defp resolve_image_tag(project, _config, on_bytes) do
+  defp resolve_image_tag(project, config, on_bytes) do
+    devcontainer_files =
+      FBI.Orchestrator.DevcontainerFetcher.fetch(
+        project.repo_url,
+        config[:host_ssh_auth_sock],
+        on_bytes
+      )
+
     {:ok, tag} =
       FBI.Orchestrator.ImageBuilder.resolve(%{
         project_id: project.id,
-        devcontainer_files: nil,
+        devcontainer_files: devcontainer_files,
         override_json: project.devcontainer_override_json,
         on_log: on_bytes
       })
