@@ -67,5 +67,10 @@ defmodule FBIWeb.ChangesControllerTest do
       # Positive test: the right shape is.
       assert src =~ ~r/branch_base\s*=\s*%\{base:\s*base_branch/
     end
+
+    test "commit_files attempts docker exec before falling back to gh" do
+      src = File.read!("lib/fbi_web/controllers/changes_controller.ex")
+      assert src =~ "Docker.exec_create"
+    end
   end
 end

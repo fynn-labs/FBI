@@ -12,6 +12,7 @@ defmodule FBIWeb.ChangesController do
   alias FBI.Orchestrator.WipRepo
   alias FBI.Github.Client, as: GH
   alias FBI.Github.Repo, as: GHRepo
+  alias FBI.Docker
 
   def show(conn, %{"id" => id_str}) do
     with {:ok, run_id} <- parse_id(id_str),
@@ -30,11 +31,80 @@ defmodule FBIWeb.ChangesController do
     else
       with {:ok, run_id} <- parse_id(id_str),
            {:ok, run} <- RunQ.get(run_id) do
-        files = gh_compare_files(run, sha)
+        # Prefer docker exec on a live container — works for any commit,
+        # pushed or not. Falls back to gh compare for already-pushed commits
+        # when no container is available.
+        files =
+          case files_via_container(run, sha) do
+            {:ok, list} -> list
+            :no_container -> gh_compare_files(run, sha)
+          end
+
         json(conn, %{files: files})
       else
         _ -> conn |> put_status(404) |> json(%{error: "not found"})
       end
+    end
+  end
+
+  defp files_via_container(run, sha) do
+    case run.container_id do
+      cid when is_binary(cid) and cid != "" ->
+        case Docker.exec_create(cid, [
+               "git",
+               "-C",
+               "/workspace",
+               "show",
+               "--numstat",
+               "--format=",
+               sha
+             ]) do
+          {:ok, exec_id} ->
+            case Docker.exec_start(exec_id, timeout_ms: 5_000) do
+              {:ok, output} -> {:ok, parse_numstat(output)}
+              _ -> :no_container
+            end
+
+          _ ->
+            :no_container
+        end
+
+      _ ->
+        :no_container
+    end
+  end
+
+  defp parse_numstat(text) do
+    text
+    |> String.split("\n", trim: true)
+    |> Enum.map(fn line ->
+      case String.split(line, "\t", parts: 3) do
+        [add, del, path] ->
+          %{
+            path: path,
+            status: numstat_status(add, del),
+            additions: parse_int_or_zero(add),
+            deletions: parse_int_or_zero(del)
+          }
+
+        _ ->
+          nil
+      end
+    end)
+    |> Enum.reject(&is_nil/1)
+  end
+
+  defp numstat_status("0", "0"), do: "M"
+  # binary file
+  defp numstat_status("-", "-"), do: "M"
+  defp numstat_status(_, "0"), do: "A"
+  defp numstat_status("0", _), do: "D"
+  defp numstat_status(_, _), do: "M"
+
+  defp parse_int_or_zero(s) do
+    case Integer.parse(s) do
+      {n, _} -> n
+      :error -> 0
     end
   end
 
