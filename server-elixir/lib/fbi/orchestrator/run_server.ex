@@ -13,7 +13,10 @@ defmodule FBI.Orchestrator.RunServer do
     "global_states"   — global run state maps
   """
 
-  use GenServer
+  # `:temporary` so the dynamic supervisor doesn't relaunch a run after the
+  # lifecycle exits. Each launch attempt is a fresh start_run/3 call from the
+  # controller; we don't want crash-loops or post-completion auto-restarts.
+  use GenServer, restart: :temporary
   require Logger
 
   alias FBI.Runs.{Queries, LogStore}

@@ -332,9 +332,21 @@ defmodule FBI.Docker do
       {:ok, data} ->
         for line <- String.split(data, "\n"), line != "" do
           case Jason.decode(line) do
-            {:ok, %{"stream" => text}} -> on_chunk.(text)
-            {:ok, %{"error" => err}} -> throw({:build_error, err})
-            _ -> :ok
+            {:ok, %{"stream" => text}} ->
+              on_chunk.(text)
+              # Docker holds the keep-alive connection open after the final
+              # `Successfully built …` line, so we'd otherwise block in recv
+              # until the 120s timeout. Bail out the moment the build is done.
+              if String.contains?(text, "Successfully built"), do: throw(:build_done)
+
+            {:ok, %{"aux" => %{"ID" => _}}} ->
+              throw(:build_done)
+
+            {:ok, %{"error" => err}} ->
+              throw({:build_error, err})
+
+            _ ->
+              :ok
           end
         end
 
@@ -347,12 +359,54 @@ defmodule FBI.Docker do
         {:error, reason}
     end
   catch
+    :build_done ->
+      :ok
+
     {:build_error, err} ->
-      :gen_tcp.close(conn)
       {:error, err}
   end
 
-  def inject_files(container_id, target_dir, files, uid \\ nil) do
+  @doc """
+  Inject files into a container at `target_dir`. Uses Docker's PUT /archive
+  endpoint, which works on stopped containers (unlike exec). The `uid`
+  parameter is accepted for API parity with the previous exec-based version
+  but is currently ignored — ownership is set in the tar headers themselves
+  by `FBI.Orchestrator.Tar`.
+  """
+  def inject_files(container_id, target_dir, files, _uid \\ nil) do
+    tar = FBI.Orchestrator.Tar.build(files)
+    put_archive(container_id, target_dir, tar)
+  end
+
+  @doc "Upload a tar archive into a container at `path`. Works on stopped containers."
+  def put_archive(container_id, path, tar_binary) do
+    encoded_path = URI.encode(path, &URI.char_unreserved?/1)
+    len = byte_size(tar_binary)
+
+    conn = connect!()
+
+    req =
+      "PUT /containers/#{container_id}/archive?path=#{encoded_path} HTTP/1.1\r\n" <>
+        "Host: docker\r\n" <>
+        "Content-Type: application/x-tar\r\n" <>
+        "Content-Length: #{len}\r\n" <>
+        "\r\n"
+
+    :ok = :gen_tcp.send(conn, req)
+    :ok = :gen_tcp.send(conn, tar_binary)
+    {status, body} = recv_until_close(conn, "")
+    :gen_tcp.close(conn)
+
+    if status in 200..299 do
+      :ok
+    else
+      raise "put_archive failed: #{status} #{body}"
+    end
+  end
+
+  # Legacy exec-based path retained for callers that still need it (e.g., chown
+  # in already-running containers). Not used by inject_files anymore.
+  def inject_files_via_exec(container_id, target_dir, files, uid) do
     tar = FBI.Orchestrator.Tar.build(files)
 
     {:ok, exec_id} =
