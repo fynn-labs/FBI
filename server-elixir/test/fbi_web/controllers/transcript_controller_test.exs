@@ -27,12 +27,18 @@ defmodule FBIWeb.TranscriptControllerTest do
     })
   end
 
+  defp tmp_log(content) do
+    path = Path.join(System.tmp_dir!(), "transcript-#{System.unique_integer([:positive])}.log")
+    File.write!(path, content)
+    path
+  end
+
   test "404 for missing run id", %{conn: conn} do
     conn = get(conn, "/api/runs/9999999/transcript")
     assert conn.status == 404
   end
 
-  test "200 with empty body for run whose log file does not exist", %{
+  test "200 with empty body and X-Transcript-Total: 0 for missing log file", %{
     conn: conn,
     project_id: pid
   } do
@@ -42,28 +48,75 @@ defmodule FBIWeb.TranscriptControllerTest do
     conn = get(conn, "/api/runs/#{r.id}/transcript")
     assert conn.status == 200
     assert conn.resp_body == ""
-
-    assert Enum.member?(
-             Plug.Conn.get_resp_header(conn, "content-type"),
-             "text/plain; charset=utf-8"
-           )
+    assert Plug.Conn.get_resp_header(conn, "x-transcript-total") == ["0"]
+    assert "text/plain; charset=utf-8" in Plug.Conn.get_resp_header(conn, "content-type")
   end
 
-  test "200 with file contents when log file exists", %{conn: conn, project_id: pid} do
-    tmp = Path.join(System.tmp_dir!(), "transcript-#{System.unique_integer([:positive])}.log")
-    File.write!(tmp, "hello\n")
-
-    r = make_run(pid, tmp)
+  test "200 with file contents and correct X-Transcript-Total when no Range header", %{
+    conn: conn,
+    project_id: pid
+  } do
+    content = "hello\n"
+    path = tmp_log(content)
+    r = make_run(pid, path)
 
     conn = get(conn, "/api/runs/#{r.id}/transcript")
     assert conn.status == 200
-    assert conn.resp_body == "hello\n"
+    assert conn.resp_body == content
+    assert Plug.Conn.get_resp_header(conn, "x-transcript-total") == [Integer.to_string(byte_size(content))]
+    assert "text/plain; charset=utf-8" in Plug.Conn.get_resp_header(conn, "content-type")
 
-    assert Enum.member?(
-             Plug.Conn.get_resp_header(conn, "content-type"),
-             "text/plain; charset=utf-8"
-           )
+    File.rm(path)
+  end
 
-    File.rm(tmp)
+  test "206 with byte slice when valid Range header is present", %{conn: conn, project_id: pid} do
+    content = "abcdefghij"
+    path = tmp_log(content)
+    r = make_run(pid, path)
+
+    conn =
+      conn
+      |> put_req_header("range", "bytes=0-0")
+      |> get("/api/runs/#{r.id}/transcript")
+
+    assert conn.status == 206
+    assert conn.resp_body == "a"
+    assert Plug.Conn.get_resp_header(conn, "x-transcript-total") == ["10"]
+    assert Plug.Conn.get_resp_header(conn, "content-range") == ["bytes 0-0/10"]
+
+    File.rm(path)
+  end
+
+  test "206 with tail slice via open-ended Range", %{conn: conn, project_id: pid} do
+    content = "abcdefghij"
+    path = tmp_log(content)
+    r = make_run(pid, path)
+
+    conn =
+      conn
+      |> put_req_header("range", "bytes=5-")
+      |> get("/api/runs/#{r.id}/transcript")
+
+    assert conn.status == 206
+    assert conn.resp_body == "fghij"
+    assert Plug.Conn.get_resp_header(conn, "content-range") == ["bytes 5-9/10"]
+
+    File.rm(path)
+  end
+
+  test "416 when Range start is beyond file size", %{conn: conn, project_id: pid} do
+    content = "hi"
+    path = tmp_log(content)
+    r = make_run(pid, path)
+
+    conn =
+      conn
+      |> put_req_header("range", "bytes=99-200")
+      |> get("/api/runs/#{r.id}/transcript")
+
+    assert conn.status == 416
+    assert Plug.Conn.get_resp_header(conn, "content-range") == ["bytes */#{byte_size(content)}"]
+
+    File.rm(path)
   end
 end
