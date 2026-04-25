@@ -3,12 +3,15 @@
 mod config;
 mod discovery;
 mod tray;
+mod tunnel;
 
 fn main() {
     tauri::Builder::default()
         .plugin(tauri_plugin_store::Builder::default().build())
         .plugin(tauri_plugin_notification::init())
         .plugin(tauri_plugin_updater::Builder::new().build())
+        .plugin(tauri_plugin_shell::init())
+        .manage(tokio::sync::Mutex::new(tunnel::TunnelState::new()))
         .invoke_handler(tauri::generate_handler![
             config::get_server_url,
             config::set_server_url,
