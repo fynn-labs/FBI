@@ -160,14 +160,17 @@ defmodule FBIWeb.ChangesController do
         {safeguard_commits, nil, nil}
 
       {repo, base_branch, branch} ->
+        pr_task = Task.async(fn -> GH.pr_for_branch(repo, branch) end)
+        compare_task = Task.async(fn -> GH.compare_branch(repo, base_branch, branch) end)
+
         pr =
-          case GH.pr_for_branch(repo, branch) do
+          case Task.await(pr_task, 10_000) do
             {:ok, v} -> v
             _ -> nil
           end
 
         {gh_commits, ahead_by, behind_by, merge_base_sha} =
-          case GH.compare_branch(repo, base_branch, branch) do
+          case Task.await(compare_task, 10_000) do
             {:ok, %{commits: c, ahead_by: a, behind_by: b, merge_base_sha: m}} ->
               {c, a, b, m}
 

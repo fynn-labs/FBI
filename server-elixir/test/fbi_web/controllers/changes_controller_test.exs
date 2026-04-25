@@ -217,5 +217,34 @@ defmodule FBIWeb.ChangesControllerTest do
       body = json_response(conn, 200)
       assert body["files"] == []
     end
+
+    test "issues pr_for_branch and compare_branch concurrently", %{conn: conn, run_id: run_id} do
+      parent = self()
+
+      stub_gh(fn args ->
+        send(parent, {:gh_call, args, System.monotonic_time(:millisecond)})
+        Process.sleep(80)
+        cond do
+          Enum.any?(args, &String.contains?(&1, "compare/")) ->
+            {:ok, ~s|{"ahead_by": 0, "behind_by": 0, "merge_base_commit": {"sha": ""}, "commits": []}|}
+          Enum.any?(args, &String.contains?(&1, "/pulls?")) ->
+            {:ok, "[]"}
+          true ->
+            {:ok, "[]"}
+        end
+      end)
+
+      start = System.monotonic_time(:millisecond)
+      conn = get(conn, "/api/runs/#{run_id}/changes")
+      elapsed = System.monotonic_time(:millisecond) - start
+      assert json_response(conn, 200)
+
+      # Two 80ms stubs run in parallel should finish in well under 160ms.
+      assert elapsed < 140, "expected concurrent gh calls (<140ms), got #{elapsed}ms"
+
+      # Both calls fired (order doesn't matter).
+      assert_received {:gh_call, _args1, _t1}
+      assert_received {:gh_call, _args2, _t2}
+    end
   end
 end
