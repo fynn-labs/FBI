@@ -30,7 +30,8 @@ defmodule FBI.Application do
         {Phoenix.PubSub, name: FBI.PubSub},
         {Registry, keys: :unique, name: FBI.Orchestrator.Registry},
         FBI.Orchestrator.RunSupervisor,
-        {FBI.Orchestrator.ResumeScheduler, on_fire: &FBI.Orchestrator.resume/1, name: FBI.Orchestrator.ResumeScheduler},
+        {FBI.Orchestrator.ResumeScheduler,
+         on_fire: &FBI.Orchestrator.resume/1, name: FBI.Orchestrator.ResumeScheduler},
         FBI.Github.StatusCache,
         FBI.Housekeeping.DraftUploadsGc
       ] ++

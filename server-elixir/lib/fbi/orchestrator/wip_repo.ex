@@ -136,8 +136,15 @@ defmodule FBI.Orchestrator.WipRepo do
          parent when parent != nil <- parent_sha(runs_dir, run_id) do
       p = path(runs_dir, run_id)
 
-      case git(p, ["diff", "--no-color", "--no-ext-diff", "-U3",
-                   "#{parent}..#{snap}", "--", file_path]) do
+      case git(p, [
+             "diff",
+             "--no-color",
+             "--no-ext-diff",
+             "-U3",
+             "#{parent}..#{snap}",
+             "--",
+             file_path
+           ]) do
         {:ok, out} -> parse_unified_diff(out, file_path, "wip")
         {:error, _} -> empty
       end
@@ -190,6 +197,7 @@ defmodule FBI.Orchestrator.WipRepo do
               new_lines: String.to_integer(nl || "1"),
               lines: []
             }
+
             new_acc = if current, do: acc ++ [current], else: acc
             {new_acc, hunk}
 
@@ -203,8 +211,13 @@ defmodule FBI.Orchestrator.WipRepo do
               end
 
             if type do
-              updated = Map.update!(current, :lines,
-                &(&1 ++ [%{type: type, content: String.slice(line, 1..-1//1)}]))
+              updated =
+                Map.update!(
+                  current,
+                  :lines,
+                  &(&1 ++ [%{type: type, content: String.slice(line, 1..-1//1)}])
+                )
+
               {acc, updated}
             else
               {acc, current}

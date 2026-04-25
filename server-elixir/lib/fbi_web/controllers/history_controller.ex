@@ -47,7 +47,14 @@ defmodule FBIWeb.HistoryController do
   defp handle_op(conn, run, body) do
     project = get_project(run.project_id)
     default_branch = (project && project.default_branch) || "main"
-    op = %{op: body["op"], strategy: body["strategy"], subject: body["subject"], path: body["path"]}
+
+    op = %{
+      op: body["op"],
+      strategy: body["strategy"],
+      subject: body["subject"],
+      path: body["path"]
+    }
+
     dispatch_history_op(conn, run, project, default_branch, op)
   end
 
@@ -61,7 +68,13 @@ defmodule FBIWeb.HistoryController do
 
         {:ok, {:conflict_detected, _msg}} ->
           strategy = if op.op == "merge", do: op[:strategy] || "merge", else: "merge"
-          args = %{"branch" => run.branch_name, "default" => default_branch, "strategy" => strategy}
+
+          args = %{
+            "branch" => run.branch_name,
+            "default" => default_branch,
+            "strategy" => strategy
+          }
+
           child_id = spawn_sub_run(run, "merge-conflict", args)
           json(conn, %{kind: "conflict", child_run_id: child_id})
 
@@ -95,8 +108,11 @@ defmodule FBIWeb.HistoryController do
             repo_url: project.repo_url,
             history_op_script_path: script_path,
             wip_path: WipRepo.path(runs_dir, run.id),
-            author_name: project.git_author_name || Application.get_env(:fbi, :git_author_name, "FBI Agent"),
-            author_email: project.git_author_email || Application.get_env(:fbi, :git_author_email, "agent@fbi.local")
+            author_name:
+              project.git_author_name || Application.get_env(:fbi, :git_author_name, "FBI Agent"),
+            author_email:
+              project.git_author_email ||
+                Application.get_env(:fbi, :git_author_email, "agent@fbi.local")
           })
         end
 

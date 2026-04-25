@@ -14,15 +14,17 @@ defmodule FBIWeb.ChangesControllerTest do
       })
 
     run =
-      Repo.insert!(struct(Run, %{
-        project_id: project.id,
-        prompt: "p",
-        branch_name: "claude/run-1",
-        state: "succeeded",
-        log_path: "/tmp/r_#{System.unique_integer([:positive])}.log",
-        created_at: System.os_time(:millisecond),
-        kind: "work"
-      }))
+      Repo.insert!(
+        struct(Run, %{
+          project_id: project.id,
+          prompt: "p",
+          branch_name: "claude/run-1",
+          state: "succeeded",
+          log_path: "/tmp/r_#{System.unique_integer([:positive])}.log",
+          created_at: System.os_time(:millisecond),
+          kind: "work"
+        })
+      )
 
     {:ok, run_id: run.id, project: project}
   end

@@ -38,9 +38,13 @@ defmodule FBIWeb.WipController do
 
     if WipRepo.exists?(runs_dir, run_id) do
       content = WipRepo.read_snapshot_patch(runs_dir, run_id)
+
       conn
       |> put_resp_content_type("text/plain")
-      |> put_resp_header("content-disposition", "attachment; filename=\"run-#{run_id}-wip.patch\"")
+      |> put_resp_header(
+        "content-disposition",
+        "attachment; filename=\"run-#{run_id}-wip.patch\""
+      )
       |> send_resp(200, content)
     else
       send_resp(conn, 404, "")
