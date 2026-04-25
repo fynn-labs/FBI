@@ -216,6 +216,18 @@ defmodule FBI.Orchestrator.RunServer do
 
   def handle_info(_, state), do: {:noreply, state}
 
+  @impl true
+  def terminate(_reason, state) do
+    case Queries.get(state.run_id) do
+      {:ok, %{state: s}} when s in ["starting", "running", "waiting"] ->
+        Queries.mark_finished(state.run_id, %{state: "failed", error: "orchestrator process crashed"})
+        publish_state(state.run_id)
+
+      _ ->
+        :ok
+    end
+  end
+
   # ---------------------------------------------------------------------------
   # Lifecycle implementations
   # ---------------------------------------------------------------------------
@@ -538,8 +550,7 @@ defmodule FBI.Orchestrator.RunServer do
   # ---------------------------------------------------------------------------
 
   defp await_and_complete(run_id, container_id, on_bytes, settings, config, _server_pid) do
-    wait_task = Task.async(fn -> FBI.Docker.wait_container(container_id) end)
-    {:ok, status_code} = Task.await(wait_task, :infinity)
+    {:ok, status_code} = FBI.Docker.wait_container(container_id)
 
     {:ok, inspect_result} = FBI.Docker.inspect_container(container_id)
     oom_killed = get_in(inspect_result, ["State", "OOMKilled"]) == true
@@ -568,7 +579,7 @@ defmodule FBI.Orchestrator.RunServer do
       :ok
     else
       was_cancelled = mark_cancelled(run_id)
-      failed_normally = !((status_code == 0 and parsed) && parsed.push_exit == 0)
+      failed_normally = not (status_code == 0 && parsed != nil && parsed.push_exit == 0)
 
       if failed_normally and not was_cancelled and settings.auto_resume_enabled do
         log_tail = LogStore.read_all(run.log_path)
@@ -626,7 +637,7 @@ defmodule FBI.Orchestrator.RunServer do
     state =
       cond do
         was_cancelled -> "cancelled"
-        (status_code == 0 and parsed) && parsed.push_exit == 0 -> "succeeded"
+        status_code == 0 && parsed != nil && parsed.push_exit == 0 -> "succeeded"
         true -> "failed"
       end
 
@@ -674,6 +685,9 @@ defmodule FBI.Orchestrator.RunServer do
     case :gen_tcp.recv(socket, 0, 60_000) do
       {:ok, data} ->
         on_bytes.(data)
+        read_stdout_loop(socket, run_id, on_bytes)
+
+      {:error, :timeout} ->
         read_stdout_loop(socket, run_id, on_bytes)
 
       {:error, _} ->
@@ -787,7 +801,10 @@ defmodule FBI.Orchestrator.RunServer do
             :gen_tcp.send(attach_socket, <<3>>)
             Process.sleep(500)
             :gen_tcp.send(attach_socket, <<3>>)
-            Process.send_after(self(), {:kill_container, container_id}, 30_000)
+            spawn(fn ->
+              Process.sleep(30_000)
+              FBI.Docker.stop_container(container_id, t: 5)
+            end)
             on_bytes.("\n[fbi] limit detected; nudging Claude to exit\n")
           end
         end
@@ -822,7 +839,11 @@ defmodule FBI.Orchestrator.RunServer do
   defp stop_watchers(pids) do
     Enum.each(pids, fn pid ->
       if is_pid(pid) and Process.alive?(pid) do
-        GenServer.stop(pid, :normal, 1_000)
+        try do
+          GenServer.stop(pid, :normal, 1_000)
+        catch
+          :exit, _ -> :ok
+        end
       end
     end)
   end
