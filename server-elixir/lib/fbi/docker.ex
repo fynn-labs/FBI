@@ -390,6 +390,7 @@ defmodule FBI.Docker do
         "Host: docker\r\n" <>
         "Content-Type: application/x-tar\r\n" <>
         "Content-Length: #{len}\r\n" <>
+        "Connection: close\r\n" <>
         "\r\n"
 
     :ok = :gen_tcp.send(conn, req)
