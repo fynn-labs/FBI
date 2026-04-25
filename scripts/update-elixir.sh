@@ -11,8 +11,12 @@ SERVICE="${SERVICE:-fbi-elixir}"
 
 cd "$SOURCE_DIR"
 
-echo "==> git pull in $SOURCE_DIR"
-git pull --ff-only
+echo "==> git fetch + hard reset to origin/main in $SOURCE_DIR"
+# silco is a deployment target — there shouldn't be local commits or dirty
+# state on disk. If there are, they're accidental and we'd rather pick up
+# what's on origin than wedge the script.
+git fetch origin main
+git reset --hard origin/main
 
 REV="$(git rev-parse --short HEAD)"
 
