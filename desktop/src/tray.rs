@@ -75,6 +75,24 @@ pub fn setup_tray(app: &mut tauri::App) -> tauri::Result<()> {
         })
         .build(app)?;
 
+    // On macOS, rebuild the tray immediately when the user switches light/dark mode.
+    #[cfg(target_os = "macos")]
+    {
+        let handle = app.handle().clone();
+        if let Some(window) = app.get_webview_window("main") {
+            window.on_window_event(move |event| {
+                if let tauri::WindowEvent::ThemeChanged(_) = event {
+                    let state = handle.state::<std::sync::Mutex<TrayState>>();
+                    let (runs, tunnel_ports) = {
+                        let s = state.lock().unwrap();
+                        (s.runs.clone(), s.tunnel_ports.clone())
+                    };
+                    rebuild_tray(&handle, &runs, &tunnel_ports);
+                }
+            });
+        }
+    }
+
     Ok(())
 }
 
