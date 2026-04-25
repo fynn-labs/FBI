@@ -76,7 +76,7 @@ export function Sidebar({ projects, collapsed }: SidebarProps) {
       }),
     );
     return () => offs.forEach((off) => off());
-  }, [nav]);
+  }, []);
 
   const handleMouseDown = useCallback((e: React.MouseEvent) => {
     e.preventDefault();
