@@ -47,7 +47,7 @@ defmodule FBIWeb.ChangesController do
         # pushed or not. Falls back to gh compare for already-pushed commits
         # when no container is available.
         files =
-          case files_via_container(run, sha) do
+          case files_via_git_show(run, "/workspace", sha) do
             {:ok, list} -> list
             :no_container -> gh_compare_files(run, sha)
           end
@@ -59,13 +59,13 @@ defmodule FBIWeb.ChangesController do
     end
   end
 
-  defp files_via_container(run, sha) do
+  defp files_via_git_show(run, cwd, sha) do
     case run.container_id do
       cid when is_binary(cid) and cid != "" ->
         case Docker.exec_create(cid, [
                "git",
                "-C",
-               "/workspace",
+               cwd,
                "show",
                "--numstat",
                "--format=",
@@ -99,7 +99,7 @@ defmodule FBIWeb.ChangesController do
             with {:ok, run_id} <- parse_id(id_str),
                  {:ok, run} <- RunQ.get(run_id) do
               files =
-                case files_via_submodule(run, submodule_path, sha) do
+                case files_via_git_show(run, "/workspace/#{submodule_path}", sha) do
                   {:ok, list} -> list
                   :no_container -> []
                 end
@@ -112,33 +112,6 @@ defmodule FBIWeb.ChangesController do
 
       _ ->
         conn |> put_status(404) |> json(%{error: "not found"})
-    end
-  end
-
-  defp files_via_submodule(run, submodule_path, sha) do
-    case run.container_id do
-      cid when is_binary(cid) and cid != "" ->
-        case Docker.exec_create(cid, [
-               "git",
-               "-C",
-               "/workspace/#{submodule_path}",
-               "show",
-               "--numstat",
-               "--format=",
-               sha
-             ]) do
-          {:ok, exec_id} ->
-            case Docker.exec_start(exec_id, timeout_ms: 5_000) do
-              {:ok, output} -> {:ok, Numstat.parse(output)}
-              _ -> :no_container
-            end
-
-          _ ->
-            :no_container
-        end
-
-      _ ->
-        :no_container
     end
   end
 
