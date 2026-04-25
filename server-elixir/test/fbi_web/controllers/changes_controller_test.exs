@@ -26,6 +26,10 @@ defmodule FBIWeb.ChangesControllerTest do
         })
       )
 
+    # The ChangesCache is a global Agent that survives between tests; make
+    # sure each test starts from a clean slate for this run_id.
+    FBI.Runs.ChangesCache.invalidate(run.id)
+
     {:ok, run_id: run.id, project: project}
   end
 
@@ -69,29 +73,149 @@ defmodule FBIWeb.ChangesControllerTest do
     end
   end
 
-  describe "controller source contract" do
-    test "build_changes uses GH compare_branch for branch-unique commits" do
-      src = File.read!("lib/fbi_web/controllers/changes_controller.ex")
-      assert src =~ "GH.compare_branch"
-      refute src =~ "GH.commits_on_branch"
+  # Real behavioral tests stubbing the gh CLI through :gh_cmd_adapter.
+  # The run is created with container_id == nil, so any docker-exec branch
+  # naturally falls through to :no_container and exercises the gh fallback.
+  describe "GH-backed behavior with stubbed adapter" do
+    setup do
+      prev = Application.get_env(:fbi, :gh_cmd_adapter)
+
+      on_exit(fn ->
+        if prev,
+          do: Application.put_env(:fbi, :gh_cmd_adapter, prev),
+          else: Application.delete_env(:fbi, :gh_cmd_adapter)
+      end)
+
+      :ok
     end
 
-    test "controller emits branch_base with base/ahead/behind keys (TS parity)" do
-      src = File.read!("lib/fbi_web/controllers/changes_controller.ex")
-      # Negative test: the old wrong shape must not be present.
-      refute src =~ ~r/ahead_by:\s*ahead_by/
-      # Positive test: the right shape is.
-      assert src =~ ~r/branch_base\s*=\s*%\{base:\s*base_branch/
+    defp stub_gh(fun) when is_function(fun, 1) do
+      Application.put_env(:fbi, :gh_cmd_adapter, fun)
     end
 
-    test "commit_files attempts docker exec before falling back to gh" do
-      src = File.read!("lib/fbi_web/controllers/changes_controller.ex")
-      assert src =~ "Docker.exec_create"
+    test "show/2: uses GH.compare_branch and surfaces branch_base with base/ahead/behind",
+         %{conn: conn, run_id: run_id} do
+      stub_gh(fn args ->
+        case args do
+          # pr_for_branch
+          ["pr", "list" | _] ->
+            {:ok, "[]"}
+
+          # compare_branch
+          ["api", "repos/org/repo/compare/" <> _rest] ->
+            {:ok,
+             Jason.encode!(%{
+               "ahead_by" => 2,
+               "behind_by" => 1,
+               "merge_base_commit" => %{"sha" => "deadbeef"},
+               "commits" => [
+                 %{
+                   "sha" => "s1",
+                   "commit" => %{
+                     "message" => "subject\nbody",
+                     "committer" => %{"date" => "2026-04-25T12:00:00Z"}
+                   }
+                 }
+               ]
+             })}
+
+          _ ->
+            {:ok, "[]"}
+        end
+      end)
+
+      conn = get(conn, "/api/runs/#{run_id}/changes")
+      body = json_response(conn, 200)
+
+      # branch_base shape (TS parity): %{base, ahead, behind}, never %{ahead_by, behind_by}.
+      assert body["branch_base"]["base"] == "main"
+      assert body["branch_base"]["ahead"] == 2
+      assert body["branch_base"]["behind"] == 1
+      refute Map.has_key?(body["branch_base"], "ahead_by")
+      refute Map.has_key?(body["branch_base"], "behind_by")
+
+      # GH commits (pushed: true) come through; safeguard repo is empty so this is the full set.
+      assert [%{"sha" => "s1", "subject" => "subject", "pushed" => true}] = body["commits"]
     end
 
-    test "submodule_files exits the always-empty stub" do
-      src = File.read!("lib/fbi_web/controllers/changes_controller.ex")
-      refute src =~ ~r/submodule_files.*?json\(conn,\s*%\{files:\s*\[\]\}\)/s
+    test "show/2: falls back to safeguard-only payload when GH compare errors",
+         %{conn: conn, run_id: run_id} do
+      stub_gh(fn args ->
+        case args do
+          ["pr", "list" | _] -> {:ok, "[]"}
+          ["api", "repos/" <> _] -> {:error, {1, "boom"}}
+          _ -> {:ok, "[]"}
+        end
+      end)
+
+      conn = get(conn, "/api/runs/#{run_id}/changes")
+      body = json_response(conn, 200)
+
+      # On GH error, branch_base should still exist (with zero ahead/behind)
+      # because the GH path was reached but compare itself failed.
+      assert body["branch_base"]["base"] == "main"
+      assert body["branch_base"]["ahead"] == 0
+      assert body["branch_base"]["behind"] == 0
+      # No safeguard repo on disk -> commits is empty.
+      assert body["commits"] == []
+    end
+
+    test "commit_files/2: with no container, falls back to GH.compare_files",
+         %{conn: conn, run_id: run_id} do
+      stub_gh(fn args ->
+        # gh_compare_files calls: ["api", "repos/<repo>/compare/<base>...<head>", "--jq", _]
+        case args do
+          ["api", "repos/org/repo/compare/" <> _, "--jq", _] ->
+            {:ok,
+             Jason.encode!([
+               %{
+                 "filename" => "a.txt",
+                 "additions" => 3,
+                 "deletions" => 0,
+                 "status" => "added"
+               },
+               %{
+                 "filename" => "b.txt",
+                 "additions" => 1,
+                 "deletions" => 1,
+                 "status" => "modified"
+               }
+             ])}
+
+          _ ->
+            {:error, {1, "unexpected gh call: #{inspect(args)}"}}
+        end
+      end)
+
+      conn = get(conn, "/api/runs/#{run_id}/commits/abcdef1234567/files")
+      body = json_response(conn, 200)
+
+      # Status mapping: "added" -> "A", "modified" -> "M".
+      assert [
+               %{"path" => "a.txt", "status" => "A", "additions" => 3, "deletions" => 0},
+               %{"path" => "b.txt", "status" => "M", "additions" => 1, "deletions" => 1}
+             ] = body["files"]
+    end
+
+    test "commit_files/2: returns [] when GH compare_files itself errors",
+         %{conn: conn, run_id: run_id} do
+      stub_gh(fn _args -> {:error, {1, "boom"}} end)
+
+      conn = get(conn, "/api/runs/#{run_id}/commits/abcdef1234567/files")
+      body = json_response(conn, 200)
+      assert body["files"] == []
+    end
+
+    test "submodule_files/2: with no container, returns [] (no GH fallback for submodules)",
+         %{conn: conn, run_id: run_id} do
+      # The route should NOT call gh; assert that by failing loudly if it does.
+      stub_gh(fn args ->
+        flunk("submodule_files should not invoke gh; got args=#{inspect(args)}")
+      end)
+
+      conn = get(conn, "/api/runs/#{run_id}/submodule/sub/path/commits/abcdef1234567/files")
+      body = json_response(conn, 200)
+      assert body["files"] == []
     end
   end
 end
