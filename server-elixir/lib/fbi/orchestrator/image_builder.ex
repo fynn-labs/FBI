@@ -40,9 +40,26 @@ defmodule FBI.Orchestrator.ImageBuilder do
         else
           build_fallback(override_json, base_tag, on_log)
         end
+
+        # The base build is supposed to tag base_tag. If it didn't, anything
+        # further is doomed — fail loudly here rather than letting
+        # build_post_layer 404 with a less useful "No such image" message.
+        unless image_exists?(base_tag) do
+          raise "image build for #{base_tag} reported success but the tag is not present"
+        end
       end
 
       build_post_layer(base_tag, final_tag, postbuild, on_log)
+
+      # Same guard for the post layer. We've been bitten by `stream_build_output`
+      # returning :ok before Docker actually applied the `t=` tag (see fix in
+      # docker.ex commit history). Verifying the tag landed catches that class
+      # of bug at the source — the alternative is `create_container` 404ing
+      # with "No such image: <tag>", which obscures where the build went wrong.
+      unless image_exists?(final_tag) do
+        raise "image build for #{final_tag} reported success but the tag is not present"
+      end
+
       {:ok, final_tag}
     end
   end
