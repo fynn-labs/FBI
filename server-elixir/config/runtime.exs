@@ -37,6 +37,10 @@ if config_env() == :prod do
 
   config :fbi, docker_socket_path: System.get_env("DOCKER_SOCKET", "/var/run/docker.sock")
 
+  if credentials = System.get_env("CLAUDE_CREDENTIALS") do
+    config :fbi, credentials_path: credentials
+  end
+
   database_path =
     System.get_env("DATABASE_PATH") ||
       raise """
