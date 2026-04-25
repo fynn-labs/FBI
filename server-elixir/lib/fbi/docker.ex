@@ -36,7 +36,13 @@ defmodule FBI.Docker do
         [{"Content-Length", "0"}]
       end
 
-    headers = [{"Host", "docker"} | content_headers ++ extra_headers]
+    # Connection: close so Docker shuts the socket immediately after the
+    # response and our recv_until_close exits with :closed instead of waiting
+    # 60s for the keep-alive idle timeout. Without this every Docker call
+    # silently paid up to a minute of idle wait.
+    headers =
+      [{"Host", "docker"}, {"Connection", "close"} | content_headers ++ extra_headers]
+
     header_str = Enum.map_join(headers, "\r\n", fn {k, v} -> "#{k}: #{v}" end)
     req = "#{method} #{path} HTTP/1.1\r\n#{header_str}\r\n\r\n#{raw_body}"
     :ok = :gen_tcp.send(conn, req)
