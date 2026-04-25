@@ -9,12 +9,11 @@ export interface TopbarProps {
 }
 
 function TrafficLights() {
-  const win = getCurrentWindow();
   return (
     <div className="group flex items-center gap-[6px] shrink-0">
       <button
         type="button"
-        onClick={() => void win.close()}
+        onClick={() => void getCurrentWindow().close()}
         className="w-3 h-3 rounded-full flex items-center justify-center bg-[var(--traffic-red)] hover:brightness-110 focus-visible:outline-none"
         aria-label="Close window"
       >
@@ -22,7 +21,7 @@ function TrafficLights() {
       </button>
       <button
         type="button"
-        onClick={() => void win.minimize()}
+        onClick={() => void getCurrentWindow().minimize()}
         className="w-3 h-3 rounded-full flex items-center justify-center bg-[var(--traffic-yellow)] hover:brightness-110 focus-visible:outline-none"
         aria-label="Minimize window"
       >
@@ -30,7 +29,7 @@ function TrafficLights() {
       </button>
       <button
         type="button"
-        onClick={() => void win.toggleMaximize()}
+        onClick={() => void getCurrentWindow().toggleMaximize()}
         className="w-3 h-3 rounded-full flex items-center justify-center bg-[var(--traffic-green)] hover:brightness-110 focus-visible:outline-none"
         aria-label="Maximize window"
       >

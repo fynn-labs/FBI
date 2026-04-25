@@ -10,8 +10,13 @@ interface MenuState {
 
 function textItems(): ContextMenuItem[] {
   return [
-    { id: 'copy', label: 'Copy', shortcut: '⌘C', onSelect: () => { document.execCommand('copy'); } },
-    { id: 'paste', label: 'Paste', shortcut: '⌘V', onSelect: () => { document.execCommand('paste'); } },
+    {
+      id: 'copy', label: 'Copy', shortcut: '⌘C',
+      onSelect: () => {
+        const sel = window.getSelection()?.toString() ?? '';
+        if (sel) void navigator.clipboard.writeText(sel);
+      },
+    },
     { id: 'select-all', label: 'Select All', shortcut: '⌘A', onSelect: () => { document.execCommand('selectAll'); } },
   ];
 }
