@@ -148,7 +148,11 @@ defmodule FBI.Orchestrator.RunServer do
           run_lifecycle(mode, state.run_id, state.config, parent)
         catch
           kind, reason ->
-            Logger.error("RunServer lifecycle crashed: #{kind} #{inspect(reason)}")
+            Logger.error(
+              "RunServer lifecycle crashed: #{kind} #{inspect(reason)}\n" <>
+                Exception.format_stacktrace(__STACKTRACE__)
+            )
+
             {:lifecycle_error, kind, reason}
         end
       end)
