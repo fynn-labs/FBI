@@ -935,6 +935,9 @@ defmodule FBI.Orchestrator.RunServer do
 
     binds = binds ++ claude_auth_mounts(config)
     binds = binds ++ docker_socket_mounts(config)
+    binds = binds ++ ssh_agent_mounts(config)
+
+    env = env ++ ssh_agent_env(config)
 
     %{
       "Image" => image_tag,
@@ -1072,5 +1075,24 @@ defmodule FBI.Orchestrator.RunServer do
   defp docker_socket_mounts(config) do
     socket = config[:host_docker_socket] || "/var/run/docker.sock"
     if File.exists?(socket), do: ["#{socket}:/var/run/docker.sock"], else: []
+  end
+
+  # Forward the host's ssh-agent into the container so `git clone` over SSH
+  # works without baking keys into the image. Mirrors SshAgentForwarding in
+  # src/server/orchestrator/gitAuth.ts.
+  defp ssh_agent_mounts(config) do
+    case config[:host_ssh_auth_sock] do
+      nil -> []
+      "" -> []
+      sock -> ["#{sock}:/ssh-agent"]
+    end
+  end
+
+  defp ssh_agent_env(config) do
+    case config[:host_ssh_auth_sock] do
+      nil -> []
+      "" -> []
+      _ -> ["SSH_AUTH_SOCK=/ssh-agent"]
+    end
   end
 end

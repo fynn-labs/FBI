@@ -118,7 +118,20 @@ defmodule FBI.Docker do
   # Container operations
 
   def create_container(spec) do
-    {status, body} = rest("POST", "/containers/create", spec)
+    # Docker /containers/create takes the name as a *query parameter*, not a
+    # body field. Extract it so the user-supplied name actually sticks instead
+    # of Docker assigning a random one (which made our `fbi-run-*` containers
+    # show up as "eloquent_nash" etc.).
+    {name, body_spec} = Map.pop(spec, "name")
+
+    path =
+      case name do
+        nil -> "/containers/create"
+        "" -> "/containers/create"
+        n -> "/containers/create?name=#{URI.encode(n, &URI.char_unreserved?/1)}"
+      end
+
+    {status, body} = rest("POST", path, body_spec)
 
     case ok_json(status, body) do
       {:ok, %{"Id" => id}} -> {:ok, id}
