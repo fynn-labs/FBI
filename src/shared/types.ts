@@ -240,7 +240,7 @@ export type HistoryResult =
   | { kind: 'agent-busy' }
   | { kind: 'invalid'; message: string }
   | { kind: 'git-error'; message: string }
-  | { kind: 'git-unavailable' };
+  | { kind: 'git-unavailable'; message?: string };
 
 export interface SubmoduleBump {
   path: string;
