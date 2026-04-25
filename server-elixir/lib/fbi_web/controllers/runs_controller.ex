@@ -160,8 +160,8 @@ defmodule FBIWeb.RunsController do
     run_id = String.to_integer(id)
 
     with {:ok, run} <- Queries.get(run_id) |> from_get(),
-         :ok <- FBI.Runs.ModelParams.validate(params),
-         :ok <- FBI.Orchestrator.ContinueEligibility.check(run, runs_dir()) do
+         :ok <- FBI.Orchestrator.ContinueEligibility.check(run, runs_dir()),
+         :ok <- FBI.Runs.ModelParams.validate(params) do
       Queries.update_model_params(run_id, %{
         model: params["model"],
         effort: params["effort"],

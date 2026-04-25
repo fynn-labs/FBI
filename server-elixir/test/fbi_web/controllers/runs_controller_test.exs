@@ -192,8 +192,14 @@ defmodule FBIWeb.RunsControllerTest do
       File.write!(Path.join(sub, "00000000-0000-0000-0000-000000000000.jsonl"), "{}\n")
     end
 
-    test "rejects invalid model with 400", %{conn: conn, project_id: pid} do
-      run = make_run(pid, %{state: "succeeded"})
+    test "rejects invalid model with 400", %{conn: conn, project_id: pid, runs_dir: runs_dir} do
+      run =
+        make_run(pid, %{
+          state: "succeeded",
+          claude_session_id: "00000000-0000-0000-0000-000000000000"
+        })
+
+      seed_session_files(runs_dir, run.id)
       conn = json_post(conn, "/api/runs/#{run.id}/continue", %{model: "gpt"})
       assert %{"error" => "invalid model: gpt"} = json_response(conn, 400)
     end
@@ -223,6 +229,20 @@ defmodule FBIWeb.RunsControllerTest do
       assert fresh.model == "opus"
       assert fresh.effort == "xhigh"
       assert fresh.subagent_model == "haiku"
+    end
+
+    test "returns 409 (not 400) when both eligibility and model params would fail", %{
+      conn: conn,
+      project_id: pid
+    } do
+      # A 'running' run is ineligible for continue. With an invalid model in the
+      # body, TS returns 409 (eligibility wins). We mirror that.
+      run = make_run(pid, %{state: "running"})
+      conn = json_post(conn, "/api/runs/#{run.id}/continue", %{model: "gpt"})
+      body = json_response(conn, 409)
+      # eligibility verdict carries a `code` and `message`, not an `error` string.
+      assert is_binary(body["code"])
+      assert is_binary(body["message"])
     end
   end
 
