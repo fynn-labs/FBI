@@ -1,0 +1,3 @@
+[workspace]
+members = ["desktop", "cli/fbi-tunnel"]
+resolver = "2"
