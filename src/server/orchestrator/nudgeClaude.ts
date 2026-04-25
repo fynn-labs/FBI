@@ -1,3 +1,5 @@
+import { fbi } from './fbiOutput.js';
+
 export interface NudgeClaudeOptions {
   /** Write a byte to the container's TTY stdin. */
   writeStdin: (bytes: Uint8Array) => void;
@@ -29,7 +31,7 @@ export function nudgeClaudeToExit(opts: NudgeClaudeOptions): void {
   const secondDelay = opts.secondCtrlCDelayMs ?? 250;
   const killDelay = opts.killAfterMs ?? 30_000;
 
-  opts.log('\n[fbi] rate-limit message detected in stream; sending ^C^C to claude\n');
+  opts.log('\n' + fbi.warn('rate-limit detected in stream; sending ^C^C'));
 
   const sendCtrlC = () => {
     try { opts.writeStdin(Uint8Array.of(ETX)); } catch { /* stream closed */ }

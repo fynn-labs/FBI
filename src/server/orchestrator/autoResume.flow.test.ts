@@ -1,4 +1,5 @@
 import { describe, it, expect, vi } from 'vitest';
+import { fbi } from './fbiOutput.js';
 import { PassThrough } from 'node:stream';
 import fs from 'node:fs';
 import path from 'node:path';
@@ -69,7 +70,7 @@ function makeSuccessContainer(exitCode = 0, pushExit = 0): Docker.Container {
     attach: async () => attachStream,
     start: async () => {
       resultTar = await makeResultTar(exitCode, pushExit, 'deadbeef', 'feat/fix');
-      attachStream.push(Buffer.from(`[fbi] run ${exitCode === 0 ? 'succeeded' : 'failed'}\n`));
+      attachStream.push(Buffer.from('\n' + fbi.runState(exitCode === 0 ? 'succeeded' : 'failed')));
       attachStream.push(null);
     },
     wait: async () => ({ StatusCode: exitCode }),

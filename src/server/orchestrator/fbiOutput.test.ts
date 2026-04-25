@@ -163,5 +163,18 @@ describe('fbi', () => {
       const result = fbi.runState('cancelled');
       expect(result).toContain('cancelled');
     });
+
+    it('succeeded contains ● symbol', () => {
+      expect(fbi.runState('succeeded')).toContain('●');
+    });
+    it('failed contains ✕ symbol', () => {
+      expect(fbi.runState('failed')).toContain('✕');
+    });
+    it('cancelled contains ○ symbol', () => {
+      expect(fbi.runState('cancelled')).toContain('○');
+    });
+    it('contains GRAY color code for prefix', () => {
+      expect(fbi.runState('succeeded')).toContain('\x1b[90m');
+    });
   });
 });
