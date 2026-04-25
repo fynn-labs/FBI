@@ -3,11 +3,8 @@ defmodule FBI.Uploads.Draft do
 
   alias FBI.Uploads.FS
 
-  @token_re ~r/^[0-9a-f]{32}$/
-
   @spec valid_token?(term()) :: boolean()
-  def valid_token?(v) when is_binary(v), do: Regex.match?(@token_re, v)
-  def valid_token?(_), do: false
+  def valid_token?(v), do: FS.valid_draft_token?(v)
 
   @spec promote(Path.t(), Path.t(), String.t(), integer()) ::
           {:ok, [%{filename: String.t(), size: integer()}]} | {:error, term()}
