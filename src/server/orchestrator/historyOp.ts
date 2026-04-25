@@ -67,11 +67,13 @@ export async function runHistoryOpInContainer(
     const pack = tar.pack();
     pack.entry({ name: 'fbi-history-op.sh', mode: 0o755 }, opts.scriptContents);
     pack.finalize();
-    await container.putArchive(pack as unknown as NodeJS.ReadableStream, { path: '/usr/local/bin' });
+    // Extract to /tmp rather than /usr/local/bin — the latter is a bind-mount
+    // from the host, so unlinkat (replacing the file) returns EBUSY.
+    await container.putArchive(pack as unknown as NodeJS.ReadableStream, { path: '/tmp' });
   }
   const { stdout, exitCode } = await dockerExec(
     container,
-    ['/usr/local/bin/fbi-history-op.sh'],
+    ['/tmp/fbi-history-op.sh'],
     {
       timeoutMs: opts.timeoutMs ?? 60_000,
       env: Object.entries(env).map(([k, v]) => `${k}=${v}`),
