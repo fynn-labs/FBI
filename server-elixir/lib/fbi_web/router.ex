@@ -50,6 +50,7 @@ defmodule FBIWeb.Router do
     patch "/runs/:id", RunsController, :patch_title
     delete "/runs/:id", RunsController, :delete
     get "/runs/:id/siblings", RunsController, :siblings
+    get "/runs/:id/listening-ports", ProxyController, :listening_ports
     post "/runs/:id/continue", RunsController, :continue_run
     post "/runs/:id/resume-now", RunsController, :resume_now
     get "/projects/:id/runs", RunsController, :index_for_project
@@ -89,6 +90,7 @@ defmodule FBIWeb.Router do
     get "/ws/usage", UsageSocketController, :upgrade
     get "/ws/states", StatesSocketController, :upgrade
     get "/runs/:id/shell", ShellSocketController, :upgrade
+    get "/runs/:id/proxy/:port", ProxySocketController, :upgrade
   end
 
   # Enable LiveDashboard in development
