@@ -90,6 +90,28 @@ defmodule FBIWeb.UploadsControllerTest do
         assert is_integer(f["uploaded_at"])
       end
     end
+
+    test "GET /api/runs/:id/uploads returns sorted entries with millisecond timestamps", %{
+      conn: conn,
+      runs_dir: runs_dir
+    } do
+      run = make_run()
+      uploads = Path.join([runs_dir, Integer.to_string(run.id), "uploads"])
+      File.mkdir_p!(uploads)
+      File.write!(Path.join(uploads, "z.txt"), "1")
+      File.write!(Path.join(uploads, "a.txt"), "2")
+
+      conn = get(conn, "/api/runs/#{run.id}/uploads")
+      %{"files" => files} = json_response(conn, 200)
+
+      assert Enum.map(files, & &1["filename"]) == ["a.txt", "z.txt"]
+
+      Enum.each(files, fn f ->
+        # uploaded_at must be millisecond magnitude (current time in 2026 is ~1.7e12 ms)
+        assert is_integer(f["uploaded_at"])
+        assert f["uploaded_at"] > 1_700_000_000_000
+      end)
+    end
   end
 
   # -----------------------------------------------------------------------

@@ -94,12 +94,13 @@ defmodule FBIWeb.UploadsController do
       {:ok, entries} ->
         entries
         |> Enum.reject(&String.ends_with?(&1, ".part"))
+        |> Enum.sort()
         |> Enum.map(fn name ->
           path = Path.join(dir, name)
 
-          case File.stat(path) do
-            {:ok, %File.Stat{type: :regular, size: sz, mtime: mt}} ->
-              %{filename: name, size: sz, uploaded_at: erl_to_ms(mt)}
+          case File.stat(path, time: :posix) do
+            {:ok, %File.Stat{type: :regular, size: sz, mtime: mt_secs}} ->
+              %{filename: name, size: sz, uploaded_at: mt_secs * 1000}
 
             _ ->
               nil
@@ -141,11 +142,6 @@ defmodule FBIWeb.UploadsController do
   end
 
   defp append_notice(_, _, _), do: :ok
-
-  defp erl_to_ms({{y, m, d}, {h, mi, s}}) do
-    {:ok, dt} = NaiveDateTime.new(y, m, d, h, mi, s)
-    dt |> DateTime.from_naive!("Etc/UTC") |> DateTime.to_unix(:millisecond)
-  end
 
   defp parse_id(s) do
     case Integer.parse(s) do
