@@ -22,8 +22,7 @@ defmodule FBI.Orchestrator.SafeguardWatcher do
       fs_pid: nil
     }
 
-    {:ok, fs_pid} =
-      FileSystem.start_link(dirs: [state.bare_dir], name: :"#{__MODULE__}_#{inspect(self())}")
+    {:ok, fs_pid} = FileSystem.start_link(dirs: [state.bare_dir])
 
     FileSystem.subscribe(fs_pid)
 
@@ -38,16 +37,14 @@ defmodule FBI.Orchestrator.SafeguardWatcher do
     {:noreply, state}
   end
 
+  @impl true
   def handle_info({:file_event, _pid, :stop}, state) do
     {:noreply, state}
   end
 
   @impl true
   def terminate(_reason, state) do
-    if state.fs_pid do
-      Process.exit(state.fs_pid, :normal)
-    end
-
+    if state.fs_pid, do: GenServer.stop(state.fs_pid, :normal)
     :ok
   end
 
