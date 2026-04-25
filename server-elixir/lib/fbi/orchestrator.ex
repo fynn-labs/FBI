@@ -81,6 +81,9 @@ defmodule FBI.Orchestrator do
   def delete_run(run_id) do
     config = get_config()
     case Queries.get(run_id) do
+      {:ok, %{state: s}} when s in ["starting", "running", "waiting"] ->
+        {:error, :run_active}
+
       {:ok, run} ->
         if run.log_path, do: File.rm(run.log_path)
         WipRepo.remove(config.runs_dir, run_id)
@@ -114,7 +117,10 @@ defmodule FBI.Orchestrator do
       else
         case FBI.Docker.inspect_container(run.container_id) do
           {:ok, _} ->
-            RunSupervisor.start_run(run.id, :reattach, config)
+            case Registry.lookup(FBI.Orchestrator.Registry, run.id) do
+              [] -> RunSupervisor.start_run(run.id, :reattach, config)
+              _ -> :already_running
+            end
 
           _ ->
             Queries.mark_finished(run.id, %{state: "failed", error: "orchestrator lost container (container gone)"})
