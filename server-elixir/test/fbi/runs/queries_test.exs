@@ -169,6 +169,42 @@ defmodule FBI.Runs.QueriesTest do
     test "returns :not_found for missing" do
       assert :not_found = Queries.update_title(9_999_999, "x")
     end
+
+    test "update_title_if_unlocked writes title only when title_locked = 0" do
+      {:ok, p} =
+        FBI.Projects.Queries.create(%{
+          name: "p-#{System.unique_integer([:positive])}",
+          repo_url: "git@github.com:o/r.git",
+          default_branch: "main"
+        })
+
+      insert_run = fn locked ->
+        %FBI.Runs.Run{
+          project_id: p.id,
+          prompt: "x",
+          branch_name: "feat",
+          state: "running",
+          log_path: "/tmp/x.log",
+          created_at: System.system_time(:millisecond),
+          state_entered_at: System.system_time(:millisecond),
+          title: "old",
+          title_locked: locked
+        }
+        |> FBI.Repo.insert!()
+      end
+
+      unlocked_run = insert_run.(0)
+      locked_run = insert_run.(1)
+
+      :ok = FBI.Runs.Queries.update_title_if_unlocked(unlocked_run.id, "fresh")
+      :ok = FBI.Runs.Queries.update_title_if_unlocked(locked_run.id, "fresh")
+
+      {:ok, after_unlocked} = FBI.Runs.Queries.get(unlocked_run.id)
+      {:ok, after_locked} = FBI.Runs.Queries.get(locked_run.id)
+
+      assert after_unlocked.title == "fresh"
+      assert after_locked.title == "old"
+    end
   end
 
   describe "delete/1" do

@@ -89,6 +89,10 @@ defmodule FBI.Runs.Queries do
     |> Repo.one()
   end
 
+  @doc """
+  Update title and set title_locked. Used by the user-initiated PATCH path.
+  Mirrors TS `updateTitle(id, t, { lock: opts.lock, respectLock: false })`.
+  """
   @spec update_title(integer(), String.t(), boolean()) :: {:ok, decoded()} | :not_found
   def update_title(id, title, lock \\ false) do
     case Repo.get(Run, id) do
@@ -102,6 +106,20 @@ defmodule FBI.Runs.Queries do
         updated = r |> Run.changeset(attrs) |> Repo.update!()
         {:ok, decode(updated)}
     end
+  end
+
+  @doc """
+  Update title only when not locked. Used by the auto-titler watcher.
+  Mirrors TS `updateTitle(id, t, { respectLock: true })`.
+  """
+  @spec update_title_if_unlocked(integer(), String.t()) :: :ok
+  def update_title_if_unlocked(id, title) do
+    Repo.update_all(
+      from(r in Run, where: r.id == ^id and r.title_locked == 0),
+      set: [title: title]
+    )
+
+    :ok
   end
 
   @spec delete(integer()) :: :ok

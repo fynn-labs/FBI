@@ -612,7 +612,7 @@ defmodule FBI.Orchestrator.RunServer do
 
             on_bytes.("\n[fbi] #{msg}\n")
             Queries.mark_finished(run_id, %{state: "failed", error: msg})
-            if parsed && parsed.title, do: Queries.update_title(run_id, parsed.title, false)
+            if parsed && parsed.title, do: Queries.update_title_if_unlocked(run_id, parsed.title)
             publish_state(run_id)
           else
             Queries.mark_awaiting_resume(run_id, %{
@@ -673,7 +673,7 @@ defmodule FBI.Orchestrator.RunServer do
     })
 
     if parsed && parsed.title do
-      Queries.update_title(run_id, parsed.title, false)
+      Queries.update_title_if_unlocked(run_id, parsed.title)
     end
 
     on_bytes.("\n[fbi] run #{state}\n")
@@ -743,7 +743,7 @@ defmodule FBI.Orchestrator.RunServer do
       path: Path.join(state_dir, "session-name"),
       poll_ms: 1000,
       on_title: fn title ->
-        Queries.update_title(run_id, title, false)
+        Queries.update_title_if_unlocked(run_id, title)
 
         case Queries.get(run_id) do
           {:ok, run} ->
