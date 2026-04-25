@@ -29,7 +29,14 @@ set -euo pipefail
 # ── styled output helpers ─────────────────────────────────────────────────────
 # Assumes UTF-8 locale + ANSI SGR terminal (xterm.js). _fbi_fatal callers must exit explicitly.
 _fbi_status() { printf '\033[97m○\033[0m  %s\n'           "$*"; }
-_fbi_cmd()    { printf '\033[32m$\033[0m  \033[36m%s\033[0m\n' "$*"; }
+_fbi_cmd()    {
+  local verb="$1"; shift
+  if [ $# -gt 0 ]; then
+    printf '\033[32m$\033[0m  \033[36m%s\033[0m \033[35m%s\033[0m\n' "$verb" "$*"
+  else
+    printf '\033[32m$\033[0m  \033[36m%s\033[0m\n' "$verb"
+  fi
+}
 _fbi_warn()   { printf '\033[33m⚠\033[0m  \033[33m%s\033[0m\n' "$*" >&2; }
 _fbi_fatal()  { printf '\033[31m✕\033[0m  \033[31m%s\033[0m\n' "$*" >&2; }
 # ─────────────────────────────────────────────────────────────────────────────
@@ -53,7 +60,7 @@ fi
 
 cd /workspace
 
-_fbi_cmd "git clone $REPO_URL ."
+_fbi_cmd "git clone" "$REPO_URL ."
 git clone --recurse-submodules "$REPO_URL" . || { _fbi_fatal "clone failed"; exit 10; }
 
 PRIMARY_BRANCH="${FBI_BRANCH:-claude/run-${RUN_ID}}"
@@ -76,7 +83,7 @@ CHECKED_OUT=0
 if [ -n "${FBI_RESUME_SESSION_ID:-}" ]; then
     if git fetch --quiet safeguard "$PRIMARY_BRANCH" 2>/dev/null; then
         if git rev-parse --verify --quiet "safeguard/$PRIMARY_BRANCH" >/dev/null 2>&1; then
-            _fbi_cmd "git checkout -B $PRIMARY_BRANCH safeguard/$PRIMARY_BRANCH"
+            _fbi_cmd "git checkout -B" "$PRIMARY_BRANCH safeguard/$PRIMARY_BRANCH"
             git checkout -B "$PRIMARY_BRANCH" "safeguard/$PRIMARY_BRANCH" \
                 || { _fbi_fatal "could not restore from safeguard/$PRIMARY_BRANCH"; exit 13; }
             CHECKED_OUT=1
@@ -86,15 +93,15 @@ fi
 
 if [ "$CHECKED_OUT" = "0" ]; then
     if [ "$HAS_ORIGIN" = "1" ] && git rev-parse --verify --quiet "origin/$PRIMARY_BRANCH" >/dev/null 2>&1; then
-        _fbi_cmd "git checkout -B $PRIMARY_BRANCH origin/$PRIMARY_BRANCH"
+        _fbi_cmd "git checkout -B" "$PRIMARY_BRANCH origin/$PRIMARY_BRANCH"
         git checkout -B "$PRIMARY_BRANCH" "origin/$PRIMARY_BRANCH" \
             || { _fbi_fatal "could not switch to $PRIMARY_BRANCH"; exit 13; }
     else
-        _fbi_cmd "git checkout -b $PRIMARY_BRANCH"
+        _fbi_cmd "git checkout -b" "$PRIMARY_BRANCH"
         git checkout -b "$PRIMARY_BRANCH" \
             || { _fbi_fatal "could not create branch $PRIMARY_BRANCH"; exit 13; }
         if [ "$HAS_ORIGIN" = "1" ]; then
-            _fbi_cmd "git push -u origin $PRIMARY_BRANCH"
+            _fbi_cmd "git push -u" "origin $PRIMARY_BRANCH"
             git push -u origin "$PRIMARY_BRANCH" \
                 || _fbi_warn "initial push of $PRIMARY_BRANCH to origin failed"
         fi
