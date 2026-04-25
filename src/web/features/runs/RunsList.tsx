@@ -121,7 +121,7 @@ export function RunsList({ runs, toHref, currentId }: RunsListProps) {
   return (
     <div
       className={cn(
-        'h-full flex flex-col min-h-0 relative border-t-2',
+        'h-full flex flex-col min-h-0 border-t-2',
         isFocused ? 'border-accent' : 'border-transparent',
       )}
       onClick={focus}
