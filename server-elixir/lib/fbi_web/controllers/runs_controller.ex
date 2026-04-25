@@ -77,18 +77,25 @@ defmodule FBIWeb.RunsController do
   def delete(conn, %{"id" => id_str}) do
     with {:ok, id} <- parse_id(id_str),
          {:ok, run} <- Queries.get(id) do
-      case run.state do
-        s when s in ["running", "awaiting_resume", "starting", "waiting"] ->
-          FBI.Orchestrator.cancel(id)
-          # cancel/1 transitions the run to 'cancelled' but leaves the row in
-          # place; remove it now that the orchestrator has released its hold.
-          FBI.Orchestrator.delete_run(id)
+      result =
+        case run.state do
+          s when s in ["running", "awaiting_resume", "starting", "waiting"] ->
+            FBI.Orchestrator.cancel(id)
+            # cancel/1 transitions the run to 'cancelled' but leaves the row in
+            # place; remove it now that the orchestrator has released its hold.
+            FBI.Orchestrator.delete_run(id)
+
+          _ ->
+            FBI.Orchestrator.delete_run(id)
+        end
+
+      case result do
+        {:error, :run_active} ->
+          conn |> put_status(409) |> json(%{error: "run still active after cancel"})
 
         _ ->
-          FBI.Orchestrator.delete_run(id)
+          send_resp(conn, 204, "")
       end
-
-      send_resp(conn, 204, "")
     else
       _ -> conn |> put_status(404) |> json(%{error: "not found"})
     end

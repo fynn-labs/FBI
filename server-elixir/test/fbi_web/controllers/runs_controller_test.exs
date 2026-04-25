@@ -344,13 +344,16 @@ defmodule FBIWeb.RunsControllerTest do
       assert conn.status == 204
     end
 
-    test "returns 204 for a running run; Docker.kill fails softly", %{
+    test "returns 409 for a running run without an active RunServer", %{
       conn: conn,
       project_id: pid
     } do
+      # A running run without a RunServer cannot be cancelled (no process to handle
+      # the cancel message). The delete_run call sees the run still in "running"
+      # and returns {:error, :run_active}, which the controller surfaces as 409.
       r = make_run(pid, %{state: "running", container_id: "abc123"})
       conn = delete(conn, "/api/runs/#{r.id}")
-      assert conn.status == 204
+      assert json_response(conn, 409)
     end
 
     test "returns 404 for missing run", %{conn: conn} do
@@ -424,6 +427,21 @@ defmodule FBIWeb.RunsControllerTest do
       conn = delete(conn, "/api/runs/#{run.id}")
       assert response(conn, 204)
       refute File.exists?(wip_path)
+    end
+
+    test "DELETE returns 409 if Orchestrator can't cancel and run stays active", %{
+      conn: conn,
+      project_id: pid
+    } do
+      # Create a run in 'running' state. Without a real RunServer registered for
+      # this run, Orchestrator.cancel/1 falls through to RunServer.cancel/1 which
+      # is a no-op against a missing registry entry. Then delete_run/1 sees the
+      # row still in 'running' and returns {:error, :run_active}.
+      run = make_run(pid, %{state: "running"})
+
+      conn = delete(conn, "/api/runs/#{run.id}")
+      body = json_response(conn, 409)
+      assert is_binary(body["error"])
     end
   end
 end
