@@ -100,11 +100,10 @@ defmodule FBIWeb.Sockets.ProxyWSHandler do
   defp container_bridge_ip(container_id) do
     case FBI.Docker.inspect_container(container_id) do
       {:ok, inspect} ->
-        ip =
-          get_in(inspect, ["NetworkSettings", "IPAddress"]) ||
-            get_in(inspect, ["NetworkSettings", "Networks", "bridge", "IPAddress"])
-
-        if is_binary(ip) and ip != "", do: {:ok, ip}, else: {:error, :no_bridge_ip}
+        case FBI.Proxy.BridgeIp.pick(inspect) do
+          ip when is_binary(ip) and ip != "" -> {:ok, ip}
+          _ -> {:error, :no_bridge_ip}
+        end
 
       err ->
         err
