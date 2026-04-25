@@ -78,6 +78,7 @@ defmodule FBIWeb.Router do
   # Content-Type header, which a WS upgrade request never does.
   scope "/api", FBIWeb do
     get "/ws/usage", UsageSocketController, :upgrade
+    get "/ws/states", StatesSocketController, :upgrade
   end
 
   # Enable LiveDashboard in development
