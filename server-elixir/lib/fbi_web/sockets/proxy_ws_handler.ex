@@ -2,20 +2,22 @@ defmodule FBIWeb.Sockets.ProxyWSHandler do
   @moduledoc """
   Bridges an inbound WebSocket to a TCP socket on the container's bridge IP.
 
-  Mirrors `src/server/api/proxy.ts:67-158`. The handler opens a `:gen_tcp`
-  connection to `<container_ip>:<port>` and pumps frames bidirectionally:
+  Mirrors src/server/api/proxy.ts.
 
-    * client → server: each binary WS frame is sent as raw TCP bytes
-    * server → client: each TCP segment is forwarded as a binary WS frame
+  ## Backpressure
 
-  TCP read flow control is handled by `active: :once` — we re-arm with
-  `:inet.setopts(sock, active: :once)` after each `{:tcp, _, _}` we receive,
-  so the socket only delivers one segment at a time and BEAM does not
-  buffer unboundedly.
+  WS→TCP: `:gen_tcp.send/2` is synchronous (`send_timeout: infinity` default), so
+  the WebSock `handle_in/2` callback blocks until the kernel socket buffer
+  accepts the bytes. While blocked, no further inbound WS frames are processed —
+  implicit process-level backpressure.
 
-  The handler subscribes to the run's state-change PubSub topic
-  (`run:<id>:state`) and closes the connection when the run leaves
-  `running`/`waiting`.
+  TCP→WS: outbound socket is in `active: :once` mode. Each `{:tcp, _, data}`
+  message is handled and the socket is re-armed; the next read won't fire until
+  the WebSock has accepted the previous push. The transport layer below WebSock
+  handles WS-side flow control.
+
+  This is simpler than the TS reference (which manually pause/resumes), but
+  equivalent in effect for the modest PTY/dev-server traffic this proxy carries.
   """
 
   @behaviour WebSock
