@@ -221,7 +221,15 @@ defmodule FBI.Docker do
 
   def exec_create(container_id, cmd, opts \\ []) do
     user = Keyword.get(opts, :user, "")
-    spec = %{"AttachStdout" => true, "AttachStderr" => true, "Cmd" => cmd}
+    attach_stdin = Keyword.get(opts, :stdin, false)
+
+    spec = %{
+      "AttachStdout" => true,
+      "AttachStderr" => true,
+      "AttachStdin" => attach_stdin,
+      "Cmd" => cmd
+    }
+
     spec = if user != "", do: Map.put(spec, "User", user), else: spec
     {status, body} = rest("POST", "/containers/#{container_id}/exec", spec)
 
@@ -334,7 +342,8 @@ defmodule FBI.Docker do
 
     {:ok, exec_id} =
       exec_create(container_id, ["tar", "x", "-C", target_dir],
-        user: if(uid, do: "0", else: "")
+        user: if(uid, do: "0", else: ""),
+        stdin: true
       )
 
     conn = stream_start("POST", "/exec/#{exec_id}/start", %{"Detach" => false, "Tty" => false})
