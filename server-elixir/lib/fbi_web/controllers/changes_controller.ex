@@ -120,6 +120,8 @@ defmodule FBIWeb.ChangesController do
   end
 
   def submodule_files(conn, %{"id" => id_str, "path" => raw_path}) do
+    raw_path = if is_list(raw_path), do: Enum.join(raw_path, "/"), else: raw_path
+
     case Regex.run(~r|^(.+)/commits/([0-9a-f]{7,40})/files$|, raw_path) do
       [_, submodule_path, sha] ->
         cond do

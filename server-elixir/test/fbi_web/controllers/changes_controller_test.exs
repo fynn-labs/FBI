@@ -53,6 +53,22 @@ defmodule FBIWeb.ChangesControllerTest do
     end
   end
 
+  describe "GET /api/runs/:id/submodule/*path" do
+    test "returns 404 for run-not-found", %{conn: conn} do
+      # Stable smoke test: hits the route, confirms no crash, asserts 404 because run doesn't exist.
+      conn = get(conn, "/api/runs/9999999/submodule/foo/bar/commits/abcdef0/files")
+      assert response(conn, 404)
+    end
+
+    test "returns 400 for path traversal attempts", %{conn: conn, run_id: run_id} do
+      # Run a real request through the route; validates list->string normalization works.
+      # If the list normalization were missing, this would 500 with FunctionClauseError instead of 400.
+      # The %2F (URL-encoded /) keeps `..` inside a single segment so it survives to the body check.
+      conn = get(conn, "/api/runs/#{run_id}/submodule/..%2Fevil/commits/abcdef0/files")
+      assert response(conn, 400)
+    end
+  end
+
   describe "controller source contract" do
     test "build_changes uses GH compare_branch for branch-unique commits" do
       src = File.read!("lib/fbi_web/controllers/changes_controller.ex")
