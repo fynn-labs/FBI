@@ -30,7 +30,6 @@ impl TrayState {
 }
 
 #[cfg(target_os = "macos")]
-#[allow(dead_code)] // used in rebuild_tray; removed when Task 4 wires it up
 fn select_waiting_icon(theme: tauri::Theme) -> (&'static [u8], bool) {
     match theme {
         tauri::Theme::Light => (
@@ -173,14 +172,30 @@ pub fn rebuild_tray(
 
         #[cfg(target_os = "macos")]
         {
-            let icon_data: &[u8] = if has_waiting {
-                include_bytes!("../icons/tray-waiting-template.png")
+            // Persist run data so the theme-change handler can rebuild without a frontend message.
+            {
+                let tray_state = app.state::<std::sync::Mutex<TrayState>>();
+                let mut state = tray_state.lock().unwrap();
+                state.runs = runs.to_vec();
+                state.tunnel_ports = tunnel_ports.clone();
+            }
+
+            if has_waiting {
+                let theme = app
+                    .get_webview_window("main")
+                    .and_then(|w| w.theme().ok())
+                    .unwrap_or(tauri::Theme::Dark);
+                let (icon_data, as_template) = select_waiting_icon(theme);
+                if let Ok(icon) = tauri::image::Image::from_bytes(icon_data) {
+                    let _ = tray.set_icon(Some(icon));
+                    let _ = tray.set_icon_as_template(as_template);
+                }
             } else {
-                include_bytes!("../icons/tray-template.png")
-            };
-            if let Ok(icon) = tauri::image::Image::from_bytes(icon_data) {
-                let _ = tray.set_icon(Some(icon));
-                let _ = tray.set_icon_as_template(true);
+                let icon_data = include_bytes!("../icons/tray-template.png");
+                if let Ok(icon) = tauri::image::Image::from_bytes(icon_data) {
+                    let _ = tray.set_icon(Some(icon));
+                    let _ = tray.set_icon_as_template(true);
+                }
             }
         }
 
