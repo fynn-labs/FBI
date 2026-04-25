@@ -358,4 +358,72 @@ defmodule FBIWeb.RunsControllerTest do
       assert conn.status == 404
     end
   end
+
+  describe "DELETE /api/runs/:id orchestrator routing" do
+    setup do
+      runs_dir =
+        Path.join(System.tmp_dir!(), "fbi-runs-delete-#{System.unique_integer([:positive])}")
+
+      File.mkdir_p!(runs_dir)
+      prev = Application.get_env(:fbi, :runs_dir)
+      Application.put_env(:fbi, :runs_dir, runs_dir)
+
+      on_exit(fn ->
+        if prev,
+          do: Application.put_env(:fbi, :runs_dir, prev),
+          else: Application.delete_env(:fbi, :runs_dir)
+
+        File.rm_rf!(runs_dir)
+      end)
+
+      %{runs_dir: runs_dir}
+    end
+
+    test "DELETE cancels the ResumeScheduler timer for awaiting_resume runs", %{
+      conn: conn,
+      project_id: pid
+    } do
+      run = make_run(pid, %{state: "awaiting_resume"})
+
+      # Schedule a far-future timer for this run so we can observe whether
+      # DELETE cancels it. Without the orchestrator routing, the timer leaks.
+      fire_at = System.os_time(:millisecond) + 60_000
+
+      :ok =
+        FBI.Orchestrator.ResumeScheduler.schedule(
+          FBI.Orchestrator.ResumeScheduler,
+          run.id,
+          fire_at
+        )
+
+      before_state = :sys.get_state(FBI.Orchestrator.ResumeScheduler)
+      assert Map.has_key?(before_state.timers, run.id)
+
+      conn = delete(conn, "/api/runs/#{run.id}")
+      assert response(conn, 204)
+
+      after_state = :sys.get_state(FBI.Orchestrator.ResumeScheduler)
+      refute Map.has_key?(after_state.timers, run.id)
+
+      # The orchestrator's delete_run path should also remove the row.
+      assert :not_found = FBI.Runs.Queries.get(run.id)
+    end
+
+    test "DELETE removes the WIP repo for terminal runs", %{
+      conn: conn,
+      project_id: pid,
+      runs_dir: runs_dir
+    } do
+      run = make_run(pid, %{state: "succeeded"})
+
+      # Create a fake WIP bare-repo dir for this run to confirm it gets removed.
+      wip_path = Path.join([runs_dir, Integer.to_string(run.id), "wip.git"])
+      File.mkdir_p!(wip_path)
+      File.write!(Path.join(wip_path, "HEAD"), "ref: refs/heads/main")
+
+      conn = delete(conn, "/api/runs/#{run.id}")
+      assert response(conn, 204)
+      refute File.exists?(wip_path)
+    end
+  end
 end

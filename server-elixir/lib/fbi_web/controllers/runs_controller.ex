@@ -1,7 +1,10 @@
 defmodule FBIWeb.RunsController do
   @moduledoc """
-  Runs read + non-orchestrator mutations. PATCH updates title; DELETE removes
-  the row and, for active runs, issues a Docker kill via the socket client.
+  Runs read + non-orchestrator mutations. PATCH updates title; DELETE routes
+  through the orchestrator: it cancels active/awaiting_resume runs (which
+  cancels any ResumeScheduler timer and stops the RunServer) and then calls
+  `Orchestrator.delete_run/1` to remove the WIP bare repo, the log file, and
+  the DB row.
 
   Also hosts the orchestrator-dependent create, continue_run, and resume_now
   actions added in Phase 7 / Task 20.
@@ -74,13 +77,16 @@ defmodule FBIWeb.RunsController do
   def delete(conn, %{"id" => id_str}) do
     with {:ok, id} <- parse_id(id_str),
          {:ok, run} <- Queries.get(id) do
-      if run.state in ["running", "awaiting_resume", "starting"] do
-        if run.container_id, do: FBI.Docker.kill(run.container_id)
+      case run.state do
+        s when s in ["running", "awaiting_resume", "starting", "waiting"] ->
+          FBI.Orchestrator.cancel(id)
+          # cancel/1 transitions the run to 'cancelled' but leaves the row in
+          # place; remove it now that the orchestrator has released its hold.
+          FBI.Orchestrator.delete_run(id)
+
+        _ ->
+          FBI.Orchestrator.delete_run(id)
       end
-
-      Queries.delete(id)
-
-      if run.log_path, do: File.rm(run.log_path)
 
       send_resp(conn, 204, "")
     else

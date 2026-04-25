@@ -269,11 +269,11 @@ defmodule FBI.Runs.Queries do
     now = now_ms()
 
     base_set = [
-      state: params.state,
+      state: Map.fetch!(params, :state),
       container_id: nil,
-      exit_code: params.exit_code,
-      head_commit: params.head_commit,
-      error: params.error,
+      exit_code: Map.get(params, :exit_code),
+      head_commit: Map.get(params, :head_commit),
+      error: Map.get(params, :error),
       finished_at: now,
       state_entered_at: now
     ]
