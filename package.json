@@ -15,7 +15,7 @@
     "typecheck": "tsc -p tsconfig.server.json --noEmit && tsc -p tsconfig.web.json --noEmit && tsc -p tsconfig.test.json --noEmit",
     "hooks:install": "git config core.hooksPath .githooks",
     "cli:build": "make -C cli/fbi-tunnel build",
-    "cli:dist": "bash scripts/build-fbi-tunnel.sh",
+    "cli:dist": "bash scripts/build-cli-dist.sh",
     "cli:install": "make -C cli/fbi-tunnel install",
     "cli:test": "make -C cli/fbi-tunnel test",
     "lint": "eslint src",

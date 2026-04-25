@@ -31,6 +31,9 @@ jobs:
       - name: Build fbi-tunnel sidecar
         run: bash scripts/build-fbi-tunnel.sh
 
+      - name: Build fbi-tunnel CLI dist (darwin)
+        run: bash scripts/build-cli-dist.sh
+
       - name: Build web frontend
         run: npm run build:web
 
@@ -50,6 +53,12 @@ jobs:
             desktop/target/release/bundle/dmg/*.dmg
             desktop/target/release/bundle/macos/*.app.tar.gz
             desktop/target/release/bundle/macos/*.app.tar.gz.sig
+
+      - name: Upload darwin CLI dist
+        uses: actions/upload-artifact@v4
+        with:
+          name: cli-dist-darwin
+          path: dist/cli/fbi-tunnel-darwin-*
 
   build-linux:
     runs-on: ubuntu-latest
@@ -75,7 +84,8 @@ jobs:
             libwebkit2gtk-4.1-dev \
             libappindicator3-dev \
             librsvg2-dev \
-            patchelf
+            patchelf \
+            gcc-aarch64-linux-gnu
 
       - name: Install npm dependencies
         run: npm ci
@@ -85,6 +95,9 @@ jobs:
 
       - name: Build fbi-tunnel sidecar
         run: bash scripts/build-fbi-tunnel.sh
+
+      - name: Build fbi-tunnel CLI dist (linux)
+        run: bash scripts/build-cli-dist.sh
 
       - name: Build web frontend
         run: npm run build:web
@@ -106,6 +119,12 @@ jobs:
             desktop/target/release/bundle/appimage/*.AppImage.tar.gz
             desktop/target/release/bundle/appimage/*.AppImage.tar.gz.sig
 
+      - name: Upload linux CLI dist
+        uses: actions/upload-artifact@v4
+        with:
+          name: cli-dist-linux
+          path: dist/cli/fbi-tunnel-linux-*
+
   release:
     needs: [build-macos, build-linux]
     runs-on: ubuntu-latest
@@ -123,6 +142,18 @@ jobs:
         with:
           name: linux-bundles
           path: artifacts/linux
+
+      - name: Download darwin CLI dist
+        uses: actions/download-artifact@v4
+        with:
+          name: cli-dist-darwin
+          path: artifacts/cli
+
+      - name: Download linux CLI dist
+        uses: actions/download-artifact@v4
+        with:
+          name: cli-dist-linux
+          path: artifacts/cli
 
       - name: Generate latest.json
         run: |
@@ -171,4 +202,5 @@ jobs:
             artifacts/linux/**/*.AppImage
             artifacts/linux/**/*.AppImage.tar.gz
             artifacts/linux/**/*.AppImage.tar.gz.sig
+            artifacts/cli/fbi-tunnel-*
             latest.json
