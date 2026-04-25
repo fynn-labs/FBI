@@ -2,6 +2,7 @@
 
 mod config;
 mod discovery;
+mod menu;
 mod tray;
 
 fn main() {
