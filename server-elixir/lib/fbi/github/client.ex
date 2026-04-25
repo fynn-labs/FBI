@@ -83,6 +83,53 @@ defmodule FBI.Github.Client do
     end
   end
 
+  @spec compare_branch(repo(), String.t(), String.t()) ::
+          {:ok,
+           %{
+             commits: [map()],
+             ahead_by: integer(),
+             behind_by: integer(),
+             merge_base_sha: String.t()
+           }}
+          | {:error, term()}
+  def compare_branch(repo, base_branch, head_branch) do
+    url =
+      "repos/#{repo}/compare/#{URI.encode_www_form(base_branch)}...#{URI.encode_www_form(head_branch)}"
+
+    case run(["api", url]) do
+      {:ok, stdout} -> parse_compare(stdout)
+      {:error, _} = err -> err
+    end
+  end
+
+  @spec parse_compare(binary()) :: {:ok, map()}
+  def parse_compare(json) do
+    data =
+      case Jason.decode(json) do
+        {:ok, m} when is_map(m) -> m
+        _ -> %{}
+      end
+
+    commits =
+      (data["commits"] || [])
+      |> Enum.map(fn c ->
+        %{
+          sha: c["sha"],
+          subject: c |> get_in(["commit", "message"]) |> first_line(),
+          committed_at: c |> get_in(["commit", "committer", "date"]) |> iso8601_to_unix(),
+          pushed: true
+        }
+      end)
+
+    {:ok,
+     %{
+       commits: commits,
+       ahead_by: data["ahead_by"] || 0,
+       behind_by: data["behind_by"] || 0,
+       merge_base_sha: get_in(data, ["merge_base_commit", "sha"]) || ""
+     }}
+  end
+
   @spec create_pr(repo(), %{
           head: String.t(),
           base: String.t(),
