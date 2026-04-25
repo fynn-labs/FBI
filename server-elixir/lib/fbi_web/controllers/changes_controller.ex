@@ -140,7 +140,7 @@ defmodule FBIWeb.ChangesController do
           checks: nil
         }
 
-        branch_base = %{ahead_by: ahead_by, behind_by: behind_by, merge_base_sha: merge_base_sha}
+        branch_base = %{base: base_branch, ahead: ahead_by, behind: behind_by}
 
         {all_commits, gh_payload, branch_base}
     end

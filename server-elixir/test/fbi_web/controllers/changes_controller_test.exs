@@ -59,5 +59,13 @@ defmodule FBIWeb.ChangesControllerTest do
       assert src =~ "GH.compare_branch"
       refute src =~ "GH.commits_on_branch"
     end
+
+    test "controller emits branch_base with base/ahead/behind keys (TS parity)" do
+      src = File.read!("lib/fbi_web/controllers/changes_controller.ex")
+      # Negative test: the old wrong shape must not be present.
+      refute src =~ ~r/ahead_by:\s*ahead_by/
+      # Positive test: the right shape is.
+      assert src =~ ~r/branch_base\s*=\s*%\{base:\s*base_branch/
+    end
   end
 end
