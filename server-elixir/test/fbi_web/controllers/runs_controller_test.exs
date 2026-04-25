@@ -246,6 +246,20 @@ defmodule FBIWeb.RunsControllerTest do
     end
   end
 
+  describe "POST /api/projects/:id/runs model params" do
+    test "rejects invalid effort with 400", %{conn: conn} do
+      {:ok, p} =
+        ProjectsQueries.create(%{
+          name: "p-#{System.unique_integer([:positive])}",
+          repo_url: "git@github.com:o/r.git",
+          default_branch: "main"
+        })
+
+      conn = json_post(conn, "/api/projects/#{p.id}/runs", %{prompt: "hi", effort: "blast"})
+      assert %{"error" => "invalid effort: blast"} = json_response(conn, 400)
+    end
+  end
+
   describe "DELETE /api/runs/:id" do
     test "returns 204 for a queued run", %{conn: conn, project_id: pid} do
       r = make_run(pid, %{state: "queued"})

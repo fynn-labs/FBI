@@ -90,6 +90,20 @@ defmodule FBIWeb.RunsController do
 
   def create(conn, %{"id" => project_id_str} = params) do
     project_id = String.to_integer(project_id_str)
+
+    with {:ok, _project} <- FBI.Projects.Queries.get(project_id),
+         :ok <- FBI.Runs.ModelParams.validate(params) do
+      do_create_with_branch_check(conn, project_id, params)
+    else
+      :not_found ->
+        conn |> put_status(404) |> json(%{error: "not found"})
+
+      {:error, message} when is_binary(message) ->
+        conn |> put_status(400) |> json(%{error: message})
+    end
+  end
+
+  defp do_create_with_branch_check(conn, project_id, params) do
     prompt = params["prompt"] || ""
     branch_hint = params["branch"] || nil
     model = params["model"]
@@ -97,35 +111,29 @@ defmodule FBIWeb.RunsController do
     subagent_model = params["subagent_model"]
     force = params["force"] == true
 
-    case FBI.Projects.Queries.get(project_id) do
-      :not_found ->
-        conn |> put_status(404) |> json(%{error: "not found"})
+    if branch_hint && branch_hint != "" && !force do
+      active = Queries.list_active_by_branch(project_id, branch_hint)
 
-      {:ok, _project} ->
-        if branch_hint && branch_hint != "" && !force do
-          active = Queries.list_active_by_branch(project_id, branch_hint)
+      if active != [] do
+        first = hd(active)
 
-          if active != [] do
-            first = hd(active)
-
-            conn
-            |> put_status(409)
-            |> json(%{
-              error: "branch_in_use",
-              active_run_id: first.id,
-              message:
-                "Run ##{first.id} is already using branch \"#{branch_hint}\". Pass { force: true } to start another run on the same branch anyway."
-            })
-          else
-            do_create(conn, project_id, prompt, branch_hint, model, effort, subagent_model)
-          end
-        else
-          do_create(conn, project_id, prompt, branch_hint, model, effort, subagent_model)
-        end
+        conn
+        |> put_status(409)
+        |> json(%{
+          error: "branch_in_use",
+          active_run_id: first.id,
+          message:
+            "Run ##{first.id} is already using branch \"#{branch_hint}\". Pass { force: true } to start another run on the same branch anyway."
+        })
+      else
+        do_create(conn, project_id, params, prompt, branch_hint, model, effort, subagent_model)
+      end
+    else
+      do_create(conn, project_id, params, prompt, branch_hint, model, effort, subagent_model)
     end
   end
 
-  defp do_create(conn, project_id, prompt, branch_hint, model, effort, subagent_model) do
+  defp do_create(conn, project_id, _params, prompt, branch_hint, model, effort, subagent_model) do
     runs_dir = Application.get_env(:fbi, :runs_dir, "/tmp/fbi-runs")
     # branch_name and log_path are required by the schema; use defaults that
     # will be overwritten by the orchestrator during launch.
