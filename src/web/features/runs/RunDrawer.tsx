@@ -31,14 +31,14 @@ export function RunDrawer({
   useKeyBinding({
     chord: 'shift+tab',
     description: 'Cycle drawer tab',
-    when: () => open,
     handler: () => {
+      if (!open) onToggle(true);
       setTab((current) => {
         const idx = TAB_ORDER.indexOf(current);
         return TAB_ORDER[(idx + 1) % TAB_ORDER.length];
       });
     },
-  }, [open]);
+  }, [open, onToggle]);
   const shipLabel = (
     <span className="inline-flex items-center gap-1.5">
       ship
