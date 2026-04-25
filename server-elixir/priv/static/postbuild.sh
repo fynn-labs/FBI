@@ -18,8 +18,10 @@ set -euo pipefail
 if command -v apt-get >/dev/null 2>&1; then
   export DEBIAN_FRONTEND=noninteractive
   # Remove any third-party apt sources from the base image (stale keys, etc.).
-  # We add back what we need explicitly (NodeSource, gh CLI) below.
-  find /etc/apt/sources.list.d -mindepth 1 -delete 2>/dev/null || true
+  # We add back what we need explicitly (NodeSource, gh CLI) below. Preserve
+  # ubuntu.sources (Noble+ deb822 format) — deleting it leaves apt with no
+  # repos at all, since /etc/apt/sources.list is empty on Ubuntu 24.04+.
+  find /etc/apt/sources.list.d -mindepth 1 ! -name 'ubuntu.sources' -delete 2>/dev/null || true
   apt-get update
   apt-get install -y --no-install-recommends \
       git openssh-client ca-certificates curl gnupg
