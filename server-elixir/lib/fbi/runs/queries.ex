@@ -110,8 +110,14 @@ defmodule FBI.Runs.Queries do
     :ok
   end
 
+  @valid_states ~w(running queued succeeded failed cancelled awaiting_resume starting waiting resume_failed)
+
   defp maybe_filter_state(q, nil), do: q
-  defp maybe_filter_state(q, s) when is_binary(s), do: from(r in q, where: r.state == ^s)
+
+  defp maybe_filter_state(q, s) when is_binary(s) and s in @valid_states,
+    do: from(r in q, where: r.state == ^s)
+
+  defp maybe_filter_state(q, _), do: q
 
   defp maybe_filter_project(q, nil), do: q
 

@@ -45,6 +45,14 @@ defmodule FBI.Runs.QueriesTest do
       assert only.state == "failed"
     end
 
+    test "list with unknown state returns all runs (silently ignores filter)", %{project_id: pid} do
+      _ = make_run(pid, %{state: "running"})
+      _ = make_run(pid, %{state: "succeeded"})
+
+      result = Queries.list(%{state: "garbage", project_id: pid})
+      assert length(result) == 2
+    end
+
     test "filters by project_id", %{project_id: pid} do
       {:ok, other} =
         Projects.create(%{name: "other#{System.unique_integer([:positive])}", repo_url: "x"})
