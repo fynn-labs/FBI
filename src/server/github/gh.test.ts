@@ -56,23 +56,33 @@ describe('GhClient', () => {
     expect(pr.number).toBe(9);
   });
 
-  it('commitsOnBranch parses commit list', async () => {
-    mockOk(JSON.stringify([
-      { sha: 'aaa', commit: { message: 'feat: x\n\nbody', committer: { date: '2026-04-23T10:00:00Z' } } },
-      { sha: 'bbb', commit: { message: 'test: y', committer: { date: '2026-04-23T10:05:00Z' } } },
-    ]));
+  it('compareBranch parses compare response', async () => {
+    mockOk(JSON.stringify({
+      ahead_by: 2,
+      behind_by: 1,
+      merge_base_commit: { sha: 'abc123' + '0'.repeat(34) },
+      commits: [
+        { sha: 'aaa', commit: { message: 'feat: x\n\nbody', committer: { date: '2026-04-23T10:00:00Z' } } },
+        { sha: 'bbb', commit: { message: 'test: y', committer: { date: '2026-04-23T10:05:00Z' } } },
+      ],
+    }));
     const gh = new GhClient();
-    const commits = await gh.commitsOnBranch('me/foo', 'feat/x');
-    expect(commits).toEqual([
+    const result = await gh.compareBranch('me/foo', 'main', 'feat/x');
+    expect(result.aheadBy).toBe(2);
+    expect(result.behindBy).toBe(1);
+    expect(result.mergeBaseSha).toBe('abc123' + '0'.repeat(34));
+    expect(result.commits).toEqual([
       { sha: 'aaa', subject: 'feat: x', committed_at: Date.parse('2026-04-23T10:00:00Z') / 1000, pushed: true },
       { sha: 'bbb', subject: 'test: y', committed_at: Date.parse('2026-04-23T10:05:00Z') / 1000, pushed: true },
     ]);
   });
 
-  it('commitsOnBranch returns [] on error', async () => {
+  it('compareBranch returns empty result on error', async () => {
     mockErr(1, 'nope');
     const gh = new GhClient();
-    expect(await gh.commitsOnBranch('me/foo', 'feat/x')).toEqual([]);
+    expect(await gh.compareBranch('me/foo', 'main', 'feat/x')).toEqual({
+      commits: [], aheadBy: 0, behindBy: 0, mergeBaseSha: '',
+    });
   });
 
 });

@@ -31,7 +31,7 @@ describe('/api/runs/:id/changes', () => {
       setBranchName: () => {},
     };
     const projects = { get: () => ({ id: 1, default_branch: 'main', repo_url: 'git@example:x/y.git' }) };
-    const gh = { available: async () => false, prForBranch: async () => null, prChecks: async () => [], commitsOnBranch: async () => [], compareFiles: async () => [] };
+    const gh = { available: async () => false, prForBranch: async () => null, prChecks: async () => [], compareBranch: async () => ({ commits: [], aheadBy: 0, behindBy: 0, mergeBaseSha: '' }), compareFiles: async () => [] };
     const mod = await import('./runs.js');
     mod.registerRunsRoutes(app as never, {
       runs: runs as never, projects: projects as never, gh: gh as never,

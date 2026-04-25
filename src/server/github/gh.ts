@@ -79,24 +79,39 @@ export class GhClient {
     return JSON.parse(stdout || '[]') as FileChange[];
   }
 
-  async commitsOnBranch(
-    repo: string, branch: string,
-  ): Promise<Array<{ sha: string; subject: string; committed_at: number; pushed: boolean }>> {
-    const url = `/repos/${repo}/commits?sha=${encodeURIComponent(branch)}&per_page=20`;
+  async compareBranch(
+    repo: string, baseBranch: string, branch: string,
+  ): Promise<{
+    commits: Array<{ sha: string; subject: string; committed_at: number; pushed: boolean }>;
+    aheadBy: number;
+    behindBy: number;
+    mergeBaseSha: string;
+  }> {
+    const url = `repos/${repo}/compare/${encodeURIComponent(baseBranch)}...${encodeURIComponent(branch)}`;
     try {
       const { stdout } = await ex(this.bin, ['api', url]);
-      const arr = JSON.parse(stdout || '[]') as Array<{
-        sha: string;
-        commit: { message: string; committer: { date: string } };
-      }>;
-      return arr.map((c) => ({
-        sha: c.sha,
-        subject: (c.commit?.message ?? '').split('\n', 1)[0] ?? '',
-        committed_at: Math.floor(Date.parse(c.commit?.committer?.date ?? '') / 1000) || 0,
-        pushed: true,
-      }));
+      const data = JSON.parse(stdout || '{}') as {
+        ahead_by?: number;
+        behind_by?: number;
+        merge_base_commit?: { sha: string };
+        commits?: Array<{
+          sha: string;
+          commit: { message: string; committer: { date: string } };
+        }>;
+      };
+      return {
+        commits: (data.commits ?? []).map((c) => ({
+          sha: c.sha,
+          subject: (c.commit?.message ?? '').split('\n', 1)[0] ?? '',
+          committed_at: Math.floor(Date.parse(c.commit?.committer?.date ?? '') / 1000) || 0,
+          pushed: true,
+        })),
+        aheadBy: data.ahead_by ?? 0,
+        behindBy: data.behind_by ?? 0,
+        mergeBaseSha: data.merge_base_commit?.sha ?? '',
+      };
     } catch {
-      return [];
+      return { commits: [], aheadBy: 0, behindBy: 0, mergeBaseSha: '' };
     }
   }
 
