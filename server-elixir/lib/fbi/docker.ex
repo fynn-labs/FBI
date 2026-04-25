@@ -222,6 +222,7 @@ defmodule FBI.Docker do
   def exec_create(container_id, cmd, opts \\ []) do
     user = Keyword.get(opts, :user, "")
     attach_stdin = Keyword.get(opts, :stdin, false)
+    env_list = Keyword.get(opts, :env, [])
 
     spec = %{
       "AttachStdout" => true,
@@ -231,6 +232,7 @@ defmodule FBI.Docker do
     }
 
     spec = if user != "", do: Map.put(spec, "User", user), else: spec
+    spec = if env_list != [], do: Map.put(spec, "Env", env_list), else: spec
     {status, body} = rest("POST", "/containers/#{container_id}/exec", spec)
 
     case ok_json(status, body) do
@@ -359,4 +361,18 @@ defmodule FBI.Docker do
 
     :ok
   end
+
+  def inspect_exec(exec_id) do
+    {status, body} = rest("GET", "/exec/#{exec_id}/json")
+    ok_json(status, body)
+  end
+
+  def stream_exec_with_stdin(exec_id, stdin_data) do
+    conn = stream_start("POST", "/exec/#{exec_id}/start", %{"Detach" => false, "Tty" => false})
+    skip_http_headers(conn)
+    :gen_tcp.send(conn, stdin_data)
+    conn
+  end
+
+  def close_socket(conn), do: :gen_tcp.close(conn)
 end
