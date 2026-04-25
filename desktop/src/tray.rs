@@ -90,6 +90,8 @@ pub fn setup_tray(app: &mut tauri::App) -> tauri::Result<()> {
                     rebuild_tray(&handle, &runs, &tunnel_ports);
                 }
             });
+        } else {
+            eprintln!("[tray] warning: 'main' window not found at setup; theme-change listener not registered");
         }
     }
 
