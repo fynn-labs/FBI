@@ -105,6 +105,10 @@ SECRET_KEY_BASE=${SECRET_KEY_BASE_DEFAULT}
 # Forwarded into agent containers for git auth, and used on the host to
 # sparse-clone repos for .devcontainer detection.
 # HOST_SSH_AUTH_SOCK=/run/user/1000/ssh-agent.sock
+# Docker group GID for the agent user's supplementary group inside run
+# containers. Auto-detected from /etc/group; override here if your host's
+# docker group is named differently or you want to disable docker-in-docker.
+# HOST_DOCKER_GID=995
 ENV
   chmod 640 /etc/default/fbi-elixir
   chown root:fbi /etc/default/fbi-elixir

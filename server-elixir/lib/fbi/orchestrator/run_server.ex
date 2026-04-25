@@ -1025,6 +1025,28 @@ defmodule FBI.Orchestrator.RunServer do
 
     env = env ++ ssh_agent_env(config)
 
+    host_config = %{
+      "AutoRemove" => false,
+      "Memory" => mem_mb * 1024 * 1024,
+      "NanoCpus" => round(cpus * 1.0e9),
+      "PidsLimit" => pids,
+      "Binds" => binds
+    }
+
+    # GroupAdd carries the host's docker group GID through to the agent user
+    # inside the container as a supplementary group. Without it, the agent
+    # user has rw access to the bind-mounted /var/run/docker.sock only if it
+    # happens to share a primary group with the host's docker group — which
+    # it doesn't on standard images. The TS port set this; we missed it.
+    host_config =
+      case config[:host_docker_gid] do
+        gid when is_integer(gid) and gid >= 0 ->
+          Map.put(host_config, "GroupAdd", [Integer.to_string(gid)])
+
+        _ ->
+          host_config
+      end
+
     %{
       "Image" => image_tag,
       "name" => "fbi-run-#{run_id}-#{System.os_time(:millisecond)}",
@@ -1034,13 +1056,7 @@ defmodule FBI.Orchestrator.RunServer do
       "OpenStdin" => true,
       "StdinOnce" => false,
       "Entrypoint" => ["/usr/local/bin/supervisor.sh"],
-      "HostConfig" => %{
-        "AutoRemove" => false,
-        "Memory" => mem_mb * 1024 * 1024,
-        "NanoCpus" => round(cpus * 1.0e9),
-        "PidsLimit" => pids,
-        "Binds" => binds
-      }
+      "HostConfig" => host_config
     }
   end
 

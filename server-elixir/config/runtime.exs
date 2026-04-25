@@ -37,6 +37,51 @@ if config_env() == :prod do
 
   config :fbi, docker_socket_path: System.get_env("DOCKER_SOCKET", "/var/run/docker.sock")
 
+  # Look up the host system's "docker" group GID. The forwarded /var/run/docker.sock
+  # bind-mount is owned by that GID, and the non-root `agent` user inside run
+  # containers needs supplementary group membership matching it — otherwise
+  # `docker` calls from the agent hit EACCES on the socket. The container spec
+  # passes this value through as HostConfig.GroupAdd. HOST_DOCKER_GID overrides
+  # autodetect; nil disables the GroupAdd entirely (e.g. in dev where docker-in-
+  # docker isn't needed).
+  lookup_host_docker_gid = fn ->
+    case File.read("/etc/group") do
+      {:ok, text} ->
+        Enum.find_value(String.split(text, "\n"), fn line ->
+          case String.split(line, ":") do
+            ["docker", _, gid_str | _] ->
+              case Integer.parse(gid_str) do
+                {n, _} when n > 0 -> n
+                _ -> nil
+              end
+
+            _ ->
+              nil
+          end
+        end)
+
+      _ ->
+        nil
+    end
+  end
+
+  host_docker_gid =
+    case System.get_env("HOST_DOCKER_GID") do
+      nil ->
+        lookup_host_docker_gid.()
+
+      "" ->
+        lookup_host_docker_gid.()
+
+      override ->
+        case Integer.parse(override) do
+          {n, _} when n >= 0 -> n
+          _ -> nil
+        end
+    end
+
+  config :fbi, host_docker_gid: host_docker_gid
+
   if credentials = System.get_env("CLAUDE_CREDENTIALS") do
     config :fbi, credentials_path: credentials
   end

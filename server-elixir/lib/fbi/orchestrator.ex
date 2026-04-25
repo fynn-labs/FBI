@@ -173,6 +173,7 @@ defmodule FBI.Orchestrator do
       host_claude_dir: Application.get_env(:fbi, :host_claude_dir, Path.expand("~/.claude")),
       host_bind_claude_dir: Application.get_env(:fbi, :host_bind_claude_dir),
       host_docker_socket: Application.get_env(:fbi, :docker_socket_path, "/var/run/docker.sock"),
+      host_docker_gid: Application.get_env(:fbi, :host_docker_gid),
       host_ssh_auth_sock: Application.get_env(:fbi, :host_ssh_auth_sock),
       container_mem_mb: Application.get_env(:fbi, :container_mem_mb, 4096),
       container_cpus: Application.get_env(:fbi, :container_cpus, 2.0),
