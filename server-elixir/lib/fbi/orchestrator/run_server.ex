@@ -804,19 +804,21 @@ defmodule FBI.Orchestrator.RunServer do
   end
 
   defp start_limit_monitor(_run_id, mount_dir, container_id, attach_socket, settings, on_bytes) do
+    {:ok, nudge_worker} = FBI.Orchestrator.NudgeWorker.start_link()
+
     {:ok, pid} =
       LimitMonitor.start_link(
         mount_dir: mount_dir,
         on_detect: fn ->
           if settings.auto_resume_enabled do
             :gen_tcp.send(attach_socket, <<3>>)
-            Process.sleep(500)
-            :gen_tcp.send(attach_socket, <<3>>)
+            FBI.Orchestrator.NudgeWorker.schedule_second_ctrlc(nudge_worker, attach_socket, 500)
 
-            spawn(fn ->
-              Process.sleep(30_000)
-              FBI.Docker.stop_container(container_id, t: 5)
-            end)
+            FBI.Orchestrator.NudgeWorker.schedule_stop_container(
+              nudge_worker,
+              container_id,
+              30_000
+            )
 
             on_bytes.("\n[fbi] limit detected; nudging Claude to exit\n")
           end
