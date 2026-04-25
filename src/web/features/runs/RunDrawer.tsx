@@ -1,9 +1,12 @@
 import { useState, type ReactNode } from 'react';
 import { Tabs } from '@ui/primitives/Tabs.js';
 import { Drawer } from '@ui/primitives/Drawer.js';
+import { useKeyBinding } from '@ui/shell/KeyMap.js';
 import type { ShipDot } from './ship/computeShipDot.js';
 
 export type RunTab = 'changes' | 'ship' | 'tunnel' | 'meta';
+
+const TAB_ORDER: readonly RunTab[] = ['changes', 'ship', 'tunnel', 'meta'];
 
 export interface RunDrawerProps {
   open: boolean;
@@ -25,6 +28,17 @@ export function RunDrawer({
     setTab(next);
     if (!open) onToggle(true);
   };
+  useKeyBinding({
+    chord: 'shift+tab',
+    description: 'Cycle drawer tab',
+    when: () => open,
+    handler: () => {
+      setTab((current) => {
+        const idx = TAB_ORDER.indexOf(current);
+        return TAB_ORDER[(idx + 1) % TAB_ORDER.length];
+      });
+    },
+  }, [open]);
   const shipLabel = (
     <span className="inline-flex items-center gap-1.5">
       ship
