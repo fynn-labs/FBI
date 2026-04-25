@@ -10,6 +10,8 @@ defmodule FBI.Orchestrator.SafeguardRepo do
   defaults (empty lists / nil) on any error.
   """
 
+  alias FBI.Git.Numstat
+
   @doc "True if the bare repo's HEAD file exists."
   @spec exists?(Path.t()) :: boolean()
   def exists?(bare_dir), do: File.exists?(Path.join(bare_dir, "HEAD"))
@@ -97,7 +99,7 @@ defmodule FBI.Orchestrator.SafeguardRepo do
       []
     else
       case git(bare_dir, ["show", "--numstat", "--format=", "refs/heads/#{branch}"]) do
-        {:ok, raw} -> parse_numstat(raw)
+        {:ok, raw} -> Numstat.parse(raw)
         {:error, _} -> []
       end
     end
@@ -123,29 +125,5 @@ defmodule FBI.Orchestrator.SafeguardRepo do
       {out, 0} -> {:ok, out}
       {out, _} -> {:error, out}
     end
-  end
-
-  defp parse_numstat(raw) do
-    raw
-    |> String.split("\n", trim: true)
-    |> Enum.flat_map(fn line ->
-      case String.split(line, "\t") do
-        [a_str, d_str, path] ->
-          adds = if a_str == "-", do: 0, else: String.to_integer(a_str)
-          dels = if d_str == "-", do: 0, else: String.to_integer(d_str)
-
-          status =
-            cond do
-              dels > 0 and adds == 0 -> "D"
-              dels == 0 and adds > 0 -> "A"
-              true -> "M"
-            end
-
-          [%{path: path, status: status, additions: adds, deletions: dels}]
-
-        _ ->
-          []
-      end
-    end)
   end
 end

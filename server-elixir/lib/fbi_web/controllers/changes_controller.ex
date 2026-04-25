@@ -13,6 +13,7 @@ defmodule FBIWeb.ChangesController do
   alias FBI.Github.Client, as: GH
   alias FBI.Github.Repo, as: GHRepo
   alias FBI.Docker
+  alias FBI.Git.Numstat
 
   def show(conn, %{"id" => id_str}) do
     with {:ok, run_id} <- parse_id(id_str),
@@ -72,7 +73,7 @@ defmodule FBIWeb.ChangesController do
              ]) do
           {:ok, exec_id} ->
             case Docker.exec_start(exec_id, timeout_ms: 5_000) do
-              {:ok, output} -> {:ok, parse_numstat(output)}
+              {:ok, output} -> {:ok, Numstat.parse(output)}
               _ -> :no_container
             end
 
@@ -82,40 +83,6 @@ defmodule FBIWeb.ChangesController do
 
       _ ->
         :no_container
-    end
-  end
-
-  defp parse_numstat(text) do
-    text
-    |> String.split("\n", trim: true)
-    |> Enum.map(fn line ->
-      case String.split(line, "\t", parts: 3) do
-        [add, del, path] ->
-          %{
-            path: path,
-            status: numstat_status(add, del),
-            additions: parse_int_or_zero(add),
-            deletions: parse_int_or_zero(del)
-          }
-
-        _ ->
-          nil
-      end
-    end)
-    |> Enum.reject(&is_nil/1)
-  end
-
-  defp numstat_status("0", "0"), do: "M"
-  # binary file
-  defp numstat_status("-", "-"), do: "M"
-  defp numstat_status(_, "0"), do: "A"
-  defp numstat_status("0", _), do: "D"
-  defp numstat_status(_, _), do: "M"
-
-  defp parse_int_or_zero(s) do
-    case Integer.parse(s) do
-      {n, _} -> n
-      :error -> 0
     end
   end
 
@@ -162,7 +129,7 @@ defmodule FBIWeb.ChangesController do
              ]) do
           {:ok, exec_id} ->
             case Docker.exec_start(exec_id, timeout_ms: 5_000) do
-              {:ok, output} -> {:ok, parse_numstat(output)}
+              {:ok, output} -> {:ok, Numstat.parse(output)}
               _ -> :no_container
             end
 
