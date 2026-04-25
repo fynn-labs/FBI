@@ -146,6 +146,16 @@ defmodule FBIWeb.RunsControllerTest do
       conn = json_patch(conn, "/api/runs/9999999", %{title: "whatever"})
       assert conn.status == 404
     end
+
+    test "PATCH /api/runs/:id publishes a title event on Phoenix.PubSub", %{
+      conn: conn,
+      project_id: pid
+    } do
+      run = make_run(pid)
+      Phoenix.PubSub.subscribe(FBI.PubSub, "run:#{run.id}:events")
+      json_patch(conn, "/api/runs/#{run.id}", %{title: "Hello"})
+      assert_receive {:run_event, %{type: "title", title: "Hello", title_locked: 1}}, 500
+    end
   end
 
   describe "DELETE /api/runs/:id" do

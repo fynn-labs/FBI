@@ -68,6 +68,11 @@ defmodule FBIWeb.Sockets.ShellWSHandler do
     {:push, {:text, Jason.encode!(map)}, state}
   end
 
+  # PubSub: run-level events (e.g. title updates) — forward as text frame
+  def handle_info({:run_event, payload}, state) do
+    {:push, {:text, Jason.encode!(payload)}, state}
+  end
+
   def handle_info(_other, state), do: {:ok, state}
 
   @impl true
