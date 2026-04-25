@@ -83,22 +83,33 @@ defmodule FBI.Orchestrator.UsageTailer do
               state
 
             {:ok, fd} ->
-              {:ok, _} = :file.position(fd, last_offset)
-              {:ok, data} = :file.read(fd, size - last_offset)
+              result =
+                with {:ok, _} <- :file.position(fd, last_offset),
+                     {:ok, data} <- :file.read(fd, size - last_offset) do
+                  {:ok, data}
+                end
+
               :file.close(fd)
-              prior = Map.get(state.pending, file, "")
-              chunk = prior <> data
-              {complete, partial} = split_at_last_newline(chunk)
 
-              state = %{
-                state
-                | offsets: Map.put(state.offsets, file, size),
-                  pending: Map.put(state.pending, file, partial)
-              }
+              case result do
+                {:ok, data} ->
+                  prior = Map.get(state.pending, file, "")
+                  chunk = prior <> data
+                  {complete, partial} = split_at_last_newline(chunk)
 
-              Enum.reduce(String.split(complete, "\n"), state, fn line, s ->
-                process_line(String.trim(line), s)
-              end)
+                  state = %{
+                    state
+                    | offsets: Map.put(state.offsets, file, size),
+                      pending: Map.put(state.pending, file, partial)
+                  }
+
+                  Enum.reduce(String.split(complete, "\n"), state, fn line, s ->
+                    process_line(String.trim(line), s)
+                  end)
+
+                _ ->
+                  state
+              end
           end
         end
     end
@@ -121,8 +132,14 @@ defmodule FBI.Orchestrator.UsageTailer do
 
   defp process_line(line, state) do
     case parse_usage_line(line) do
-      {:ok, snapshot} -> state.on_usage.(snapshot)
-      {:error, _reason} -> :ok
+      {:ok, snapshot} ->
+        state.on_usage.(snapshot)
+
+      {:error, :parse_error} ->
+        state.on_error.("Failed to parse JSONL line: #{String.slice(line, 0, 100)}")
+
+      {:error, :not_usage} ->
+        :ok
     end
 
     case Jason.decode(line) do
@@ -175,6 +192,13 @@ defmodule FBI.Orchestrator.UsageTailer do
   defp parse_rate_limit(_), do: :error
 
   defp to_int(v) when is_integer(v), do: v
-  defp to_int(v) when is_binary(v), do: String.to_integer(v)
+
+  defp to_int(v) when is_binary(v) do
+    case Integer.parse(v) do
+      {n, _} -> n
+      :error -> nil
+    end
+  end
+
   defp to_int(_), do: nil
 end

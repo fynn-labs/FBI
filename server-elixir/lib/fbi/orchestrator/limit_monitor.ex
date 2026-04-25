@@ -97,15 +97,24 @@ defmodule FBI.Orchestrator.LimitMonitor do
     {:noreply, %{state | timer: timer}}
   end
 
+  @impl true
+  def terminate(_reason, state) do
+    if state.timer, do: Process.cancel_timer(state.timer)
+    :ok
+  end
+
   defp mount_size(dir) do
     case File.ls(dir) do
       {:error, _} ->
         0
 
-      {:ok, files} ->
-        Enum.reduce(files, 0, fn f, acc ->
-          case File.stat(Path.join(dir, f)) do
+      {:ok, entries} ->
+        Enum.reduce(entries, 0, fn e, acc ->
+          path = Path.join(dir, e)
+
+          case File.stat(path) do
             {:ok, %{size: s, type: :regular}} -> acc + s
+            {:ok, %{type: :directory}} -> acc + mount_size(path)
             _ -> acc
           end
         end)
