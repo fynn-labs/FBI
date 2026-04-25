@@ -50,6 +50,7 @@ defmodule FBI.Orchestrator.ResumeScheduler do
   def handle_call({:rehydrate, awaiting_runs}, _from, state) do
     state =
       Enum.reduce(awaiting_runs, state, fn run, s ->
+        s = cancel_timer(s, run.id)
         fire_at = run[:next_resume_at] || 0
         delay = max(0, fire_at - System.os_time(:millisecond))
         ref = Process.send_after(self(), {:fire, run.id}, delay)
