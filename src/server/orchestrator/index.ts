@@ -42,6 +42,7 @@ import { makeOnBytes } from '../logs/onBytes.js';
 import type { FilesPayload } from '../../shared/types.js';
 import { WipRepo } from './wipRepo.js';
 import { buildSafeguardBind } from './safeguardBind.js';
+import { fbi } from './fbiOutput.js';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const SUPERVISOR = path.join(HERE, 'supervisor.sh');
@@ -205,7 +206,7 @@ export class Orchestrator {
     const cpus = project.cpus ?? this.deps.config.containerCpus;
     const pids = project.pids_limit ?? this.deps.config.containerPids;
 
-    onBytes(Buffer.from(`[fbi] resolving image\n`));
+    onBytes(Buffer.from(fbi.status('resolving image')));
     const devcontainerFiles = await fetchDevcontainerFile(
       project.repo_url, this.deps.config.hostSshAuthSock, onBytes,
     );
@@ -215,7 +216,7 @@ export class Orchestrator {
       overrideJson: project.devcontainer_override_json,
       onLog: onBytes,
     });
-    onBytes(Buffer.from(`[fbi] image: ${imageTag}\n`));
+    onBytes(Buffer.from(fbi.statusKV('image', imageTag)));
 
     const auth: GitAuth = new SshAgentForwarding(
       this.deps.config.hostSshAuthSock,
@@ -240,7 +241,7 @@ export class Orchestrator {
       return localPath;
     };
 
-    onBytes(Buffer.from(`[fbi] starting container\n`));
+    onBytes(Buffer.from(fbi.status('starting container')));
     const container = await this.deps.docker.createContainer({
       Image: imageTag,
       name: `fbi-run-${runId}-${Date.now()}`,
