@@ -30,6 +30,7 @@ impl TrayState {
 }
 
 #[cfg(target_os = "macos")]
+#[allow(dead_code)] // used in rebuild_tray; removed when Task 4 wires it up
 fn select_waiting_icon(theme: tauri::Theme) -> (&'static [u8], bool) {
     match theme {
         tauri::Theme::Light => (
@@ -37,6 +38,7 @@ fn select_waiting_icon(theme: tauri::Theme) -> (&'static [u8], bool) {
             false,
         ),
         _ => (
+            // Dark and any future unknown variants fall back to the template icon.
             include_bytes!("../icons/tray-waiting-template.png"),
             true,
         ),
@@ -257,5 +259,17 @@ mod tests {
     fn select_waiting_icon_dark_returns_template() {
         let (_, as_template) = select_waiting_icon(tauri::Theme::Dark);
         assert!(as_template, "dark mode icon must use template mode");
+    }
+
+    #[test]
+    fn select_waiting_icon_light_returns_light_bytes() {
+        let (bytes, _) = select_waiting_icon(tauri::Theme::Light);
+        assert_eq!(bytes, include_bytes!("../../icons/tray-waiting-light.png"));
+    }
+
+    #[test]
+    fn select_waiting_icon_dark_returns_template_bytes() {
+        let (bytes, _) = select_waiting_icon(tauri::Theme::Dark);
+        assert_eq!(bytes, include_bytes!("../../icons/tray-waiting-template.png"));
     }
 }
