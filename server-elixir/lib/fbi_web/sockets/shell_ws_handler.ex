@@ -27,7 +27,15 @@ defmodule FBIWeb.Sockets.ShellWSHandler do
     case Jason.decode(text) do
       {:ok, %{"type" => "hello", "cols" => cols, "rows" => rows}} ->
         FBI.Orchestrator.resize(run_id, cols, rows)
-        reply = Jason.encode!(%{type: "snapshot", ansi: build_snapshot(run_id)})
+
+        reply =
+          Jason.encode!(%{
+            type: "snapshot",
+            ansi: build_snapshot(run_id),
+            cols: cols,
+            rows: rows
+          })
+
         {:push, {:text, reply}, %{state | greeted: true}}
 
       _ ->
