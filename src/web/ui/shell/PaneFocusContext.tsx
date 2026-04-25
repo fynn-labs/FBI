@@ -24,9 +24,6 @@ function isSeparatorEl(el: Element | null): boolean {
   return el?.getAttribute('role') === 'separator';
 }
 
-function isInsideTerminal(el: Element | null): boolean {
-  return !!el?.closest('[data-pane-id="run-terminal"]');
-}
 
 export function PaneFocusProvider({ children }: { children: ReactNode }) {
   const [focusedPane, setFocusedPane] = useState<PaneId | null>(null);
@@ -49,11 +46,10 @@ export function PaneFocusProvider({ children }: { children: ReactNode }) {
     const activeEl = (): Element | null => document.activeElement;
     const canNav = (): boolean =>
       !isSeparatorEl(activeEl()) &&
-      !isInsideTerminal(activeEl()) &&
       focusedRef.current !== 'run-bottom';
 
     const offRight = keymap.register({
-      chord: 'ArrowRight',
+      chord: 'mod+ArrowRight',
       description: 'Focus next pane',
       when: canNav,
       handler: () => {
@@ -67,7 +63,7 @@ export function PaneFocusProvider({ children }: { children: ReactNode }) {
     });
 
     const offLeft = keymap.register({
-      chord: 'ArrowLeft',
+      chord: 'mod+ArrowLeft',
       description: 'Focus previous pane',
       when: canNav,
       handler: () => {
@@ -81,13 +77,15 @@ export function PaneFocusProvider({ children }: { children: ReactNode }) {
     });
 
     const offDown = keymap.register({
-      chord: 'ArrowDown',
+      chord: 'mod+ArrowDown',
+      description: 'Focus run drawer',
       when: () => focusedRef.current === 'run-terminal',
       handler: () => setFocusedPane('run-bottom'),
     });
 
     const offUp = keymap.register({
-      chord: 'ArrowUp',
+      chord: 'mod+ArrowUp',
+      description: 'Focus terminal',
       when: () => focusedRef.current === 'run-bottom',
       handler: () => setFocusedPane('run-terminal'),
     });

@@ -26,8 +26,10 @@ function App({ panes = ['projects-sidebar', 'runs-sidebar', 'run-terminal'] as c
   );
 }
 
-function fireKey(key: string): void {
-  act(() => { window.dispatchEvent(new KeyboardEvent('keydown', { key, bubbles: true })); });
+function fireKey(key: string, mod = false): void {
+  act(() => {
+    window.dispatchEvent(new KeyboardEvent('keydown', { key, metaKey: mod, ctrlKey: false, bubbles: true }));
+  });
 }
 
 describe('PaneFocusContext', () => {
@@ -45,52 +47,52 @@ describe('PaneFocusContext', () => {
     expect(screen.getByTestId('projects-sidebar').dataset.focused).toBe('false');
   });
 
-  it('ArrowRight from null focuses first registered pane', () => {
+  it('Cmd+ArrowRight from null focuses first registered pane', () => {
     render(<App />);
-    fireKey('ArrowRight');
+    fireKey('ArrowRight', true);
     expect(screen.getByTestId('focused').textContent).toBe('projects-sidebar');
   });
 
-  it('ArrowRight advances to next horizontal pane', async () => {
+  it('Cmd+ArrowRight advances to next horizontal pane', async () => {
     render(<App />);
     await userEvent.click(screen.getByTestId('projects-sidebar'));
-    fireKey('ArrowRight');
+    fireKey('ArrowRight', true);
     expect(screen.getByTestId('focused').textContent).toBe('runs-sidebar');
   });
 
-  it('ArrowLeft retreats to previous horizontal pane', async () => {
+  it('Cmd+ArrowLeft retreats to previous horizontal pane', async () => {
     render(<App />);
     await userEvent.click(screen.getByTestId('runs-sidebar'));
-    fireKey('ArrowLeft');
+    fireKey('ArrowLeft', true);
     expect(screen.getByTestId('focused').textContent).toBe('projects-sidebar');
   });
 
-  it('ArrowRight clamps at last horizontal pane', async () => {
+  it('Cmd+ArrowRight clamps at last horizontal pane', async () => {
     render(<App />);
     await userEvent.click(screen.getByTestId('run-terminal'));
-    fireKey('ArrowRight');
+    fireKey('ArrowRight', true);
     expect(screen.getByTestId('focused').textContent).toBe('run-terminal');
   });
 
-  it('ArrowLeft clamps at first horizontal pane', async () => {
+  it('Cmd+ArrowLeft clamps at first horizontal pane', async () => {
     render(<App />);
     await userEvent.click(screen.getByTestId('projects-sidebar'));
-    fireKey('ArrowLeft');
+    fireKey('ArrowLeft', true);
     expect(screen.getByTestId('focused').textContent).toBe('projects-sidebar');
   });
 
-  it('ArrowDown from run-terminal sets run-bottom', async () => {
+  it('Cmd+ArrowDown from run-terminal sets run-bottom', async () => {
     render(<App panes={['run-terminal']} />);
     await userEvent.click(screen.getByTestId('run-terminal'));
-    fireKey('ArrowDown');
+    fireKey('ArrowDown', true);
     expect(screen.getByTestId('focused').textContent).toBe('run-bottom');
   });
 
-  it('ArrowUp from run-bottom returns to run-terminal', async () => {
+  it('Cmd+ArrowUp from run-bottom returns to run-terminal', async () => {
     render(<App panes={['run-terminal']} />);
     await userEvent.click(screen.getByTestId('run-terminal'));
-    fireKey('ArrowDown');
-    fireKey('ArrowUp');
+    fireKey('ArrowDown', true);
+    fireKey('ArrowUp', true);
     expect(screen.getByTestId('focused').textContent).toBe('run-terminal');
   });
 });
