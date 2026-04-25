@@ -4,7 +4,8 @@
     "dockerfile": "Dockerfile"
   },
   "features": {
-    "ghcr.io/devcontainers/features/docker-outside-of-docker:1": {}
+    "ghcr.io/devcontainers/features/docker-outside-of-docker:1": {},
+    "ghcr.io/devcontainers/features/rust:1": {}
   },
   "forwardPorts": [3000, 4000, 5173],
   "portsAttributes": {
@@ -25,7 +26,8 @@
         "dbaeumer.vscode-eslint",
         "esbenp.prettier-vscode",
         "ms-vscode.vscode-typescript-next",
-        "JakeBecker.elixir-ls"
+        "JakeBecker.elixir-ls",
+        "rust-lang.rust-analyzer"
       ],
       "settings": {
         "typescript.tsdk": "node_modules/typescript/lib"
