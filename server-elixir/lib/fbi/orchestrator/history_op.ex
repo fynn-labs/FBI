@@ -79,8 +79,11 @@ defmodule FBI.Orchestrator.HistoryOp do
     script_content = File.read!(script_path)
     tar = FBI.Orchestrator.Tar.build(%{"fbi-history-op.sh" => script_content})
 
+    # Extract to /tmp/ rather than /usr/local/bin/ — the latter is a bind-mount
+    # from the host, so unlinkat (which tar uses to replace the file) returns EBUSY.
+    # sh only needs read permission, which Tar.build's 0o6440 mode provides.
     {:ok, exec_id} =
-      FBI.Docker.exec_create(container_id, ["tar", "x", "-C", "/usr/local/bin"],
+      FBI.Docker.exec_create(container_id, ["tar", "x", "-C", "/tmp"],
         user: "0",
         stdin: true
       )
@@ -89,7 +92,7 @@ defmodule FBI.Orchestrator.HistoryOp do
     FBI.Docker.close_socket(conn)
 
     {:ok, exec_id2} =
-      FBI.Docker.exec_create(container_id, ["/usr/local/bin/fbi-history-op.sh"],
+      FBI.Docker.exec_create(container_id, ["sh", "/tmp/fbi-history-op.sh"],
         env: env_list,
         user: "agent"
       )
