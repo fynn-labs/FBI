@@ -695,7 +695,11 @@ defmodule FBI.Orchestrator.RunServer do
       {:error, :timeout} ->
         read_stdout_loop(socket, run_id, on_bytes)
 
-      {:error, _} ->
+      {:error, reason} ->
+        Logger.warning(
+          "read_stdout_loop exiting for run #{run_id}: #{inspect(reason)}"
+        )
+
         :done
     end
   end
