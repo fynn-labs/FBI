@@ -18,8 +18,17 @@ defmodule FBI.Orchestrator.ResultParserTest do
   end
 
   test "parse_result_json: returns struct on valid input" do
-    raw = Jason.encode!(%{exit_code: 1, push_exit: 0, head_sha: "def", branch: "feat", title: "Add thing"})
-    assert {:ok, %{exit_code: 1, branch: "feat", title: "Add thing"}} = ResultParser.parse_result_json(raw)
+    raw =
+      Jason.encode!(%{
+        exit_code: 1,
+        push_exit: 0,
+        head_sha: "def",
+        branch: "feat",
+        title: "Add thing"
+      })
+
+    assert {:ok, %{exit_code: 1, branch: "feat", title: "Add thing"}} =
+             ResultParser.parse_result_json(raw)
   end
 
   test "parse_result_json: returns error on invalid" do

@@ -4,7 +4,15 @@ defmodule FBI.Orchestrator do
   per-run RunServer GenServers managed by RunSupervisor.
   """
 
-  alias FBI.Orchestrator.{RunSupervisor, RunServer, ResumeScheduler, WipRepo, ImageGc, ImageBuilder}
+  alias FBI.Orchestrator.{
+    RunSupervisor,
+    RunServer,
+    ResumeScheduler,
+    WipRepo,
+    ImageGc,
+    ImageBuilder
+  }
+
   alias FBI.Runs.Queries
   alias FBI.Projects.Queries, as: PQ
 
@@ -18,6 +26,7 @@ defmodule FBI.Orchestrator do
   @doc "Launch a queued run. Fire-and-forget; state transitions go through DB."
   def launch(run_id) do
     config = get_config()
+
     case RunSupervisor.start_run(run_id, :launch, config) do
       {:ok, _pid} -> :ok
       {:error, reason} -> {:error, reason}
@@ -27,17 +36,21 @@ defmodule FBI.Orchestrator do
   @doc "Resume an awaiting_resume run."
   def resume(run_id) do
     config = get_config()
+
     case Queries.get(run_id) do
       {:ok, %{state: "awaiting_resume"}} ->
         RunSupervisor.start_run(run_id, :resume, config)
         :ok
-      _ -> :ok
+
+      _ ->
+        :ok
     end
   end
 
   @doc "Continue a terminal run (already flipped to :starting by caller)."
   def continue_run(run_id) do
     config = get_config()
+
     case RunSupervisor.start_run(run_id, :continue, config) do
       {:ok, _} -> :ok
       {:error, reason} -> {:error, reason}
@@ -80,6 +93,7 @@ defmodule FBI.Orchestrator do
   @doc "Delete a terminal run: log file + wip repo + DB row."
   def delete_run(run_id) do
     config = get_config()
+
     case Queries.get(run_id) do
       {:ok, %{state: s}} when s in ["starting", "running", "waiting"] ->
         {:error, :run_active}
@@ -99,13 +113,22 @@ defmodule FBI.Orchestrator do
     config = get_config()
     postbuild = read_postbuild(config)
     projects = PQ.list()
-    result = ImageGc.sweep(projects, System.os_time(:millisecond), ImageBuilder.always_packages(), postbuild)
+
+    result =
+      ImageGc.sweep(
+        projects,
+        System.os_time(:millisecond),
+        ImageBuilder.always_packages(),
+        postbuild
+      )
+
     result
   end
 
   @doc "Recover runs left in active states from a previous orchestrator instance."
   def recover do
     config = get_config()
+
     live =
       Queries.list_by_state("starting") ++
         Queries.list_by_state("running") ++
@@ -113,7 +136,10 @@ defmodule FBI.Orchestrator do
 
     for run <- live do
       if is_nil(run.container_id) do
-        Queries.mark_finished(run.id, %{state: "failed", error: "orchestrator lost container (no container_id)"})
+        Queries.mark_finished(run.id, %{
+          state: "failed",
+          error: "orchestrator lost container (no container_id)"
+        })
       else
         case FBI.Docker.inspect_container(run.container_id) do
           {:ok, _} ->
@@ -123,7 +149,10 @@ defmodule FBI.Orchestrator do
             end
 
           _ ->
-            Queries.mark_finished(run.id, %{state: "failed", error: "orchestrator lost container (container gone)"})
+            Queries.mark_finished(run.id, %{
+              state: "failed",
+              error: "orchestrator lost container (container gone)"
+            })
         end
       end
     end
@@ -158,6 +187,7 @@ defmodule FBI.Orchestrator do
 
   defp read_postbuild(config) do
     path = config[:postbuild_sh_path] || Path.join(:code.priv_dir(:fbi), "static/postbuild.sh")
+
     case File.read(path) do
       {:ok, content} -> content
       _ -> ""

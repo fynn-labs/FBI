@@ -25,9 +25,11 @@ defmodule FBI.Orchestrator.SafeguardRepo do
           case String.split(raw, "\x00", parts: 2) do
             [sha, subject] ->
               %{sha: String.trim(sha), subject: String.trim_trailing(subject, "\n")}
+
             _ ->
               nil
           end
+
         {:error, _} ->
           nil
       end

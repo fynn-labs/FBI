@@ -43,8 +43,11 @@ defmodule FBIWeb.FileDiffController do
         end
 
       case exec_git_in_container(run.container_id, cmd) do
-        {:ok, stdout} -> json(conn, parse_unified_diff(stdout, file_path, ref))
-        {:error, reason} -> conn |> put_status(409) |> json(%{error: "no container", message: reason})
+        {:ok, stdout} ->
+          json(conn, parse_unified_diff(stdout, file_path, ref))
+
+        {:error, reason} ->
+          conn |> put_status(409) |> json(%{error: "no container", message: reason})
       end
     else
       conn |> put_status(409) |> json(%{error: "no container", message: "container not active"})

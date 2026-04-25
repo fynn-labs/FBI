@@ -220,7 +220,11 @@ defmodule FBI.Orchestrator.RunServer do
   def terminate(_reason, state) do
     case Queries.get(state.run_id) do
       {:ok, %{state: s}} when s in ["starting", "running", "waiting"] ->
-        Queries.mark_finished(state.run_id, %{state: "failed", error: "orchestrator process crashed"})
+        Queries.mark_finished(state.run_id, %{
+          state: "failed",
+          error: "orchestrator process crashed"
+        })
+
         publish_state(state.run_id)
 
       _ ->
@@ -801,10 +805,12 @@ defmodule FBI.Orchestrator.RunServer do
             :gen_tcp.send(attach_socket, <<3>>)
             Process.sleep(500)
             :gen_tcp.send(attach_socket, <<3>>)
+
             spawn(fn ->
               Process.sleep(30_000)
               FBI.Docker.stop_container(container_id, t: 5)
             end)
+
             on_bytes.("\n[fbi] limit detected; nudging Claude to exit\n")
           end
         end
