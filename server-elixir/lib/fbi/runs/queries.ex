@@ -89,18 +89,17 @@ defmodule FBI.Runs.Queries do
     |> Repo.one()
   end
 
-  @spec update_title(integer(), String.t()) :: {:ok, decoded()} | :not_found
-  def update_title(id, title) do
+  @spec update_title(integer(), String.t(), boolean()) :: {:ok, decoded()} | :not_found
+  def update_title(id, title, lock \\ false) do
     case Repo.get(Run, id) do
       nil ->
         :not_found
 
       r ->
-        updated =
-          r
-          |> Run.changeset(%{title: title, title_locked: 0})
-          |> Repo.update!()
+        attrs =
+          if lock, do: %{title: title, title_locked: 1}, else: %{title: title, title_locked: 0}
 
+        updated = r |> Run.changeset(attrs) |> Repo.update!()
         {:ok, decode(updated)}
     end
   end
@@ -128,6 +127,288 @@ defmodule FBI.Runs.Queries do
   end
 
   defp clamp(n, lo, hi) when is_integer(n), do: n |> max(lo) |> min(hi)
+
+  defp now_ms, do: System.os_time(:millisecond)
+
+  # ---------------------------------------------------------------------------
+  # Phase 7: State transitions
+  # Each UPDATE uses a source-state guard so concurrent calls are idempotent.
+  # ---------------------------------------------------------------------------
+
+  @spec mark_starting_from_queued(integer(), String.t()) :: :ok
+  def mark_starting_from_queued(id, container_id) do
+    now = now_ms()
+
+    Repo.update_all(
+      from(r in Run,
+        where: r.id == ^id and r.state == "queued"
+      ),
+      set: [state: "starting", container_id: container_id, started_at: now, state_entered_at: now]
+    )
+
+    :ok
+  end
+
+  @spec mark_awaiting_resume(integer(), %{
+          next_resume_at: integer(),
+          last_limit_reset_at: integer() | nil
+        }) :: :ok
+  def mark_awaiting_resume(id, %{next_resume_at: next_at, last_limit_reset_at: last_reset}) do
+    now = now_ms()
+
+    Repo.update_all(
+      from(r in Run,
+        where: r.id == ^id and r.state in ["starting", "running", "waiting"]
+      ),
+      inc: [resume_attempts: 1],
+      set: [
+        state: "awaiting_resume",
+        container_id: nil,
+        next_resume_at: next_at,
+        last_limit_reset_at: last_reset,
+        state_entered_at: now
+      ]
+    )
+
+    :ok
+  end
+
+  @spec mark_starting_for_resume(integer(), String.t()) :: :ok
+  def mark_starting_for_resume(id, container_id) do
+    now = now_ms()
+
+    Repo.update_all(
+      from(r in Run,
+        where: r.id == ^id and r.state == "awaiting_resume"
+      ),
+      set: [
+        state: "starting",
+        container_id: container_id,
+        next_resume_at: nil,
+        state_entered_at: now
+      ]
+    )
+
+    Repo.update_all(
+      from(r in Run, where: r.id == ^id and is_nil(r.started_at)),
+      set: [started_at: now]
+    )
+
+    :ok
+  end
+
+  @spec mark_starting_for_continue_request(integer()) :: :ok
+  def mark_starting_for_continue_request(id) do
+    now = now_ms()
+
+    Repo.update_all(
+      from(r in Run,
+        where: r.id == ^id and r.state in ["failed", "cancelled", "succeeded"]
+      ),
+      set: [
+        state: "starting",
+        resume_attempts: 0,
+        next_resume_at: nil,
+        finished_at: nil,
+        exit_code: nil,
+        error: nil,
+        state_entered_at: now
+      ]
+    )
+
+    :ok
+  end
+
+  @spec mark_starting_container(integer(), String.t()) :: :ok
+  def mark_starting_container(id, container_id) do
+    now = now_ms()
+
+    Repo.update_all(
+      from(r in Run, where: r.id == ^id and r.state == "starting"),
+      set: [container_id: container_id, state_entered_at: now]
+    )
+
+    Repo.update_all(
+      from(r in Run, where: r.id == ^id and is_nil(r.started_at)),
+      set: [started_at: now]
+    )
+
+    :ok
+  end
+
+  @spec mark_waiting(integer()) :: :ok
+  def mark_waiting(id) do
+    Repo.update_all(
+      from(r in Run, where: r.id == ^id and r.state in ["starting", "running"]),
+      set: [state: "waiting", state_entered_at: now_ms()]
+    )
+
+    :ok
+  end
+
+  @spec mark_running(integer()) :: :ok
+  def mark_running(id) do
+    Repo.update_all(
+      from(r in Run, where: r.id == ^id and r.state in ["starting", "waiting"]),
+      set: [state: "running", state_entered_at: now_ms()]
+    )
+
+    :ok
+  end
+
+  @type finish_params :: %{
+          state: String.t(),
+          exit_code: integer() | nil,
+          head_commit: String.t() | nil,
+          branch_name: String.t() | nil,
+          error: String.t() | nil
+        }
+
+  @spec mark_finished(integer(), finish_params()) :: :ok
+  def mark_finished(id, params) do
+    now = now_ms()
+
+    base_set = [
+      state: params.state,
+      container_id: nil,
+      exit_code: params.exit_code,
+      head_commit: params.head_commit,
+      error: params.error,
+      finished_at: now,
+      state_entered_at: now
+    ]
+
+    updates =
+      case params[:branch_name] do
+        nil -> base_set
+        branch -> [{:branch_name, branch} | base_set]
+      end
+
+    Repo.update_all(from(r in Run, where: r.id == ^id), set: updates)
+    :ok
+  end
+
+  @spec mark_resume_failed(integer(), String.t()) :: :ok
+  def mark_resume_failed(id, error) do
+    now = now_ms()
+
+    Repo.update_all(
+      from(r in Run, where: r.id == ^id),
+      set: [
+        state: "resume_failed",
+        container_id: nil,
+        error: error,
+        finished_at: now,
+        state_entered_at: now
+      ]
+    )
+
+    :ok
+  end
+
+  @spec set_claude_session_id(integer(), String.t()) :: :ok
+  def set_claude_session_id(id, session_id) do
+    Repo.update_all(from(r in Run, where: r.id == ^id and is_nil(r.claude_session_id)),
+      set: [claude_session_id: session_id]
+    )
+
+    :ok
+  end
+
+  @spec set_log_path(integer(), String.t()) :: :ok
+  def set_log_path(id, log_path) do
+    Repo.update_all(from(r in Run, where: r.id == ^id), set: [log_path: log_path])
+    :ok
+  end
+
+  @spec set_branch_name(integer(), String.t()) :: :ok
+  def set_branch_name(id, branch) do
+    Repo.update_all(from(r in Run, where: r.id == ^id), set: [branch_name: branch])
+    :ok
+  end
+
+  @spec set_mirror_status(integer(), String.t()) :: :ok
+  def set_mirror_status(id, status) do
+    Repo.update_all(from(r in Run, where: r.id == ^id), set: [mirror_status: status])
+    :ok
+  end
+
+  @spec update_last_limit_reset_at(integer(), integer()) :: :ok
+  def update_last_limit_reset_at(id, ts) do
+    Repo.update_all(from(r in Run, where: r.id == ^id), set: [last_limit_reset_at: ts])
+    :ok
+  end
+
+  @spec update_model_params(integer(), %{
+          model: String.t() | nil,
+          effort: String.t() | nil,
+          subagent_model: String.t() | nil
+        }) :: :ok
+  def update_model_params(id, params) do
+    Repo.update_all(
+      from(r in Run, where: r.id == ^id),
+      set: [model: params.model, effort: params.effort, subagent_model: params.subagent_model]
+    )
+
+    :ok
+  end
+
+  @spec list_by_parent(integer()) :: [decoded()]
+  def list_by_parent(parent_id) do
+    from(r in Run, where: r.parent_run_id == ^parent_id, order_by: [asc: r.id])
+    |> Repo.all()
+    |> Enum.map(&decode/1)
+  end
+
+  @spec list_active_by_branch(integer(), String.t()) :: [decoded()]
+  def list_active_by_branch(project_id, branch) do
+    from(r in Run,
+      where:
+        r.project_id == ^project_id and r.branch_name == ^branch and
+          r.state in ["queued", "starting", "running", "waiting"]
+    )
+    |> Repo.all()
+    |> Enum.map(&decode/1)
+  end
+
+  @spec list_awaiting() :: [%{id: integer(), next_resume_at: integer() | nil}]
+  def list_awaiting do
+    from(r in Run,
+      where: r.state == "awaiting_resume",
+      select: %{id: r.id, next_resume_at: r.next_resume_at}
+    )
+    |> Repo.all()
+  end
+
+  @spec list_by_state(String.t(), pos_integer()) :: [decoded()]
+  def list_by_state(state, limit \\ 100) do
+    from(r in Run, where: r.state == ^state, order_by: [desc: r.created_at], limit: ^limit)
+    |> Repo.all()
+    |> Enum.map(&decode/1)
+  end
+
+  @spec create(map()) :: decoded()
+  def create(attrs) do
+    now = now_ms()
+
+    params =
+      Map.merge(
+        %{
+          state: "queued",
+          created_at: now,
+          state_entered_at: now,
+          kind: "work"
+        },
+        attrs
+      )
+
+    run =
+      %Run{}
+      |> Run.changeset(params)
+      |> Repo.insert!()
+
+    decode(run)
+  end
 
   @doc "Build the plain JSON-ready map for a run. All keys mirror TS exactly."
   @spec decode(Run.t()) :: map()
@@ -162,7 +443,10 @@ defmodule FBI.Runs.Queries do
       :usage_parse_errors,
       :title,
       :title_locked,
-      :parent_run_id
+      :parent_run_id,
+      :kind,
+      :kind_args_json,
+      :mirror_status
     ])
   end
 end

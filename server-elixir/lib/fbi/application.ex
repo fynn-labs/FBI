@@ -28,6 +28,9 @@ defmodule FBI.Application do
          repos: Application.fetch_env!(:fbi, :ecto_repos), skip: skip_migrations?()},
         {DNSCluster, query: Application.get_env(:fbi, :dns_cluster_query) || :ignore},
         {Phoenix.PubSub, name: FBI.PubSub},
+        {Registry, keys: :unique, name: FBI.Orchestrator.Registry},
+        FBI.Orchestrator.RunSupervisor,
+        {FBI.Orchestrator.ResumeScheduler, on_fire: &FBI.Orchestrator.resume/1, name: FBI.Orchestrator.ResumeScheduler},
         FBI.Github.StatusCache,
         FBI.Housekeeping.DraftUploadsGc
       ] ++
@@ -37,7 +40,10 @@ defmodule FBI.Application do
         ]
 
     opts = [strategy: :one_for_one, name: FBI.Supervisor]
-    Supervisor.start_link(children, opts)
+    {:ok, pid} = Supervisor.start_link(children, opts)
+    FBI.Orchestrator.recover()
+    FBI.Orchestrator.rehydrate_schedules()
+    {:ok, pid}
   end
 
   # Tell Phoenix to update the endpoint configuration

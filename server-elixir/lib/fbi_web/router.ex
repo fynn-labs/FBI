@@ -15,10 +15,9 @@ defmodule FBIWeb.Router do
     get "/usage/runs/:id", UsageController, :run_breakdown
 
     # Phase 2: settings + config + CLI download.
-    # `POST /api/settings/run-gc` is *not* registered here — it stays proxied
-    # to TS via the catch-all because it depends on the orchestrator (Phase 7).
     get "/settings", SettingsController, :show
     patch "/settings", SettingsController, :update
+    post "/settings/run-gc", SettingsController, :run_gc
     get "/config/defaults", ConfigController, :defaults
     get "/cli/fbi-tunnel/:os/:arch", CliController, :fbi_tunnel
 
@@ -51,10 +50,25 @@ defmodule FBIWeb.Router do
     patch "/runs/:id", RunsController, :patch_title
     delete "/runs/:id", RunsController, :delete
     get "/runs/:id/siblings", RunsController, :siblings
+    post "/runs/:id/continue", RunsController, :continue_run
+    post "/runs/:id/resume-now", RunsController, :resume_now
     get "/projects/:id/runs", RunsController, :index_for_project
+    post "/projects/:id/runs", RunsController, :create
 
     get "/runs/:id/transcript", TranscriptController, :show
     get "/runs/:id/files", FilesController, :show
+
+    get "/runs/:id/wip", WipController, :show
+    get "/runs/:id/wip/file", WipController, :file
+    get "/runs/:id/wip/patch", WipController, :patch
+    post "/runs/:id/wip/discard", WipController, :discard
+
+    post "/runs/:id/history", HistoryController, :create
+
+    get "/runs/:id/changes", ChangesController, :show
+    get "/runs/:id/commits/:sha/files", ChangesController, :commit_files
+    get "/runs/:id/submodule/*path", ChangesController, :submodule_files
+    get "/runs/:id/file-diff", FileDiffController, :show
 
     get "/runs/:id/github", GithubController, :show
     post "/runs/:id/github/pr", GithubController, :create_pr
@@ -73,6 +87,8 @@ defmodule FBIWeb.Router do
   # Content-Type header, which a WS upgrade request never does.
   scope "/api", FBIWeb do
     get "/ws/usage", UsageSocketController, :upgrade
+    get "/ws/states", StatesSocketController, :upgrade
+    get "/runs/:id/shell", ShellSocketController, :upgrade
   end
 
   # Enable LiveDashboard in development

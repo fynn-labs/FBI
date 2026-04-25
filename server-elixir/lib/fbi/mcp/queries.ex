@@ -73,6 +73,11 @@ defmodule FBI.Mcp.Queries do
     end
   end
 
+  @spec list_effective(integer()) :: [decoded()]
+  def list_effective(project_id) do
+    list_global() ++ list_for_project(project_id)
+  end
+
   @spec delete(integer()) :: :ok
   def delete(id) do
     Repo.delete_all(from s in Server, where: s.id == ^id)
