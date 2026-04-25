@@ -57,7 +57,7 @@ defmodule FBIWeb.RunsController do
 
     with {:ok, id} <- parse_id(id_str),
          true <- is_binary(title) and byte_size(title) > 0 and byte_size(title) <= 120,
-         {:ok, run} <- Queries.update_title(id, title) do
+         {:ok, run} <- Queries.update_title(id, title, true) do
       json(conn, run)
     else
       :not_found -> conn |> put_status(404) |> json(%{error: "not found"})

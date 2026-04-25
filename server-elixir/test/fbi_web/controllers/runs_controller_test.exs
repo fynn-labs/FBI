@@ -128,11 +128,18 @@ defmodule FBIWeb.RunsControllerTest do
       assert conn.status == 400
     end
 
-    test "returns 200 and sets title_locked=0 on valid title", %{conn: conn, project_id: pid} do
+    test "returns 200 and sets title_locked=1 on valid title", %{conn: conn, project_id: pid} do
+      r = make_run(pid, %{title: nil, title_locked: 0})
+      body = conn |> json_patch("/api/runs/#{r.id}", %{title: "User pick"}) |> json_response(200)
+      assert body["title"] == "User pick"
+      assert body["title_locked"] == 1
+    end
+
+    test "locks title even when already locked", %{conn: conn, project_id: pid} do
       r = make_run(pid, %{title: nil, title_locked: 1})
       body = conn |> json_patch("/api/runs/#{r.id}", %{title: "new-title"}) |> json_response(200)
       assert body["title"] == "new-title"
-      assert body["title_locked"] == 0
+      assert body["title_locked"] == 1
     end
 
     test "returns 404 for missing run", %{conn: conn} do
