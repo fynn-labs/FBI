@@ -306,7 +306,7 @@ defmodule FBI.Orchestrator.RunServer do
       {:ok, attach_socket} = FBI.Docker.attach_container(container_id)
       :ok = set_container(server_pid, container_id, attach_socket)
 
-      reader_pid = spawn(fn -> read_stdout_loop(attach_socket, run_id, on_bytes) end)
+      reader = Task.async(fn -> read_stdout_loop(attach_socket, run_id, on_bytes) end)
 
       _limit_monitor_pid =
         start_limit_monitor(run_id, mount_dir, container_id, attach_socket, settings, on_bytes)
@@ -327,7 +327,8 @@ defmodule FBI.Orchestrator.RunServer do
         await_and_complete(run_id, container_id, on_bytes, settings, config, server_pid)
 
       stop_watchers([tailer, title_watcher, safeguard_watcher, mirror_poller])
-      Process.exit(reader_pid, :kill)
+      Task.shutdown(reader, :brutal_kill)
+      flush_task_messages(reader.ref)
       FBI.Docker.remove_container(container_id, force: true, v: true)
       ScreenState.clear(run_id)
 
@@ -402,7 +403,7 @@ defmodule FBI.Orchestrator.RunServer do
       {:ok, attach_socket} = FBI.Docker.attach_container(container_id)
       :ok = set_container(server_pid, container_id, attach_socket)
 
-      reader_pid = spawn(fn -> read_stdout_loop(attach_socket, run_id, on_bytes) end)
+      reader = Task.async(fn -> read_stdout_loop(attach_socket, run_id, on_bytes) end)
 
       _limit_monitor_pid =
         start_limit_monitor(run_id, mount_dir, container_id, attach_socket, settings, on_bytes)
@@ -423,7 +424,8 @@ defmodule FBI.Orchestrator.RunServer do
         await_and_complete(run_id, container_id, on_bytes, settings, config, server_pid)
 
       stop_watchers([tailer, title_watcher, safeguard_watcher, mirror_poller])
-      Process.exit(reader_pid, :kill)
+      Task.shutdown(reader, :brutal_kill)
+      flush_task_messages(reader.ref)
       FBI.Docker.remove_container(container_id, force: true, v: true)
       ScreenState.clear(run_id)
       result
@@ -476,7 +478,7 @@ defmodule FBI.Orchestrator.RunServer do
       {:ok, attach_socket} = FBI.Docker.attach_container(container_id)
       :ok = set_container(server_pid, container_id, attach_socket)
 
-      reader_pid = spawn(fn -> read_stdout_loop(attach_socket, run_id, on_bytes) end)
+      reader = Task.async(fn -> read_stdout_loop(attach_socket, run_id, on_bytes) end)
 
       _limit_monitor_pid =
         start_limit_monitor(run_id, mount_dir, container_id, attach_socket, settings, on_bytes)
@@ -497,7 +499,8 @@ defmodule FBI.Orchestrator.RunServer do
         await_and_complete(run_id, container_id, on_bytes, settings, config, server_pid)
 
       stop_watchers([tailer, title_watcher, safeguard_watcher, mirror_poller])
-      Process.exit(reader_pid, :kill)
+      Task.shutdown(reader, :brutal_kill)
+      flush_task_messages(reader.ref)
       FBI.Docker.remove_container(container_id, force: true, v: true)
       ScreenState.clear(run_id)
       result
@@ -523,7 +526,11 @@ defmodule FBI.Orchestrator.RunServer do
 
       since_sec = div(run.started_at || System.os_time(:millisecond), 1000)
       {:ok, log_socket} = FBI.Docker.container_logs(container_id, since: since_sec)
-      _log_reader_pid = spawn(fn -> read_stdout_loop(log_socket, run_id, on_bytes) end)
+      # Reader exits naturally when log_socket closes (container removal). The
+      # surrounding lifecycle Task that owns this reader is short-lived: when it
+      # returns, the Task.async link tears the reader down and any unawaited
+      # reply messages die with the parent Task's mailbox.
+      _log_reader = Task.async(fn -> read_stdout_loop(log_socket, run_id, on_bytes) end)
 
       wip_repo_path = FBI.Orchestrator.WipRepo.path(runs_dir, run_id)
 
@@ -1058,5 +1065,14 @@ defmodule FBI.Orchestrator.RunServer do
   defp docker_socket_mounts(config) do
     socket = config[:host_docker_socket] || "/var/run/docker.sock"
     if File.exists?(socket), do: ["#{socket}:/var/run/docker.sock"], else: []
+  end
+
+  defp flush_task_messages(ref) do
+    receive do
+      {^ref, _} -> flush_task_messages(ref)
+      {:DOWN, ^ref, _, _, _} -> flush_task_messages(ref)
+    after
+      0 -> :ok
+    end
   end
 end
