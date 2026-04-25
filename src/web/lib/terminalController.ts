@@ -13,7 +13,7 @@ import type {
   RunState,
 } from '@shared/types.js';
 
-const CHUNK_SIZE = 512 * 1024;
+export const CHUNK_SIZE = 128 * 1024;
 const RESUME_SNAPSHOT_TIMEOUT_MS = 2000;
 
 export type ChunkLoadState = 'idle' | 'loading' | 'error';
@@ -485,11 +485,22 @@ export class TerminalController {
   /**
    * Reset xterm and replay a sequence of byte buffers. Returns after all
    * writes have been acknowledged by xterm's parser.
+   *
+   * Uint8Array buffers are written in 64 KB slices so the main thread
+   * yields to the event loop between slices — keeps the browser
+   * responsive on mobile during long rebuilds.
    */
   private async rebuildXterm(buffers: Array<Uint8Array | string>): Promise<void> {
+    const SUB_CHUNK = 64 * 1024;
     this.term.reset();
     for (const b of buffers) {
-      await this.writeAndWait(b);
+      if (typeof b === 'string') {
+        await this.writeAndWait(b);
+      } else {
+        for (let off = 0; off < b.byteLength; off += SUB_CHUNK) {
+          await this.writeAndWait(b.subarray(off, Math.min(off + SUB_CHUNK, b.byteLength)));
+        }
+      }
     }
   }
 
