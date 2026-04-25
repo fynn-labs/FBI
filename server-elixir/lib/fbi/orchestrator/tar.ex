@@ -20,9 +20,15 @@ defmodule FBI.Orchestrator.Tar do
     # Build header fields then pad the whole thing to 512 bytes.
     # The checksum field (offset 148-155) is left as spaces (0x20) during
     # sum computation, then replaced with the real value.
+    # Mode: 0644 (rw-r--r--, world-readable so the agent user can read regardless
+    # of which uid owns the entry). The previous "0006440\0" was setuid|setgid|0440
+    # which left every injected file unreadable to "Other" — supervisor.sh hit
+    # cat: /fbi/preamble.txt: Permission denied because of it.
+    # uid/gid 1000 matches what the TS port writes; world-readable mode means
+    # this stays correct even on images where `agent` ends up at a different uid.
     header_pre =
       name_padded <>
-        "0006440\0" <>
+        "0000644\0" <>
         "0001750\0" <>
         "0001750\0" <>
         <<size_str::binary, 0>> <>

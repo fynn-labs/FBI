@@ -705,19 +705,24 @@ defmodule FBI.Orchestrator.RunServer do
   # ---------------------------------------------------------------------------
 
   defp read_stdout_loop(socket, run_id, on_bytes) do
-    case :gen_tcp.recv(socket, 0, 60_000) do
+    # Docker's /containers/:id/logs?follow=1 response uses HTTP/1.1
+    # Transfer-Encoding: chunked, so the body is wrapped in
+    # `<size_hex>\\r\\n<data>\\r\\n` framing. Forwarding the raw socket bytes
+    # straight to xterm leaked those size markers ("4c", "15", …) into the UI.
+    # Decode chunks here.
+    case FBI.Docker.recv_chunked(socket) do
       {:ok, data} ->
         on_bytes.(data)
         read_stdout_loop(socket, run_id, on_bytes)
+
+      :eof ->
+        :done
 
       {:error, :timeout} ->
         read_stdout_loop(socket, run_id, on_bytes)
 
       {:error, reason} ->
-        Logger.warning(
-          "read_stdout_loop exiting for run #{run_id}: #{inspect(reason)}"
-        )
-
+        Logger.warning("read_stdout_loop exiting for run #{run_id}: #{inspect(reason)}")
         :done
     end
   end

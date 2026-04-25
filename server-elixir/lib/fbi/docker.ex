@@ -237,40 +237,54 @@ defmodule FBI.Docker do
   def container_logs(id, opts \\ []) do
     since = Keyword.get(opts, :since, 0)
     conn = stream_start("GET", "/containers/#{id}/logs?follow=1&stdout=1&stderr=1&since=#{since}")
-    debug_skip_http_headers(conn, "container_logs")
+    skip_http_headers(conn)
     {:ok, conn}
   end
 
-  # Debug variant of skip_http_headers that logs the headers it sees so we can
-  # tell whether Docker is returning 200 OK + chunked body, or some 4xx, or
-  # something we're misreading.
-  defp debug_skip_http_headers(conn, tag) do
-    case do_skip_with_log(conn, "") do
-      {:ok, headers} ->
-        require Logger
-        Logger.warning("[#{tag}] DOCKER HEADERS:\n#{headers}")
-        :ok
+  @doc """
+  Read the next decoded chunk from a Docker streaming connection that uses
+  HTTP/1.1 Transfer-Encoding: chunked.
 
-      {:error, reason, partial} ->
-        require Logger
-        Logger.warning("[#{tag}] DOCKER ERROR #{inspect(reason)} after: #{inspect(partial)}")
-        {:error, reason}
+  Returns `{:ok, binary}` for each chunk (empty binary excluded), `:eof` when
+  the chunked terminator (`0\\r\\n\\r\\n`) is reached, or `{:error, reason}`.
+  """
+  def recv_chunked(socket) do
+    with {:ok, size_line} <- read_line(socket),
+         {size, _} <- Integer.parse(String.trim_trailing(size_line, "\r\n"), 16) do
+      cond do
+        size == 0 ->
+          # Final chunk — eat the trailing \r\n and signal end.
+          _ = :gen_tcp.recv(socket, 2, 5_000)
+          :eof
+
+        size > 0 ->
+          with {:ok, data} <- :gen_tcp.recv(socket, size, 60_000),
+               {:ok, _crlf} <- :gen_tcp.recv(socket, 2, 60_000) do
+            {:ok, data}
+          end
+
+        true ->
+          {:error, :bad_chunk_size}
+      end
+    else
+      :error -> {:error, :bad_chunk_size}
+      err -> err
     end
   end
 
-  defp do_skip_with_log(conn, acc) do
-    case :gen_tcp.recv(conn, 1, 10_000) do
+  defp read_line(socket, acc \\ "") do
+    case :gen_tcp.recv(socket, 1, 60_000) do
       {:ok, byte} ->
         new_acc = acc <> byte
 
-        if String.ends_with?(new_acc, "\r\n\r\n") do
+        if String.ends_with?(new_acc, "\r\n") do
           {:ok, new_acc}
         else
-          do_skip_with_log(conn, new_acc)
+          read_line(socket, new_acc)
         end
 
-      {:error, reason} ->
-        {:error, reason, acc}
+      err ->
+        err
     end
   end
 
