@@ -33,6 +33,7 @@ defmodule FBI.Application do
         {FBI.Orchestrator.ResumeScheduler,
          on_fire: &FBI.Orchestrator.resume/1, name: FBI.Orchestrator.ResumeScheduler},
         FBI.Github.StatusCache,
+        FBI.Runs.ChangesCache,
         FBI.Housekeeping.DraftUploadsGc
       ] ++
         usage_children ++

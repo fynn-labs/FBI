@@ -17,7 +17,18 @@ defmodule FBIWeb.ChangesController do
   def show(conn, %{"id" => id_str}) do
     with {:ok, run_id} <- parse_id(id_str),
          {:ok, run} <- RunQ.get(run_id) do
-      json(conn, build_changes(run))
+      payload =
+        case FBI.Runs.ChangesCache.get(run_id) do
+          {:hit, v} ->
+            v
+
+          :miss ->
+            v = build_changes(run)
+            FBI.Runs.ChangesCache.put(run_id, v)
+            v
+        end
+
+      json(conn, payload)
     else
       _ -> conn |> put_status(404) |> json(%{error: "not found"})
     end
