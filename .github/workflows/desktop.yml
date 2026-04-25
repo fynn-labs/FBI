@@ -50,9 +50,10 @@ jobs:
         with:
           name: macos-bundles
           path: |
-            desktop/target/release/bundle/dmg/*.dmg
-            desktop/target/release/bundle/macos/*.app.tar.gz
-            desktop/target/release/bundle/macos/*.app.tar.gz.sig
+            target/release/bundle/dmg/*.dmg
+            target/release/bundle/macos/*.app.tar.gz
+            target/release/bundle/macos/*.app.tar.gz.sig
+          if-no-files-found: error
 
       - name: Upload darwin CLI dist
         uses: actions/upload-artifact@v4
@@ -114,10 +115,11 @@ jobs:
         with:
           name: linux-bundles
           path: |
-            desktop/target/release/bundle/deb/*.deb
-            desktop/target/release/bundle/appimage/*.AppImage
-            desktop/target/release/bundle/appimage/*.AppImage.tar.gz
-            desktop/target/release/bundle/appimage/*.AppImage.tar.gz.sig
+            target/release/bundle/deb/*.deb
+            target/release/bundle/appimage/*.AppImage
+            target/release/bundle/appimage/*.AppImage.tar.gz
+            target/release/bundle/appimage/*.AppImage.tar.gz.sig
+          if-no-files-found: error
 
       - name: Upload linux CLI dist
         uses: actions/upload-artifact@v4
