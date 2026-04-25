@@ -1009,6 +1009,7 @@ defmodule FBI.Orchestrator.RunServer do
       if resume_session_id, do: ["FBI_RESUME_SESSION_ID=#{resume_session_id}" | env], else: env
 
     env = env ++ Enum.map(project_secrets, fn {k, v} -> "#{k}=#{v}" end)
+    env = env ++ model_param_env(run)
 
     binds = [
       "#{to_bind_host.(Path.join(scripts_dir, "supervisor.sh"))}:/usr/local/bin/supervisor.sh:ro",
@@ -1196,5 +1197,23 @@ defmodule FBI.Orchestrator.RunServer do
       "" -> []
       _ -> ["SSH_AUTH_SOCK=/ssh-agent"]
     end
+  end
+
+  # Mirror of src/server/orchestrator/modelParamEnv.ts — surfaces the run's
+  # model / effort / subagent_model selections to the agent process via env
+  # vars Claude Code reads at startup. Without these the agent always uses
+  # whatever the in-container `claude` binary defaults to (Opus), regardless
+  # of what the user picked at run creation time.
+  defp model_param_env(run) do
+    [
+      {run.model, "ANTHROPIC_MODEL"},
+      {run.effort, "CLAUDE_CODE_EFFORT_LEVEL"},
+      {run.subagent_model, "CLAUDE_CODE_SUBAGENT_MODEL"}
+    ]
+    |> Enum.flat_map(fn
+      {nil, _key} -> []
+      {"", _key} -> []
+      {value, key} -> ["#{key}=#{value}"]
+    end)
   end
 end
