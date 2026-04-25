@@ -233,8 +233,41 @@ defmodule FBI.Docker do
   def container_logs(id, opts \\ []) do
     since = Keyword.get(opts, :since, 0)
     conn = stream_start("GET", "/containers/#{id}/logs?follow=1&stdout=1&stderr=1&since=#{since}")
-    skip_http_headers(conn)
+    debug_skip_http_headers(conn, "container_logs")
     {:ok, conn}
+  end
+
+  # Debug variant of skip_http_headers that logs the headers it sees so we can
+  # tell whether Docker is returning 200 OK + chunked body, or some 4xx, or
+  # something we're misreading.
+  defp debug_skip_http_headers(conn, tag) do
+    case do_skip_with_log(conn, "") do
+      {:ok, headers} ->
+        require Logger
+        Logger.warning("[#{tag}] DOCKER HEADERS:\n#{headers}")
+        :ok
+
+      {:error, reason, partial} ->
+        require Logger
+        Logger.warning("[#{tag}] DOCKER ERROR #{inspect(reason)} after: #{inspect(partial)}")
+        {:error, reason}
+    end
+  end
+
+  defp do_skip_with_log(conn, acc) do
+    case :gen_tcp.recv(conn, 1, 10_000) do
+      {:ok, byte} ->
+        new_acc = acc <> byte
+
+        if String.ends_with?(new_acc, "\r\n\r\n") do
+          {:ok, new_acc}
+        else
+          do_skip_with_log(conn, new_acc)
+        end
+
+      {:error, reason} ->
+        {:error, reason, acc}
+    end
   end
 
   defp skip_http_headers(conn), do: skip_http_headers(conn, "")
