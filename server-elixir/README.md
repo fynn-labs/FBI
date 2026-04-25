@@ -1,5 +1,16 @@
 # FBI
 
+## System requirements
+
+On Linux hosts, install **`inotify-tools`** (e.g. `apt install inotify-tools`).
+The orchestrator's `SafeguardWatcher` uses the `:file_system` package, which
+shells out to `inotifywait` on Linux to watch the WIP git repo for changes.
+Without it `FileSystem.start_link/1` returns `:ignore` and change-event
+delivery degrades to a no-op (the watcher still emits the initial snapshot,
+but won't react to subsequent file changes).
+
+## Running
+
 To start your Phoenix server:
 
 * Run `mix setup` to install and setup dependencies

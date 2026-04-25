@@ -8,6 +8,10 @@ set -euo pipefail
 #   - Docker Engine running; user 'fbi' in the 'docker' group
 #   - 'claude /login' run once as the fbi user
 #   - ssh-agent configured to start for the fbi user on boot (see README)
+#   - inotify-tools installed (apt install inotify-tools). The Elixir
+#     SafeguardWatcher uses :file_system, which on Linux shells out to
+#     inotifywait; without it the watcher silently degrades to no-op
+#     change notifications.
 
 for cmd in rsync node npm mix elixir; do
   command -v "$cmd" >/dev/null 2>&1 || { echo "ERROR: $cmd not found in PATH"; exit 1; }
