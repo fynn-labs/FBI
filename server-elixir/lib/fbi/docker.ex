@@ -55,11 +55,17 @@ defmodule FBI.Docker do
     conn = connect!()
     raw_body = if body, do: Jason.encode!(body), else: ""
 
+    # Body-less requests must NOT carry Content-Length: 0 — Docker's HTTP
+    # parser interpreted the previous "Content-Length: 0\r\n\r\n" against the
+    # GET as a complete-immediately request and slammed the socket shut after
+    # sending response headers, which is what we were seeing as :closed in the
+    # reader loop. curl on the same endpoint works fine because curl omits the
+    # header entirely on body-less requests; match that.
     content_headers =
       if body != nil do
         [{"Content-Type", "application/json"}, {"Content-Length", byte_size(raw_body)}]
       else
-        [{"Content-Length", "0"}]
+        []
       end
 
     headers = [{"Host", "docker"} | content_headers ++ extra_headers]
