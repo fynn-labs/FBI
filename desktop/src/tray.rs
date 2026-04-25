@@ -29,6 +29,20 @@ impl TrayState {
     }
 }
 
+#[cfg(target_os = "macos")]
+fn select_waiting_icon(theme: tauri::Theme) -> (&'static [u8], bool) {
+    match theme {
+        tauri::Theme::Light => (
+            include_bytes!("../icons/tray-waiting-light.png"),
+            false,
+        ),
+        _ => (
+            include_bytes!("../icons/tray-waiting-template.png"),
+            true,
+        ),
+    }
+}
+
 pub fn setup_tray(app: &mut tauri::App) -> tauri::Result<()> {
     let menu = build_runs_menu(app, &[], &HashMap::new())?;
 
@@ -227,4 +241,21 @@ pub fn notify_raw(
         .body(&body.into())
         .show()
         .map_err(|e| e.to_string())
+}
+
+#[cfg(all(test, target_os = "macos"))]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn select_waiting_icon_light_returns_no_template() {
+        let (_, as_template) = select_waiting_icon(tauri::Theme::Light);
+        assert!(!as_template, "light mode icon must not use template mode");
+    }
+
+    #[test]
+    fn select_waiting_icon_dark_returns_template() {
+        let (_, as_template) = select_waiting_icon(tauri::Theme::Dark);
+        assert!(as_template, "dark mode icon must use template mode");
+    }
 }
