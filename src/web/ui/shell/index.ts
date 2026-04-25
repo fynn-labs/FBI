@@ -8,3 +8,5 @@ export * from './CommandPalette.js';
 export * from './paletteRegistry.js';
 export * from './KeyMap.js';
 export * from './Cheatsheet.js';
+export * from './ContextMenu.js';
+export * from './contextMenuRegistry.js';

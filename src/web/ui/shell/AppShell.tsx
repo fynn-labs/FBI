@@ -4,6 +4,7 @@ import { Sidebar, type SidebarProject } from './Sidebar.js';
 import { Topbar } from './Topbar.js';
 import { StatusBar } from './StatusBar.js';
 import { CommandPalette } from './CommandPalette.js';
+import { ContextMenu } from './ContextMenu.js';
 import { keymap } from './KeyMap.js';
 
 export interface AppShellProps {
@@ -36,6 +37,7 @@ export function AppShell({ projects, children, hideSidebar }: AppShellProps) {
       </div>
       <StatusBar />
       <CommandPalette open={paletteOpen} onClose={() => setPaletteOpen(false)} />
+      <ContextMenu />
     </div>
   );
 }
