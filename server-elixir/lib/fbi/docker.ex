@@ -55,12 +55,6 @@ defmodule FBI.Docker do
     conn = connect!()
     raw_body = if body, do: Jason.encode!(body), else: ""
 
-    # Body-less requests must NOT carry Content-Length: 0 — Docker's HTTP
-    # parser interpreted the previous "Content-Length: 0\r\n\r\n" against the
-    # GET as a complete-immediately request and slammed the socket shut after
-    # sending response headers, which is what we were seeing as :closed in the
-    # reader loop. curl on the same endpoint works fine because curl omits the
-    # header entirely on body-less requests; match that.
     content_headers =
       if body != nil do
         [{"Content-Type", "application/json"}, {"Content-Length", byte_size(raw_body)}]
@@ -68,7 +62,17 @@ defmodule FBI.Docker do
         []
       end
 
-    headers = [{"Host", "docker"} | content_headers ++ extra_headers]
+    # Match curl/dockerode-style headers. Empirically, Docker's HTTP server
+    # reacts differently to bare `Host` requests vs requests carrying
+    # User-Agent + Accept; the streaming `/logs?follow=1` socket would close
+    # right after the response headers without these.
+    base = [
+      {"Host", "docker"},
+      {"User-Agent", "fbi-elixir/0.1.0"},
+      {"Accept", "*/*"}
+    ]
+
+    headers = base ++ content_headers ++ extra_headers
     header_str = Enum.map_join(headers, "\r\n", fn {k, v} -> "#{k}: #{v}" end)
     req = "#{method} #{path} HTTP/1.1\r\n#{header_str}\r\n\r\n#{raw_body}"
     :ok = :gen_tcp.send(conn, req)
