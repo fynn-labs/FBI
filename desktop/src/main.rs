@@ -18,7 +18,37 @@ fn main() {
             tray::notify,
             discovery::discover_servers,
         ])
+        .on_menu_event(|app, event| {
+            match event.id.as_ref() {
+                "settings" => {
+                    let _ = app.emit("navigate", "/settings");
+                }
+                "keyboard-shortcuts" => {
+                    let _ = app.emit("open-cheatsheet", ());
+                }
+                "github-issues" => {
+                    use tauri_plugin_opener::OpenerExt;
+                    app.opener()
+                        .open_url("https://github.com/fynn-labs/FBI/issues", None::<&str>)
+                        .ok();
+                }
+                "check-updates" => {
+                    let handle = app.clone();
+                    tauri::async_runtime::spawn(async move {
+                        use tauri_plugin_updater::UpdaterExt;
+                        if let Ok(updater) = handle.updater() {
+                            if let Ok(Some(update)) = updater.check().await {
+                                let _ = update.download_and_install(|_, _| {}, || {}).await;
+                            }
+                        }
+                    });
+                }
+                _ => {}
+            }
+        })
         .setup(|app| {
+            let app_menu = menu::build_menu(app.handle())?;
+            app.set_menu(app_menu)?;
             tray::setup_tray(app)?;
             let handle = app.handle().clone();
             tauri::async_runtime::spawn(async move {
