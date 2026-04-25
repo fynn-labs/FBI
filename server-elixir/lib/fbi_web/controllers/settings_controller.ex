@@ -9,10 +9,8 @@ defmodule FBIWeb.SettingsController do
   - `PATCH /api/settings` — partial update; rejects `auto_resume_max_attempts`
     outside `1..20` with a 400 whose error message matches the TS handler
     byte-for-byte so clients with cached error strings keep working.
-
-  `POST /api/settings/run-gc` is intentionally **not** served here — it
-  depends on the orchestrator (Phase 7) and continues to be proxied to TS
-  via the catch-all in `FBIWeb.Router`.
+  - `POST /api/settings/run-gc` — triggers image GC via `FBI.Orchestrator`
+    and returns the result map.
 
   This is a plain Phoenix controller — no process state, no supervision
   concerns.  All behaviour delegates to `FBI.Settings.Queries`.
@@ -21,6 +19,12 @@ defmodule FBIWeb.SettingsController do
   use FBIWeb, :controller
 
   alias FBI.Settings.Queries
+
+  @doc "POST /api/settings/run-gc — trigger image GC and return counts."
+  def run_gc(conn, _params) do
+    result = FBI.Orchestrator.run_gc_once()
+    json(conn, result)
+  end
 
   @doc "GET /api/settings — returns the decoded singleton row."
   def show(conn, _params) do

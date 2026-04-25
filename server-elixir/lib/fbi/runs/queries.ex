@@ -315,6 +315,12 @@ defmodule FBI.Runs.Queries do
     :ok
   end
 
+  @spec set_log_path(integer(), String.t()) :: :ok
+  def set_log_path(id, log_path) do
+    Repo.update_all(from(r in Run, where: r.id == ^id), set: [log_path: log_path])
+    :ok
+  end
+
   @spec set_branch_name(integer(), String.t()) :: :ok
   def set_branch_name(id, branch) do
     Repo.update_all(from(r in Run, where: r.id == ^id), set: [branch_name: branch])
