@@ -100,11 +100,19 @@ if [ "$CHECKED_OUT" = "0" ]; then
         _fbi_cmd "git checkout -b" "$PRIMARY_BRANCH"
         git checkout -b "$PRIMARY_BRANCH" \
             || { _fbi_fatal "could not create branch $PRIMARY_BRANCH"; exit 13; }
-        if [ "$HAS_ORIGIN" = "1" ]; then
-            _fbi_cmd "git push -u" "origin $PRIMARY_BRANCH"
-            git push -u origin "$PRIMARY_BRANCH" \
-                || _fbi_warn "initial push of $PRIMARY_BRANCH to origin failed"
-        fi
+        # Only push to origin when the user provided an explicit branch name.
+        # Auto-generated claude/run-N branches are not pushed initially; the
+        # agent renames the branch and the post-commit hook handles the first push.
+        case "$PRIMARY_BRANCH" in
+          claude/run-*) : ;;
+          *)
+            if [ "$HAS_ORIGIN" = "1" ]; then
+                _fbi_cmd "git push -u" "origin $PRIMARY_BRANCH"
+                git push -u origin "$PRIMARY_BRANCH" \
+                    || _fbi_warn "initial push of $PRIMARY_BRANCH to origin failed"
+            fi
+            ;;
+        esac
     fi
 fi
 
@@ -131,13 +139,18 @@ cat > .git/hooks/post-commit <<'HOOK'
 mkdir -p /fbi-state
 BRANCH="$(git symbolic-ref --short HEAD)"
 
-# Safeguard push — always runs, always succeeds (local bind).
+# The safeguard mirror always uses the fixed claude/run-N ref so the server
+# can look up commits regardless of what the agent named the primary branch.
+MIRROR="claude/run-${RUN_ID}"
+
+# Safeguard push — always runs to the fixed mirror ref.
 (
-  git push safeguard "HEAD:refs/heads/$BRANCH" > /tmp/last-safeguard-push.log 2>&1 \
+  git push safeguard "HEAD:refs/heads/$MIRROR" > /tmp/last-safeguard-push.log 2>&1 \
     || echo "fatal: safeguard push failed" >&2
 ) &
 
-# Origin push — best-effort. Skipped entirely when HAS_ORIGIN=0.
+# Origin push — uses the current (potentially renamed) branch name.
+# Best-effort; skipped entirely when HAS_ORIGIN=0.
 if [ "${HAS_ORIGIN:-0}" = "1" ]; then
   (
     if git push --recurse-submodules=on-demand --force-with-lease \

@@ -390,8 +390,14 @@ export function registerRunsRoutes(app: FastifyInstance, deps: Deps): void {
         });
       }
       // Safeguard commits not yet pushed to GitHub. Use merge base to exclude
-      // pre-run history that was already on the base branch.
-      const safeguardCommits = safeguard.listCommits(run.branch_name, ghCompare.mergeBaseSha);
+      // pre-run history that was already on the base branch. The safeguard
+      // always stores commits under claude/run-N (the fixed mirror ref), so
+      // fall back to that name when the primary branch has been renamed.
+      const mirrorBranch = `claude/run-${runId}`;
+      const safeguardBranch = safeguard.refExists(run.branch_name)
+        ? run.branch_name
+        : mirrorBranch;
+      const safeguardCommits = safeguard.listCommits(safeguardBranch, ghCompare.mergeBaseSha);
       for (const c of safeguardCommits) {
         if (!ghShas.has(c.sha)) commits.push(c);
       }
@@ -415,7 +421,11 @@ export function registerRunsRoutes(app: FastifyInstance, deps: Deps): void {
         },
       };
     } else {
-      const safeguardCommits = run.branch_name ? safeguard.listCommits(run.branch_name, '') : [];
+      const mirrorBranch = `claude/run-${runId}`;
+      const safeguardBranch = run.branch_name && safeguard.refExists(run.branch_name)
+        ? run.branch_name
+        : (safeguard.refExists(mirrorBranch) ? mirrorBranch : null);
+      const safeguardCommits = safeguardBranch ? safeguard.listCommits(safeguardBranch, '') : [];
       for (const c of safeguardCommits) commits.push(c);
     }
 
