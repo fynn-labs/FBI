@@ -264,12 +264,12 @@ mod tests {
     #[test]
     fn select_waiting_icon_light_returns_light_bytes() {
         let (bytes, _) = select_waiting_icon(tauri::Theme::Light);
-        assert_eq!(bytes, include_bytes!("../../icons/tray-waiting-light.png"));
+        assert_eq!(bytes, include_bytes!("../icons/tray-waiting-light.png"));
     }
 
     #[test]
     fn select_waiting_icon_dark_returns_template_bytes() {
         let (bytes, _) = select_waiting_icon(tauri::Theme::Dark);
-        assert_eq!(bytes, include_bytes!("../../icons/tray-waiting-template.png"));
+        assert_eq!(bytes, include_bytes!("../icons/tray-waiting-template.png"));
     }
 }
