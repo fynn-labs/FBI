@@ -79,6 +79,7 @@ defmodule FBIWeb.Router do
   scope "/api", FBIWeb do
     get "/ws/usage", UsageSocketController, :upgrade
     get "/ws/states", StatesSocketController, :upgrade
+    get "/runs/:id/shell", ShellSocketController, :upgrade
   end
 
   # Enable LiveDashboard in development
