@@ -159,7 +159,7 @@ defmodule FBIWeb.RunsController do
   def continue_run(conn, %{"id" => id} = params) do
     run_id = String.to_integer(id)
 
-    with {:ok, run} <- Queries.get(run_id) |> from_get(),
+    with {:ok, run} <- Queries.get(run_id),
          :ok <- FBI.Orchestrator.ContinueEligibility.check(run, runs_dir()),
          :ok <- FBI.Runs.ModelParams.validate(params) do
       Queries.update_model_params(run_id, %{
@@ -205,9 +205,6 @@ defmodule FBIWeb.RunsController do
       _ -> :error
     end
   end
-
-  defp from_get({:ok, run}), do: {:ok, run}
-  defp from_get(:not_found), do: :not_found
 
   defp runs_dir,
     do: Application.get_env(:fbi, :runs_dir, "/tmp/fbi-runs")
