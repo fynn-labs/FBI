@@ -20,6 +20,8 @@ import { subscribeState, subscribeTitle, subscribeChanges } from '../features/ru
 import { UploadTray, type UploadTrayFile } from '../components/UploadTray.js';
 import { ContinueRunDialog } from '../components/ContinueRunDialog.js';
 import { acquireShell, releaseShell } from '../lib/shellRegistry.js';
+import { usePaneRegistration, usePaneFocus, useFocusedPane } from '@ui/shell/PaneFocusContext.js';
+import { cn } from '@ui/cn.js';
 
 export function RunDetailPage() {
   const params = useParams();
@@ -41,6 +43,16 @@ export function RunDetailPage() {
   const { height, setHeight } = useBottomPaneHeight();
 
   useKeyBinding({ chord: 'mod+j', handler: () => setDrawerOpen((v) => !v), description: 'Toggle run drawer' }, []);
+
+  usePaneRegistration('run-terminal', 2);
+  usePaneRegistration('run-bottom', 3);
+  const { isFocused: terminalFocused, focus: focusTerminal } = usePaneFocus('run-terminal');
+  const { isFocused: bottomFocused, focus: focusBottom } = usePaneFocus('run-bottom');
+  const focusedPane = useFocusedPane();
+
+  useEffect(() => {
+    if (focusedPane === 'run-bottom') setDrawerOpen(true);
+  }, [focusedPane]);
 
   useEffect(() => {
     let alive = true;
@@ -248,7 +260,14 @@ export function RunDetailPage() {
       <div className="flex-1 min-h-0 flex flex-col">
         <div
           ref={terminalPaneRef}
-          className="flex-1 min-h-0 relative flex flex-col overflow-hidden data-[upload-drag-active=true]:ring-2 data-[upload-drag-active=true]:ring-accent data-[upload-drag-active=true]:ring-inset transition-[box-shadow] duration-fast ease-out"
+          data-pane-id="run-terminal"
+          onClick={focusTerminal}
+          className={cn(
+            'flex-1 min-h-0 relative flex flex-col overflow-hidden border-t-2',
+            'data-[upload-drag-active=true]:ring-2 data-[upload-drag-active=true]:ring-accent data-[upload-drag-active=true]:ring-inset',
+            'transition-[box-shadow,border-color] duration-fast ease-out',
+            terminalFocused ? 'border-accent' : 'border-transparent',
+          )}
         >
           <RunTerminal runId={run.id} interactive={interactive} />
         </div>
@@ -273,24 +292,29 @@ export function RunDetailPage() {
             totalBytes={attached.reduce((n, f) => n + f.size, 0)}
           />
         </div>
-        <RunDrawer
-          open={drawerOpen}
-          onToggle={setDrawerOpen}
-          changesCount={changesCount}
-          portsCount={run.state === 'running' || run.state === 'waiting' ? ports.length : null}
-          shipDot={shipDot}
-          height={height}
-          onHeightChange={setHeight}
-        >
-          {(t) =>
-            t === 'changes' ? <ChangesTab run={run} project={project} changes={changes} wip={wip} /> :
-            t === 'ship'    ? <ShipTab run={run} project={project} changes={changes}
-                                       onCreatePr={onCreatePr} creatingPr={creatingPr} onReload={onReload} /> :
-            t === 'tunnel'  ? <TunnelTab runId={run.id} runState={run.state}
-                                         origin={window.location.origin} ports={ports} /> :
-                              <MetaTab run={run} siblings={siblings} />
-          }
-        </RunDrawer>
+        <div className="relative" onClick={focusBottom}>
+          {bottomFocused && (
+            <div className="absolute inset-x-0 top-0 h-0.5 bg-accent z-10 pointer-events-none" aria-hidden="true" />
+          )}
+          <RunDrawer
+            open={drawerOpen}
+            onToggle={setDrawerOpen}
+            changesCount={changesCount}
+            portsCount={run.state === 'running' || run.state === 'waiting' ? ports.length : null}
+            shipDot={shipDot}
+            height={height}
+            onHeightChange={setHeight}
+          >
+            {(t) =>
+              t === 'changes' ? <ChangesTab run={run} project={project} changes={changes} wip={wip} /> :
+              t === 'ship'    ? <ShipTab run={run} project={project} changes={changes}
+                                         onCreatePr={onCreatePr} creatingPr={creatingPr} onReload={onReload} /> :
+              t === 'tunnel'  ? <TunnelTab runId={run.id} runState={run.state}
+                                           origin={window.location.origin} ports={ports} /> :
+                                <MetaTab run={run} siblings={siblings} />
+            }
+          </RunDrawer>
+        </div>
       </div>
       {run && (
         <ContinueRunDialog
