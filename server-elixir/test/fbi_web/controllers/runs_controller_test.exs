@@ -260,6 +260,83 @@ defmodule FBIWeb.RunsControllerTest do
     end
   end
 
+  describe "POST /api/projects/:id/runs draft_token promotion" do
+    setup do
+      runs_dir =
+        Path.join(System.tmp_dir!(), "fbi-runs-create-#{System.unique_integer([:positive])}")
+
+      draft_dir =
+        Path.join(System.tmp_dir!(), "fbi-drafts-create-#{System.unique_integer([:positive])}")
+
+      File.mkdir_p!(runs_dir)
+      File.mkdir_p!(draft_dir)
+
+      prev_runs = Application.get_env(:fbi, :runs_dir)
+      prev_drafts = Application.get_env(:fbi, :draft_uploads_dir)
+      Application.put_env(:fbi, :runs_dir, runs_dir)
+      Application.put_env(:fbi, :draft_uploads_dir, draft_dir)
+
+      on_exit(fn ->
+        if prev_runs,
+          do: Application.put_env(:fbi, :runs_dir, prev_runs),
+          else: Application.delete_env(:fbi, :runs_dir)
+
+        if prev_drafts,
+          do: Application.put_env(:fbi, :draft_uploads_dir, prev_drafts),
+          else: Application.delete_env(:fbi, :draft_uploads_dir)
+
+        File.rm_rf!(runs_dir)
+        File.rm_rf!(draft_dir)
+      end)
+
+      %{runs_dir: runs_dir, draft_dir: draft_dir}
+    end
+
+    test "promotes draft files into the new run", %{
+      conn: conn,
+      runs_dir: runs_dir,
+      draft_dir: draft_dir
+    } do
+      token = "0123456789abcdef0123456789abcdef"
+      File.mkdir_p!(Path.join(draft_dir, token))
+      File.write!(Path.join([draft_dir, token, "note.txt"]), "hi")
+
+      {:ok, p} =
+        ProjectsQueries.create(%{
+          name: "p-#{System.unique_integer([:positive])}",
+          repo_url: "git@github.com:o/r.git",
+          default_branch: "main"
+        })
+
+      conn = json_post(conn, "/api/projects/#{p.id}/runs", %{prompt: "x", draft_token: token})
+      body = json_response(conn, 201)
+      run_id = body["id"]
+
+      uploads_dir =
+        Path.join([runs_dir, Integer.to_string(run_id), "uploads"])
+
+      assert File.exists?(Path.join(uploads_dir, "note.txt"))
+      refute File.exists?(Path.join(draft_dir, token))
+    end
+
+    test "rejects malformed draft_token", %{conn: conn} do
+      {:ok, p} =
+        ProjectsQueries.create(%{
+          name: "p-#{System.unique_integer([:positive])}",
+          repo_url: "git@github.com:o/r.git",
+          default_branch: "main"
+        })
+
+      conn =
+        json_post(conn, "/api/projects/#{p.id}/runs", %{
+          prompt: "x",
+          draft_token: "not-a-token"
+        })
+
+      assert %{"error" => "invalid_token"} = json_response(conn, 400)
+    end
+  end
+
   describe "DELETE /api/runs/:id" do
     test "returns 204 for a queued run", %{conn: conn, project_id: pid} do
       r = make_run(pid, %{state: "queued"})

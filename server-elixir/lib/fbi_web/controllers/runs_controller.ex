@@ -133,34 +133,64 @@ defmodule FBIWeb.RunsController do
     end
   end
 
-  defp do_create(conn, project_id, _params, prompt, branch_hint, model, effort, subagent_model) do
+  defp do_create(conn, project_id, params, prompt, branch_hint, model, effort, subagent_model) do
     runs_dir = Application.get_env(:fbi, :runs_dir, "/tmp/fbi-runs")
+    draft_dir = Application.fetch_env!(:fbi, :draft_uploads_dir)
     # branch_name and log_path are required by the schema; use defaults that
     # will be overwritten by the orchestrator during launch.
     branch_name = if branch_hint && branch_hint != "", do: branch_hint, else: "main"
 
-    attrs = %{
-      project_id: project_id,
-      prompt: prompt,
-      branch_name: branch_name,
-      model: model,
-      effort: effort,
-      subagent_model: subagent_model,
-      # Placeholder: overwritten immediately after insert once we know the id.
-      log_path: "_pending_",
-      state: "queued"
-    }
+    token = params["draft_token"] || ""
 
-    try do
-      run = Queries.create(attrs)
-      log_path = Path.join(runs_dir, "#{run.id}.log")
-      Queries.set_log_path(run.id, log_path)
-      run = %{run | log_path: log_path}
-      FBI.Orchestrator.init_safeguard(run.id)
-      FBI.Orchestrator.launch(run.id)
-      conn |> put_status(201) |> json(run)
-    rescue
-      e -> conn |> put_status(422) |> json(%{error: inspect(e)})
+    cond do
+      token != "" and not FBI.Uploads.Draft.valid_token?(token) ->
+        conn |> put_status(400) |> json(%{error: "invalid_token"})
+
+      true ->
+        attrs = %{
+          project_id: project_id,
+          prompt: prompt,
+          branch_name: branch_name,
+          model: model,
+          effort: effort,
+          subagent_model: subagent_model,
+          # Placeholder: overwritten immediately after insert once we know the id.
+          log_path: "_pending_",
+          state: "queued"
+        }
+
+        try do
+          run = Queries.create(attrs)
+          log_path = Path.join(runs_dir, "#{run.id}.log")
+          Queries.set_log_path(run.id, log_path)
+          run = %{run | log_path: log_path}
+
+          promote_result =
+            if token != "" do
+              FBI.Uploads.Draft.promote(draft_dir, runs_dir, token, run.id)
+            else
+              :ok
+            end
+
+          case promote_result do
+            :ok ->
+              FBI.Orchestrator.init_safeguard(run.id)
+              FBI.Orchestrator.launch(run.id)
+              conn |> put_status(201) |> json(run)
+
+            {:ok, _files} ->
+              FBI.Orchestrator.init_safeguard(run.id)
+              FBI.Orchestrator.launch(run.id)
+              conn |> put_status(201) |> json(run)
+
+            {:error, _reason} ->
+              Queries.delete(run.id)
+              File.rm_rf(Path.join(runs_dir, Integer.to_string(run.id)))
+              conn |> put_status(422) |> json(%{error: "promotion_failed"})
+          end
+        rescue
+          e -> conn |> put_status(422) |> json(%{error: inspect(e)})
+        end
     end
   end
 
