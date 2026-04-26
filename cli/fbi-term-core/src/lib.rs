@@ -16,6 +16,10 @@
 mod parser;
 pub use parser::Parser;
 
+// Grid → ANSI serializer, used by `Parser::snapshot()`.
+// Kept private — callers only see the `Snapshot` output type.
+mod serialize;
+
 /// Result of `Parser::snapshot()`. The `ansi` field is a complete
 /// replay of mode state + grid contents + final cursor position;
 /// writing it into a fresh xterm.js terminal at the same dims

@@ -181,4 +181,86 @@ impl Parser {
     pub fn bytes_fed(&self) -> u64 {
         self.bytes_fed
     }
+
+    // ── Snapshot ──────────────────────────────────────────────────────────────
+
+    /// Serialize the current grid + cursor position to an ANSI replay string.
+    ///
+    /// Writing the returned `Snapshot::ansi` into a fresh xterm.js terminal
+    /// at the same dimensions (`cols` × `rows`) reproduces the source grid's
+    /// visible cell content and cursor position.
+    ///
+    /// Mode prefix (alt-screen buffer, DECSTBM scroll region, DECTCEM cursor
+    /// visibility, etc.) is added in a later task (1.4).  At this point the
+    /// snapshot only covers cell content + final cursor position.
+    pub fn snapshot(&self) -> crate::Snapshot {
+        // Delegate the heavy lifting to the grid serializer.  Keeping it in a
+        // separate module makes the serialization logic unit-testable in
+        // isolation and keeps this impl block readable.
+        let ansi = crate::serialize::serialize_grid(&self.term);
+        crate::Snapshot {
+            ansi,
+            cols: self.cols,
+            rows: self.rows,
+            byte_offset: self.bytes_fed,
+        }
+    }
+
+    // ── Test helpers ──────────────────────────────────────────────────────────
+    //
+    // These are `#[cfg(test)]` so they compile only in test builds.  The
+    // leading underscore signals "test-only helper, not public API".
+
+    /// Read row `row` (0-indexed) as a plain UTF-8 string, stripping all SGR
+    /// attributes.  Used by tests that want to inspect grid content without
+    /// caring about colors or style.
+    ///
+    /// The leading underscore signals that this is a test helper not intended
+    /// for production use.  It is always compiled (not `#[cfg(test)]`) so that
+    /// integration tests in `tests/` can call it too.
+    pub fn _test_row_string(&self, row: usize) -> String {
+        use alacritty_terminal::grid::Dimensions;
+        use alacritty_terminal::index::{Column, Line};
+        use alacritty_terminal::term::cell::Flags;
+
+        let grid = self.term.grid();
+        let num_cols = grid.columns();
+        let line = Line(row as i32);
+        let row_ref = &grid[line];
+
+        let mut s = String::with_capacity(num_cols);
+        for col in 0..num_cols {
+            let cell = &row_ref[Column(col)];
+            // Skip wide-char spacers — the preceding WIDE_CHAR cell already
+            // emitted the character.
+            if cell.flags.contains(Flags::WIDE_CHAR_SPACER) {
+                continue;
+            }
+            s.push(cell.c);
+            // Include zero-width combining characters.
+            if let Some(zw) = cell.zerowidth() {
+                for &ch in zw {
+                    s.push(ch);
+                }
+            }
+        }
+
+        // Trim trailing spaces so callers can use `starts_with` / `ends_with`
+        // assertions without worrying about padding to the terminal width.
+        s.trim_end().to_owned()
+    }
+
+    /// Read the current cursor position as `(row, col)`, both 0-indexed.
+    ///
+    /// `row` 0 is the top of the screen; `col` 0 is the leftmost column.
+    ///
+    /// Same "always compiled, test helper" convention as `_test_row_string`.
+    pub fn _test_cursor(&self) -> (usize, usize) {
+        let point = self.term.grid().cursor.point;
+        // `point.line` is a `Line(i32)` — 0 = top of viewport.
+        // `point.column` is a `Column(usize)`.
+        let row = point.line.0 as usize;
+        let col = point.column.0;
+        (row, col)
+    }
 }
