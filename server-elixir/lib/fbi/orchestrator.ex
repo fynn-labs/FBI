@@ -86,6 +86,33 @@ defmodule FBI.Orchestrator do
     RunServer.resize(run_id, cols, rows)
   end
 
+  # ---------------------------------------------------------------------------
+  # Viewer registry — public API
+  # ---------------------------------------------------------------------------
+
+  @doc "Register a new WebSocket viewer. Returns {:ok, viewer_id}."
+  def viewer_joined(run_id, ws_pid, cols, rows),
+    do: RunServer.viewer_joined(run_id, ws_pid, cols, rows)
+
+  @doc "Signal that viewer_id has gained focus (e.g. tab activated)."
+  def viewer_focused(run_id, viewer_id), do: RunServer.viewer_focused(run_id, viewer_id)
+
+  @doc "Signal that viewer_id has lost focus."
+  def viewer_blurred(run_id, viewer_id), do: RunServer.viewer_blurred(run_id, viewer_id)
+
+  @doc "Remove a viewer from the registry (WS disconnect)."
+  def viewer_left(run_id, viewer_id), do: RunServer.viewer_left(run_id, viewer_id)
+
+  @doc "Update the dimensions a viewer reported via resize."
+  def viewer_resized(run_id, viewer_id, cols, rows),
+    do: RunServer.viewer_resized(run_id, viewer_id, cols, rows)
+
+  @doc "Return the current terminal snapshot for a run."
+  def snapshot(run_id), do: RunServer.snapshot_via_call(run_id)
+
+  @doc "Return the mode-state prefix at a given byte offset."
+  def snapshot_at(run_id, offset), do: RunServer.snapshot_at_via_call(run_id, offset)
+
   def fire_resume_now(run_id) do
     ResumeScheduler.fire_now(FBI.Orchestrator.ResumeScheduler, run_id)
   end

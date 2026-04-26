@@ -34,7 +34,8 @@ defmodule FBI.Orchestrator.RunServer do
     MirrorStatusPoller,
     ResumeScheduler,
     SessionId,
-    ClaudeJson
+    ClaudeJson,
+    Viewer
   }
 
   @type mode :: :launch | :resume | :continue | :reattach
@@ -46,8 +47,16 @@ defmodule FBI.Orchestrator.RunServer do
     :lifecycle_task_ref,
     :attach_socket,
     :container_id,
+    # FBI.Terminal NIF handle — allocated in init/1 (eager), so bytes that
+    # arrive before set_container (e.g. "[fbi] resolving image\n") are
+    # captured in the parser from the very first chunk.
+    :term_handle,
     last_rate_limit: nil,
-    cancelled: false
+    cancelled: false,
+    # Map of viewer_id (reference) => %Viewer{} for all connected WS sessions.
+    viewers: %{},
+    # The viewer whose dims drive PTY resize. nil until first viewer joins.
+    focused_viewer: nil
   ]
 
   # ---------------------------------------------------------------------------
@@ -91,6 +100,61 @@ defmodule FBI.Orchestrator.RunServer do
 
   def set_last_rate_limit(pid, snapshot) do
     GenServer.cast(pid, {:set_rate_limit, snapshot})
+  end
+
+  # ---------------------------------------------------------------------------
+  # Viewer registry — public API helpers
+  # Same Registry-lookup pattern as write_stdin/resize above.
+  # ---------------------------------------------------------------------------
+
+  def viewer_joined(run_id, ws_pid, cols, rows) do
+    case Registry.lookup(FBI.Orchestrator.Registry, run_id) do
+      [{pid, _}] -> GenServer.call(pid, {:viewer_joined, ws_pid, cols, rows})
+      [] -> {:error, :no_run}
+    end
+  end
+
+  def viewer_focused(run_id, viewer_id) do
+    case Registry.lookup(FBI.Orchestrator.Registry, run_id) do
+      [{pid, _}] -> GenServer.call(pid, {:viewer_focused, viewer_id})
+      [] -> {:error, :no_run}
+    end
+  end
+
+  def viewer_blurred(run_id, viewer_id) do
+    case Registry.lookup(FBI.Orchestrator.Registry, run_id) do
+      [{pid, _}] -> GenServer.call(pid, {:viewer_blurred, viewer_id})
+      [] -> {:error, :no_run}
+    end
+  end
+
+  def viewer_left(run_id, viewer_id) do
+    case Registry.lookup(FBI.Orchestrator.Registry, run_id) do
+      [{pid, _}] -> GenServer.call(pid, {:viewer_left, viewer_id})
+      [] -> {:error, :no_run}
+    end
+  end
+
+  def viewer_resized(run_id, viewer_id, cols, rows) do
+    case Registry.lookup(FBI.Orchestrator.Registry, run_id) do
+      [{pid, _}] -> GenServer.call(pid, {:viewer_resized, viewer_id, cols, rows})
+      [] -> {:error, :no_run}
+    end
+  end
+
+  def snapshot_via_call(run_id) do
+    case Registry.lookup(FBI.Orchestrator.Registry, run_id) do
+      [{pid, _}] -> GenServer.call(pid, :snapshot)
+      # No live run — return a blank screen so callers always get a valid struct.
+      [] -> %FBI.Terminal.Snapshot{ansi: "\e[2J\e[H", cols: 80, rows: 24, byte_offset: 0}
+    end
+  end
+
+  def snapshot_at_via_call(run_id, offset) do
+    case Registry.lookup(FBI.Orchestrator.Registry, run_id) do
+      [{pid, _}] -> GenServer.call(pid, {:snapshot_at, offset})
+      [] -> %FBI.Terminal.ModePrefix{ansi: ""}
+    end
   end
 
   def get_last_rate_limit(run_id) do
@@ -138,7 +202,13 @@ defmodule FBI.Orchestrator.RunServer do
 
   @impl true
   def init({run_id, mode, config}) do
-    state = %__MODULE__{run_id: run_id, mode: mode, config: config}
+    # Allocate the NIF terminal handle eagerly so that bytes arriving before
+    # set_container (e.g. "[fbi] resolving image\n") are captured by the
+    # parser from the very first on_bytes call. 80×24 is the default PTY
+    # size; it will be updated by apply_focus_resize_if_needed once a viewer
+    # joins and (if needed) again when set_container fires.
+    term_handle = FBI.Terminal.new(80, 24)
+    state = %__MODULE__{run_id: run_id, mode: mode, config: config, term_handle: term_handle}
     {:ok, state, {:continue, mode}}
   end
 
@@ -217,6 +287,123 @@ defmodule FBI.Orchestrator.RunServer do
     {:reply, state.last_rate_limit, state}
   end
 
+  # ---------------------------------------------------------------------------
+  # Viewer registry — GenServer.call handlers
+  # ---------------------------------------------------------------------------
+
+  def handle_call({:viewer_joined, ws_pid, cols, rows}, _from, state) do
+    ref = make_ref()
+    monitor_ref = Process.monitor(ws_pid)
+    now = System.monotonic_time()
+
+    v = %Viewer{
+      id: ref,
+      ws_pid: ws_pid,
+      ws_monitor_ref: monitor_ref,
+      cols: cols,
+      rows: rows,
+      focused_at: nil,
+      joined_at: now
+    }
+
+    state = %{state | viewers: Map.put(state.viewers, ref, v)}
+
+    # First viewer to join becomes implicitly focused — no UI gesture needed.
+    state =
+      if state.focused_viewer == nil do
+        state
+        |> Map.put(:focused_viewer, ref)
+        |> update_in([Access.key(:viewers), ref, Access.key(:focused_at)], fn _ -> now end)
+        |> apply_focus_resize_if_needed()
+      else
+        state
+      end
+
+    if state.focused_viewer != nil, do: broadcast_focus_state(state)
+    {:reply, {:ok, ref}, state}
+  end
+
+  def handle_call({:viewer_focused, viewer_id}, _from, state) do
+    case state.viewers[viewer_id] do
+      nil ->
+        {:reply, {:error, :unknown_viewer}, state}
+
+      _v ->
+        now = System.monotonic_time()
+
+        state =
+          state
+          |> update_in(
+            [Access.key(:viewers), viewer_id, Access.key(:focused_at)],
+            fn _ -> now end
+          )
+          |> Map.put(:focused_viewer, viewer_id)
+          |> apply_focus_resize_if_needed()
+
+        broadcast_focus_state(state)
+        {:reply, :ok, state}
+    end
+  end
+
+  def handle_call({:viewer_blurred, viewer_id}, _from, state) do
+    # Only blur the current focused viewer; other viewers' blur events are no-ops.
+    state =
+      if state.focused_viewer == viewer_id do
+        new_focused = pick_fallback_focus(state.viewers, viewer_id)
+        new_state = %{state | focused_viewer: new_focused}
+        broadcast_focus_state(new_state)
+        new_state
+      else
+        state
+      end
+
+    {:reply, :ok, state}
+  end
+
+  def handle_call({:viewer_resized, viewer_id, cols, rows}, _from, state) do
+    case state.viewers[viewer_id] do
+      nil ->
+        {:reply, {:error, :unknown_viewer}, state}
+
+      _v ->
+        state =
+          state
+          |> update_in([Access.key(:viewers), viewer_id, Access.key(:cols)], fn _ -> cols end)
+          |> update_in([Access.key(:viewers), viewer_id, Access.key(:rows)], fn _ -> rows end)
+          |> apply_focus_resize_if_needed()
+
+        {:reply, :ok, state}
+    end
+  end
+
+  def handle_call({:viewer_left, viewer_id}, _from, state) do
+    state = drop_viewer(state, viewer_id)
+    {:reply, :ok, state}
+  end
+
+  def handle_call(:snapshot, _from, state) do
+    snap =
+      case state.term_handle do
+        nil ->
+          %FBI.Terminal.Snapshot{ansi: "\e[2J\e[H", cols: 80, rows: 24, byte_offset: 0}
+
+        h ->
+          FBI.Terminal.snapshot(h)
+      end
+
+    {:reply, snap, state}
+  end
+
+  def handle_call({:snapshot_at, offset}, _from, state) do
+    pref =
+      case state.term_handle do
+        nil -> %FBI.Terminal.ModePrefix{ansi: ""}
+        h -> FBI.Terminal.snapshot_at(h, offset)
+      end
+
+    {:reply, pref, state}
+  end
+
   @impl true
   def handle_info({ref, _result}, %{lifecycle_task_ref: ref} = state) do
     Process.demonitor(ref, [:flush])
@@ -228,6 +415,16 @@ defmodule FBI.Orchestrator.RunServer do
     {:stop, :normal, %{state | lifecycle_task_ref: nil}}
   end
 
+  # WS pid death — find the viewer that owns this monitor ref and clean it up.
+  def handle_info({:DOWN, ref, :process, _pid, _reason}, state) do
+    case Enum.find(state.viewers, fn {_, v} -> v.ws_monitor_ref == ref end) do
+      {viewer_id, _} -> {:noreply, drop_viewer(state, viewer_id)}
+      # Could be the lifecycle task's :DOWN — let the next clause handle it.
+      nil -> {:noreply, state}
+    end
+  end
+
+  # Catch-all — must stay last.
   def handle_info(_, state), do: {:noreply, state}
 
   @impl true
@@ -1356,5 +1553,130 @@ defmodule FBI.Orchestrator.RunServer do
       {"", _key} -> []
       {value, key} -> ["#{key}=#{value}"]
     end)
+  end
+
+  # ---------------------------------------------------------------------------
+  # Viewer registry — private helpers
+  # ---------------------------------------------------------------------------
+
+  # Remove a viewer from the registry, demonitoring its WS process and
+  # applying fallback focus if the removed viewer was focused.
+  defp drop_viewer(state, viewer_id) do
+    state =
+      case state.viewers[viewer_id] do
+        nil ->
+          state
+
+        v ->
+          Process.demonitor(v.ws_monitor_ref, [:flush])
+          Map.update!(state, :viewers, &Map.delete(&1, viewer_id))
+      end
+
+    if state.focused_viewer == viewer_id do
+      new_focused = pick_fallback_focus(state.viewers, viewer_id)
+      new_state = %{state | focused_viewer: new_focused}
+      broadcast_focus_state(new_state)
+      new_state
+    else
+      state
+    end
+  end
+
+  # Fallback focus policy when the currently-focused viewer leaves or blurs:
+  #  1. Prefer the most-recently-focused remaining viewer (sticky).
+  #  2. If no remaining viewer was ever focused, pick the most-recently-joined.
+  #  3. Empty registry → nil (no focused viewer).
+  defp pick_fallback_focus(viewers, _excluded) when map_size(viewers) == 0, do: nil
+
+  defp pick_fallback_focus(viewers, _excluded) do
+    prev_focused = Enum.filter(viewers, fn {_, v} -> v.focused_at != nil end)
+
+    case prev_focused do
+      [] ->
+        # No one has ever had explicit focus — pick the longest-connected viewer.
+        {id, _v} = Enum.max_by(viewers, fn {_, v} -> v.joined_at end)
+        id
+
+      list ->
+        # Most-recently-focused wins.
+        {id, _v} = Enum.max_by(list, fn {_, v} -> v.focused_at end)
+        id
+    end
+  end
+
+  # If the focused viewer's dimensions differ from the parser/PTY's current
+  # size, resize both. Then broadcast a fresh snapshot to all viewers because
+  # the resize changes how the TUI renders content inside the container.
+  #
+  # Called whenever focus changes or a viewer's dims change, so the PTY always
+  # tracks the focused viewer's terminal window.
+  defp apply_focus_resize_if_needed(state) do
+    case {state.focused_viewer, state.term_handle, state.container_id} do
+      {nil, _, _} ->
+        state
+
+      {_, nil, _} ->
+        state
+
+      {_, _, nil} ->
+        state
+
+      {viewer_id, term_handle, container_id} ->
+        v = state.viewers[viewer_id]
+        snap = FBI.Terminal.snapshot(term_handle)
+
+        if v.cols != snap.cols or v.rows != snap.rows do
+          # Resize the PTY in the container. Tolerate failure — the container
+          # may have just exited (race with lifecycle teardown).
+          try do
+            FBI.Docker.resize_container(container_id, v.cols, v.rows)
+          rescue
+            _ -> :ok
+          catch
+            _, _ -> :ok
+          end
+
+          FBI.Terminal.resize(term_handle, v.cols, v.rows)
+          broadcast_fresh_snapshot(state)
+        end
+
+        state
+    end
+  end
+
+  # Broadcast a full snapshot frame to all viewers on the run's snapshot topic.
+  # Used after a resize so every connected xterm.js instance repaints with the
+  # new dimensions.
+  defp broadcast_fresh_snapshot(state) do
+    case state.term_handle do
+      nil ->
+        :ok
+
+      h ->
+        snap = FBI.Terminal.snapshot(h)
+
+        frame = %{
+          type: "snapshot",
+          ansi: snap.ansi,
+          cols: snap.cols,
+          rows: snap.rows
+        }
+
+        Phoenix.PubSub.broadcast(
+          FBI.PubSub,
+          "run:#{state.run_id}:snapshot",
+          {:snapshot, frame}
+        )
+    end
+  end
+
+  # Broadcast the current focus state to the run's events topic so connected
+  # clients can render the takeover-banner / highlight the driving viewer.
+  defp broadcast_focus_state(state) do
+    Phoenix.PubSub.broadcast(
+      FBI.PubSub,
+      "run:#{state.run_id}:events",
+      {:event, %{type: "focus_state", focused_viewer: state.focused_viewer}}
+    )
   end
 end
