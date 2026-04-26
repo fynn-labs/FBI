@@ -5,6 +5,14 @@ pub enum Invocation {
         scenario_file: Option<String>,
         resume_session_id: Option<String>,
     },
+    /// Capture mode: concatenate all emit_ansi payloads from a scenario and
+    /// write the raw bytes to `path`.  No timing, no exit step, no side effects.
+    /// Used by the diff harness to produce deterministic byte-stream fixtures.
+    CaptureBytes {
+        scenario: Option<String>,
+        scenario_file: Option<String>,
+        path: String,
+    },
     PluginMarketplaceAdd(String),
     PluginInstall(String),
     Unsupported(String),
@@ -38,6 +46,7 @@ pub fn parse(args: &[String]) -> Invocation {
     let mut scenario = None;
     let mut scenario_file = None;
     let mut resume_session_id = None;
+    let mut capture_bytes_path: Option<String> = None;
     while let Some(arg) = iter.next() {
         match arg.as_str() {
             "--dangerously-skip-permissions" => {}
@@ -50,8 +59,17 @@ pub fn parse(args: &[String]) -> Invocation {
             "--scenario-file" => {
                 scenario_file = iter.next().cloned();
             }
+            // --capture-bytes <PATH>
+            // For the diff harness: skips timing and exit; writes the
+            // concatenated emit_ansi payloads as raw bytes to PATH.
+            "--capture-bytes" => {
+                capture_bytes_path = iter.next().cloned();
+            }
             other => return Invocation::Unsupported(other.to_string()),
         }
+    }
+    if let Some(path) = capture_bytes_path {
+        return Invocation::CaptureBytes { scenario, scenario_file, path };
     }
     Invocation::Run { scenario, scenario_file, resume_session_id }
 }
@@ -118,5 +136,29 @@ mod tests {
             Invocation::Unsupported(_) => {}
             other => panic!("expected Unsupported, got {:?}", other),
         }
+    }
+
+    #[test]
+    fn capture_bytes_flag() {
+        assert_eq!(
+            parse(&argv(&["--scenario", "garbled", "--capture-bytes", "/tmp/out.bin"])),
+            Invocation::CaptureBytes {
+                scenario: Some("garbled".into()),
+                scenario_file: None,
+                path: "/tmp/out.bin".into(),
+            }
+        );
+    }
+
+    #[test]
+    fn capture_bytes_with_scenario_file() {
+        assert_eq!(
+            parse(&argv(&["--scenario-file", "/path/to/foo.yaml", "--capture-bytes", "/tmp/out.bin"])),
+            Invocation::CaptureBytes {
+                scenario: None,
+                scenario_file: Some("/path/to/foo.yaml".into()),
+                path: "/tmp/out.bin".into(),
+            }
+        );
     }
 }
