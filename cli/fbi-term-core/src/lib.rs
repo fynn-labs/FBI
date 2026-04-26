@@ -13,13 +13,8 @@
 //! Public API: see `Parser`, `Snapshot`, `ModePrefix`. They are stubs
 //! at this point; subsequent commits flesh them out.
 
-/// Server-side virtual terminal handle. One per FBI run.
-///
-/// Wraps `alacritty_terminal::Term` plus our own mode tracker and
-/// checkpoint store (added in subsequent tasks). Hides alacritty's
-/// type plumbing so callers see a clean `feed`/`snapshot`/`resize`
-/// surface that maps directly onto the Rustler NIF.
-pub struct Parser;
+mod parser;
+pub use parser::Parser;
 
 /// Result of `Parser::snapshot()`. The `ansi` field is a complete
 /// replay of mode state + grid contents + final cursor position;
