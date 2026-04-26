@@ -52,6 +52,10 @@ impl<'de> Deserialize<'de> for Step {
                         let v: i32 = map.next_value()?;
                         Step::Exit(v)
                     }
+                    "sleep_forever" => {
+                        let _: serde_yaml::Value = map.next_value()?;
+                        Step::SleepForever
+                    }
                     "echo_env" => {
                         let v: Vec<String> = map.next_value()?;
                         Step::EchoEnv(v)
@@ -149,5 +153,24 @@ steps:
   - frobnicate: 1
 "#;
         assert!(Scenario::parse(yaml).is_err());
+    }
+
+    #[test]
+    fn parses_sleep_forever_in_both_forms() {
+        let yaml_string = r#"
+name: a
+steps:
+  - sleep_forever
+"#;
+        let s1 = Scenario::parse(yaml_string).unwrap();
+        assert_eq!(s1.steps, vec![Step::SleepForever]);
+
+        let yaml_map = r#"
+name: b
+steps:
+  - sleep_forever: true
+"#;
+        let s2 = Scenario::parse(yaml_map).unwrap();
+        assert_eq!(s2.steps, vec![Step::SleepForever]);
     }
 }
