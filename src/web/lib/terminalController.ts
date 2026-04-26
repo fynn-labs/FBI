@@ -578,7 +578,14 @@ export class TerminalController {
         traceRecord('controller.seed.error', { status: res.status });
         return;
       }
-      const seedBytes = new Uint8Array(await res.arrayBuffer());
+      // Read mode-prefix length before consuming the body (same logic as in
+      // loadOlderChunk). The prefix bytes set decoder state for the seed
+      // chunk but don't represent historical content — they must not be
+      // stored in loadedBytes or counted in loadedStartOffset math.
+      const seedPrefixLen = Number(res.headers.get('X-Transcript-Mode-Prefix-Bytes') ?? '0');
+      const seedFull = new Uint8Array(await res.arrayBuffer());
+      const seedPrefixBytes = seedFull.subarray(0, seedPrefixLen);
+      const seedBytes = seedFull.subarray(seedPrefixLen);
       if (this.disposed) return;
       // Do NOT include snap.ansi here. Before commit 3e3598a, snap.ansi was
       // the full PTY state used to correct the visible area after truncated
@@ -600,7 +607,10 @@ export class TerminalController {
       // guard that must not fire `emitPauseChange` or affect the banner.
       this.setRebuilding(true);
       try {
-        await this.rebuildXterm([this.loadedBytes, this.liveTailBytes]);
+        // seedPrefixBytes set decoder state; written first so the seed
+        // chunk parses in the correct terminal mode, but not stored in
+        // loadedBytes (they don't represent content at `start` offset).
+        await this.rebuildXterm([seedPrefixBytes, this.loadedBytes, this.liveTailBytes]);
         this.term.scrollToBottom();
       } finally {
         this.setRebuilding(false);
@@ -659,13 +669,27 @@ export class TerminalController {
           traceRecord('controller.chunk.error', { status: res.status });
           return;
         }
-        const chunk = new Uint8Array(await res.arrayBuffer());
+        // Read the mode-prefix length. The prefix bytes set decoder state
+        // (buffer mode, scroll regions, character sets, etc.) for the chunk
+        // that follows but don't represent historical content. They MUST be
+        // written to xterm so the chunk replay starts in the correct state,
+        // but they must NOT be prepended into loadedBytes (which tracks
+        // logical chunk positions) or shift loadedStartOffset.
+        const prefixLen = Number(res.headers.get('X-Transcript-Mode-Prefix-Bytes') ?? '0');
+        const fullBytes = new Uint8Array(await res.arrayBuffer());
+        const prefixBytes = fullBytes.subarray(0, prefixLen);
+        const chunk = fullBytes.subarray(prefixLen);
         if (this.disposed) return;
         if (abort.signal.aborted) { this.setChunkState('idle'); return; }
 
         const oldBaseY = this.term.buffer.active.baseY;
         const oldViewportY = this.term.buffer.active.viewportY;
 
+        // Prepend the chunk content into loadedBytes. The prefixBytes are NOT
+        // included here — they don't represent historical content at the
+        // loadedStartOffset position. They are injected into the replay
+        // sequence (before `newLoaded`) below so xterm parses the chunk in
+        // the correct terminal mode state.
         const newLoaded = concat([chunk, this.loadedBytes]);
         // Gate onScroll (and onBytes, though paused already covers that)
         // during the rebuild + scroll-restore. Without this, term.reset()
@@ -676,7 +700,10 @@ export class TerminalController {
         let chunkDone = false;
         this.setRebuilding(true);
         try {
-          await this.rebuildXterm([newLoaded, this.liveTailBytes]);
+          // prefixBytes set decoder state for the chunk; they are written
+          // first so the chunk replay parses correctly but they don't shift
+          // the logical byte positions tracked by loadedStartOffset.
+          await this.rebuildXterm([prefixBytes, newLoaded, this.liveTailBytes]);
           if (this.disposed) return;
           if (abort.signal.aborted) { chunkDone = true; return; }
 
