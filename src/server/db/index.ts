@@ -273,4 +273,15 @@ export function migrate(db: DB): void {
     db.exec('UPDATE runs SET tokens_total = tokens_input + tokens_output');
     db.prepare('UPDATE settings SET tokens_total_recomputed_at = ? WHERE id = 1').run(Date.now());
   }
+
+  const runsCols2 = new Set(
+    (db.prepare("PRAGMA table_info(runs)").all() as Array<{ name: string }>)
+      .map((r) => r.name)
+  );
+  if (!runsCols2.has('mock')) {
+    db.exec('ALTER TABLE runs ADD COLUMN mock INTEGER NOT NULL DEFAULT 0');
+  }
+  if (!runsCols2.has('mock_scenario')) {
+    db.exec('ALTER TABLE runs ADD COLUMN mock_scenario TEXT');
+  }
 }
