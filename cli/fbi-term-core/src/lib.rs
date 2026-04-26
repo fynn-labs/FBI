@@ -20,6 +20,11 @@ pub use parser::Parser;
 // Kept private — callers only see the `Snapshot` output type.
 mod serialize;
 
+// DEC private mode + DECSTBM scanner.
+// `pub` so that integration tests in `tests/` can reference `ModeScanner`
+// if needed, but the primary consumer is `parser.rs` internally.
+pub mod modes;
+
 /// Result of `Parser::snapshot()`. The `ansi` field is a complete
 /// replay of mode state + grid contents + final cursor position;
 /// writing it into a fresh xterm.js terminal at the same dims

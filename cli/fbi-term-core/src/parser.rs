@@ -57,6 +57,8 @@ use alacritty_terminal::grid::Dimensions;
 use alacritty_terminal::term::Config;
 use vte::ansi::Processor;
 
+use crate::modes::ModeScanner;
+
 // ── Private size helper ───────────────────────────────────────────────────────
 //
 // `alacritty_terminal::grid::Dimensions` is a three-method trait. The only
@@ -122,6 +124,15 @@ pub struct Parser {
     /// increasing; used by the checkpoint store (Task 1.5) to associate
     /// snapshots with byte offsets into the run transcript.
     bytes_fed: u64,
+
+    /// Parallel DEC private mode + DECSTBM scroll-region tracker.
+    ///
+    /// `alacritty_terminal::Term` tracks modes internally but offers no API
+    /// to re-emit them as ANSI.  We run `ModeScanner` over the same byte
+    /// stream alongside the alacritty processor so that `snapshot()` can
+    /// prepend a mode-replay prefix.  See `crate::modes` for the full
+    /// rationale.
+    pub(crate) mode_scanner: ModeScanner,
 }
 
 impl Parser {
@@ -146,17 +157,23 @@ impl Parser {
         // synchronized-update timeout; no setup required.
         let processor = Processor::new();
 
-        Self { term, processor, cols, rows, bytes_fed: 0 }
+        Self { term, processor, cols, rows, bytes_fed: 0, mode_scanner: ModeScanner::new() }
     }
 
     /// Feed raw PTY bytes into the terminal. May be called repeatedly;
     /// the processor state is preserved across calls (partial escape
     /// sequences are correctly stitched together).
     pub fn feed(&mut self, bytes: &[u8]) {
-        // `Processor::advance` is the hot path: it calls through to
-        // `Term`'s `Handler` impl for each decoded ANSI action (print,
-        // cursor move, color change, mode toggle, …).
+        // Feed the alacritty processor (handles cell writes, cursor moves,
+        // color changes, mode toggles that affect the grid, etc.).
         self.processor.advance(&mut self.term, bytes);
+
+        // Feed the same bytes into the mode scanner in parallel.  The mode
+        // scanner only cares about DEC private mode h/l and DECSTBM; it
+        // ignores everything else.  Running it after alacritty means both
+        // parsers always see the same bytes in the same order.
+        self.mode_scanner.feed(bytes);
+
         self.bytes_fed += bytes.len() as u64;
     }
 
@@ -184,20 +201,27 @@ impl Parser {
 
     // ── Snapshot ──────────────────────────────────────────────────────────────
 
-    /// Serialize the current grid + cursor position to an ANSI replay string.
+    /// Serialize the current mode state + grid + cursor position to an ANSI
+    /// replay string.
     ///
     /// Writing the returned `Snapshot::ansi` into a fresh xterm.js terminal
-    /// at the same dimensions (`cols` × `rows`) reproduces the source grid's
-    /// visible cell content and cursor position.
-    ///
-    /// Mode prefix (alt-screen buffer, DECSTBM scroll region, DECTCEM cursor
-    /// visibility, etc.) is added in a later task (1.4).  At this point the
-    /// snapshot only covers cell content + final cursor position.
+    /// at the same dimensions (`cols` × `rows`) reproduces:
+    ///   - the correct buffer (alt vs main), scroll region, DECTCEM, DECAWM,
+    ///     and other DEC private modes (via the leading mode prefix)
+    ///   - every cell character with full SGR attributes
+    ///   - the final cursor position
     pub fn snapshot(&self) -> crate::Snapshot {
-        // Delegate the heavy lifting to the grid serializer.  Keeping it in a
-        // separate module makes the serialization logic unit-testable in
-        // isolation and keeps this impl block readable.
-        let ansi = crate::serialize::serialize_grid(&self.term);
+        // Build the mode prefix first (buffer, scroll region, cursor
+        // visibility, mouse modes, etc.).  This must come before the grid
+        // content so that the replay terminal is in the right buffer before
+        // any characters land.
+        let mode_prefix = self.mode_scanner.emit(self.rows);
+
+        // Serialize the grid content + final CUP.
+        let grid_ansi = crate::serialize::serialize_grid(&self.term);
+
+        let ansi = format!("{}{}", mode_prefix, grid_ansi);
+
         crate::Snapshot {
             ansi,
             cols: self.cols,
@@ -206,7 +230,43 @@ impl Parser {
         }
     }
 
-    // ── Test helpers ──────────────────────────────────────────────────────────
+    // ── Mode scanner test helpers ─────────────────────────────────────────────
+    //
+    // All `pub` (not `cfg(test)`) so integration tests in `tests/` can call
+    // them.  The leading underscore signals "test helper, not production API".
+
+    /// Returns `true` if the terminal is currently in the alternate screen
+    /// buffer (any of `?47`, `?1047`, `?1049` was last set).
+    pub fn _test_in_alt_screen(&self) -> bool {
+        self.mode_scanner.modes.alt_screen
+    }
+
+    /// Returns the current DECSTBM scroll region as `(top, bottom)`.
+    /// `None` means the scroll region is at its default (full screen).
+    pub fn _test_scroll_region(&self) -> (Option<u16>, Option<u16>) {
+        (self.mode_scanner.modes.stbm_top, self.mode_scanner.modes.stbm_bottom)
+    }
+
+    /// Returns `true` if DECTCEM (?25) is set (cursor is visible).
+    pub fn _test_cursor_visible(&self) -> bool {
+        self.mode_scanner.modes.cursor_visible
+    }
+
+    /// Returns `(mouse_mode, mouse_ext)` — the active mouse-tracking mode
+    /// and encoding extension.  Both are 0 when disabled.
+    pub fn _test_mouse_modes(&self) -> (u16, u16) {
+        (self.mode_scanner.modes.mouse_mode, self.mode_scanner.modes.mouse_ext)
+    }
+
+    /// Returns a reference to the current `ModeState`.
+    ///
+    /// Useful in tests that need to inspect modes not covered by a dedicated
+    /// helper (e.g. `auto_wrap`, `bracketed_paste`, `focus_reporting`).
+    pub fn modes(&self) -> &crate::modes::ModeState {
+        &self.mode_scanner.modes
+    }
+
+    // ── Grid / cursor test helpers ────────────────────────────────────────────
     //
     // These are `#[cfg(test)]` so they compile only in test builds.  The
     // leading underscore signals "test-only helper, not public API".
