@@ -436,29 +436,25 @@ export class TerminalController {
           }
         }
 
-        let tail: Uint8Array | null = null;
-        if (!freshSnap) {
-          try {
-            const res = await fetch(apiBase() + `/api/runs/${this.runId}/transcript`, {
-              headers: { Range: `bytes=${this.liveOffset}-` },
-            });
-            if (!this.disposed && (res.ok || res.status === 206)) {
-              tail = new Uint8Array(await res.arrayBuffer());
-              if (tail.byteLength > 0) {
-                const mergedLive = concat([this.liveTailBytes, tail]);
-                this.liveTailBytes = mergedLive;
-                this.liveOffset += tail.byteLength;
-              }
+        try {
+          const res = await fetch(apiBase() + `/api/runs/${this.runId}/transcript`, {
+            headers: { Range: `bytes=${this.liveOffset}-` },
+          });
+          if (!this.disposed && (res.ok || res.status === 206)) {
+            const tail = new Uint8Array(await res.arrayBuffer());
+            if (tail.byteLength > 0) {
+              const mergedLive = concat([this.liveTailBytes, tail]);
+              this.liveTailBytes = mergedLive;
+              this.liveOffset += tail.byteLength;
             }
-          } catch (err) {
-            traceRecord('controller.resume.tail.error', { err: String(err) });
           }
+        } catch (err) {
+          traceRecord('controller.resume.tail.error', { err: String(err) });
         }
 
         if (this.disposed) return;
 
         const buffers: Array<Uint8Array | string> = [this.loadedBytes, this.liveTailBytes];
-        if (freshSnap) buffers.push(freshSnap.ansi);
         this.setRebuilding(true);
         try {
           await this.rebuildXterm(buffers);
@@ -630,11 +626,12 @@ export class TerminalController {
         // .xterm-viewport listener forwards to onScroll; with paused=true
         // but rebuilding=false those events trigger resume() or another
         // loadOlderChunk(), thrashing the user's scroll position.
+        let chunkDone = false;
         this.setRebuilding(true);
         try {
           await this.rebuildXterm([newLoaded, this.liveTailBytes]);
           if (this.disposed) return;
-          if (abort.signal.aborted) { this.setChunkState('idle'); return; }
+          if (abort.signal.aborted) { chunkDone = true; return; }
 
           // Content-preserve scroll restore: the user's visible content
           // must stay put across the rebuild, or any trackpad momentum
@@ -666,7 +663,7 @@ export class TerminalController {
             this.startMarkerWritten = true;
             this.term.write(new TextEncoder().encode('\r\n\x1b[2;37m── start of run ──\x1b[0m\r\n'));
           }
-          this.setChunkState('idle');
+          chunkDone = true;
           traceRecord('controller.chunk.rebuild', {
             addedBytes: chunk.byteLength,
             addedLines,
@@ -686,6 +683,10 @@ export class TerminalController {
             }
           });
           this.setRebuilding(false);
+          // Clearing the loading banner after setRebuilding(false) ensures the
+          // terminal is visible before the banner disappears — prevents a blank
+          // frame between banner hide and terminal unhide.
+          if (chunkDone) this.setChunkState('idle');
         }
       } catch (err) {
         if (abort.signal.aborted) {
