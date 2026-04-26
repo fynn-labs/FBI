@@ -3,7 +3,11 @@ import { expect, type Page } from '@playwright/test';
 export type ScenarioName =
   | 'default' | 'chatty' | 'limit-breach' | 'limit-breach-human'
   | 'crash-fast' | 'hang' | 'garbled' | 'slow-startup'
-  | 'env-echo' | 'resume-aware' | 'tool-heavy' | 'plugin-fail';
+  | 'env-echo' | 'resume-aware' | 'tool-heavy' | 'plugin-fail'
+  // Terminal-correctness scenarios (Rust rewrite, 2026-04-26)
+  | 'alt-screen-cycle' | 'scroll-region-stress' | 'mouse-modes-cycle'
+  | 'cjk-wide' | 'truecolor' | 'bracketed-paste-cycle'
+  | 'scrollback-stress' | 'cursor-styles';
 
 export interface RunHandle {
   id: number;
