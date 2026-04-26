@@ -1,3 +1,8 @@
+> **Resolved by the Rust rewrite ([2026-04-26-terminal-rust-rewrite-design.md](../superpowers/specs/2026-04-26-terminal-rust-rewrite-design.md)).**
+> The `seedInitialHistory` overlap described below was fixed as part of the
+> NIF-based snapshot pipeline; `liveTailBytes` no longer overlaps with the
+> seed range after the rewrite landed.
+
 # Terminal Line Duplication Bug
 
 ## Symptom

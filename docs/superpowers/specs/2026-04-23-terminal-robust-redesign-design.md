@@ -1,3 +1,8 @@
+> **Superseded by [2026-04-26-terminal-rust-rewrite-design.md](2026-04-26-terminal-rust-rewrite-design.md).**
+> The redesign in this doc has been replaced by a Rust-based server-side
+> virtual terminal exposed to the BEAM via Rustler NIF. See the newer
+> spec for the architecture that actually shipped.
+
 # Terminal Robust Redesign
 
 ## Problem
