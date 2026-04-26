@@ -103,11 +103,9 @@ defmodule FBI.Orchestrator.SafeguardRepo do
     end
   end
 
-  # ---------------------------------------------------------------------------
-  # Private helpers
-  # ---------------------------------------------------------------------------
-
-  defp ref_exists?(bare_dir, branch) do
+  @doc "True if `refs/heads/<branch>` exists in the bare repo."
+  @spec ref_exists?(Path.t(), String.t()) :: boolean()
+  def ref_exists?(bare_dir, branch) do
     if not exists?(bare_dir) do
       false
     else

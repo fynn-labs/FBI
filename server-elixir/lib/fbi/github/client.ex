@@ -70,6 +70,50 @@ defmodule FBI.Github.Client do
     end
   end
 
+  @spec compare_branch(repo(), String.t(), String.t()) ::
+          {:ok,
+           %{
+             ahead_by: integer(),
+             behind_by: integer(),
+             merge_base_sha: String.t(),
+             commits: [map()]
+           }}
+          | {:error, term()}
+  def compare_branch(repo, base_branch, branch) do
+    url = "repos/#{repo}/compare/#{URI.encode(base_branch)}...#{URI.encode(branch)}"
+
+    case run(["api", url]) do
+      {:ok, stdout} ->
+        case Jason.decode(stdout) do
+          {:ok, data} ->
+            commits =
+              Enum.map(data["commits"] || [], fn c ->
+                %{
+                  sha: c["sha"],
+                  subject: c |> get_in(["commit", "message"]) |> first_line(),
+                  committed_at:
+                    c |> get_in(["commit", "committer", "date"]) |> iso8601_to_unix(),
+                  pushed: true
+                }
+              end)
+
+            {:ok,
+             %{
+               ahead_by: data["ahead_by"] || 0,
+               behind_by: data["behind_by"] || 0,
+               merge_base_sha: get_in(data, ["merge_base_commit", "sha"]) || "",
+               commits: commits
+             }}
+
+          err ->
+            err
+        end
+
+      err ->
+        err
+    end
+  end
+
   @spec compare_files(repo(), String.t(), String.t()) :: {:ok, [map()]} | {:error, term()}
   def compare_files(repo, base, head) do
     case run([

@@ -58,14 +58,12 @@ defmodule FBIWeb.ChangesController do
     bare_dir = WipRepo.path(runs_dir, run.id)
     branch = run.branch_name
 
-    safeguard_commits =
+    {commits, branch_base, gh_payload} =
       if branch do
-        SafeguardRepo.list_commits(bare_dir, branch, "")
+        enrich(run, bare_dir, branch)
       else
-        []
+        {[], nil, nil}
       end
-
-    {commits, gh_payload} = maybe_enrich_with_github(run, safeguard_commits)
 
     children =
       RunQ.list_by_parent(run.id)
@@ -73,7 +71,7 @@ defmodule FBIWeb.ChangesController do
 
     %{
       branch_name: branch,
-      branch_base: nil,
+      branch_base: branch_base,
       commits: commits,
       uncommitted: [],
       integrations: if(gh_payload, do: %{github: gh_payload}, else: %{}),
@@ -82,47 +80,59 @@ defmodule FBIWeb.ChangesController do
     }
   end
 
-  defp maybe_enrich_with_github(run, safeguard_commits) do
-    repo =
-      with pid when not is_nil(pid) <- run.project_id,
-           {:ok, project} <- ProjQ.get(pid),
-           {:ok, repo_str} <- GHRepo.parse(project.repo_url) do
-        repo_str
-      else
-        _ -> nil
-      end
+  # Enrich the commit list and branch_base using GitHub when available,
+  # falling back to the safeguard-only view when not.
+  defp enrich(run, bare_dir, branch) do
+    with pid when not is_nil(pid) <- run.project_id,
+         {:ok, project} <- ProjQ.get(pid),
+         {:ok, repo} <- GHRepo.parse(project.repo_url),
+         true <- GH.available?() do
+      default_branch = project.default_branch
 
-    branch = run.branch_name
+      compare =
+        case GH.compare_branch(repo, default_branch, branch) do
+          {:ok, v} -> v
+          _ -> %{ahead_by: 0, behind_by: 0, merge_base_sha: "", commits: []}
+        end
 
-    if repo && branch && GH.available?() do
+      gh_shas = MapSet.new(compare.commits, & &1.sha)
+
+      # Mirror branch (what the safeguard actually stores).
+      mirror = "claude/run-#{run.id}"
+
+      safeguard_branch =
+        if SafeguardRepo.ref_exists?(bare_dir, branch), do: branch, else: mirror
+
+      safeguard_commits =
+        SafeguardRepo.list_commits(bare_dir, safeguard_branch, compare.merge_base_sha)
+
+      all_commits =
+        Enum.map(compare.commits, fn c ->
+          Map.merge(c, %{pushed: true, files: [], files_loaded: false, submodule_bumps: []})
+        end) ++
+          Enum.reject(safeguard_commits, fn c -> MapSet.member?(gh_shas, c.sha) end)
+
+      branch_base = %{base: default_branch, ahead: compare.ahead_by, behind: compare.behind_by}
+
       pr =
         case GH.pr_for_branch(repo, branch) do
           {:ok, v} -> v
           _ -> nil
         end
 
-      gh_commits =
-        case GH.commits_on_branch(repo, branch) do
-          {:ok, list} -> list
-          _ -> []
-        end
+      gh_payload = %{pr: pr && Map.take(pr, [:number, :url, :state, :title]), checks: nil}
 
-      gh_shas = MapSet.new(gh_commits, & &1.sha)
-
-      all_commits =
-        Enum.map(gh_commits, fn c ->
-          Map.merge(c, %{pushed: true, files: [], files_loaded: false, submodule_bumps: []})
-        end) ++
-          Enum.reject(safeguard_commits, fn c -> MapSet.member?(gh_shas, c.sha) end)
-
-      gh_payload = %{
-        pr: pr && Map.take(pr, [:number, :url, :state, :title]),
-        checks: nil
-      }
-
-      {all_commits, gh_payload}
+      {all_commits, branch_base, gh_payload}
     else
-      {safeguard_commits, nil}
+      _ ->
+        # No GitHub access: list all safeguard commits, no ahead/behind data.
+        mirror = "claude/run-#{run.id}"
+
+        safeguard_branch =
+          if SafeguardRepo.ref_exists?(bare_dir, branch), do: branch, else: mirror
+
+        commits = SafeguardRepo.list_commits(bare_dir, safeguard_branch, "")
+        {commits, nil, nil}
     end
   end
 

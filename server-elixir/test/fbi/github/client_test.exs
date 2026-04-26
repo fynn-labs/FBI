@@ -75,6 +75,50 @@ defmodule FBI.Github.ClientTest do
     end
   end
 
+  describe "compare_branch/3" do
+    test "returns ahead/behind/merge_base/commits on success" do
+      Application.put_env(:fbi, :gh_cmd_adapter, fn _args ->
+        {:ok,
+         Jason.encode!(%{
+           "ahead_by" => 2,
+           "behind_by" => 0,
+           "merge_base_commit" => %{"sha" => "abc000"},
+           "commits" => [
+             %{
+               "sha" => "abc123",
+               "commit" => %{
+                 "message" => "feat: add thing\nbody",
+                 "committer" => %{"date" => "2026-04-25T10:00:00Z"}
+               }
+             },
+             %{
+               "sha" => "abc456",
+               "commit" => %{
+                 "message" => "fix: tweak",
+                 "committer" => %{"date" => "2026-04-25T11:00:00Z"}
+               }
+             }
+           ]
+         })}
+      end)
+
+      assert {:ok, result} = Client.compare_branch("a/b", "main", "feature")
+      assert result.ahead_by == 2
+      assert result.behind_by == 0
+      assert result.merge_base_sha == "abc000"
+      assert length(result.commits) == 2
+      assert hd(result.commits).sha == "abc123"
+      assert hd(result.commits).subject == "feat: add thing"
+      assert hd(result.commits).pushed == true
+    end
+
+    test "returns zeros on gh failure" do
+      Application.put_env(:fbi, :gh_cmd_adapter, fn _args -> {:error, {1, "not found"}} end)
+
+      assert {:error, _} = Client.compare_branch("a/b", "main", "feature")
+    end
+  end
+
   describe "merge_branch/4" do
     test "returns already_merged on empty stdout" do
       Application.put_env(:fbi, :gh_cmd_adapter, fn _args -> {:ok, ""} end)
