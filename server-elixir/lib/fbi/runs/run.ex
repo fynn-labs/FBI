@@ -41,6 +41,8 @@ defmodule FBI.Runs.Run do
     field :kind, :string, default: "work"
     field :kind_args_json, :string
     field :mirror_status, :string
+    field :mock, :boolean, default: false
+    field :mock_scenario, :string
   end
 
   @type t :: %__MODULE__{}
@@ -52,7 +54,7 @@ defmodule FBI.Runs.Run do
     resume_attempts next_resume_at claude_session_id last_limit_reset_at
     tokens_input tokens_output tokens_cache_read tokens_cache_create tokens_total
     usage_parse_errors title title_locked parent_run_id
-    kind kind_args_json mirror_status
+    kind kind_args_json mirror_status mock mock_scenario
   )a
 
   @spec changeset(t(), map()) :: Ecto.Changeset.t()
