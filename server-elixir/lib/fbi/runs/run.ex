@@ -61,7 +61,19 @@ defmodule FBI.Runs.Run do
   def changeset(run, attrs) do
     run
     |> cast(attrs, [:id | @all_fields])
-    |> validate_required([:project_id, :prompt, :branch_name, :state, :log_path, :created_at])
+    # branch_name is NOT NULL in the DB but an empty string is a valid value meaning
+    # "auto-generate" (the orchestrator reads /fbi-state/branch-name and updates the
+    # column later). Ecto's cast strips "" to nil; we restore the empty-string default
+    # here so that callers may omit branch entirely and still satisfy the DB constraint.
+    |> put_change_if_nil(:branch_name, "")
+    |> validate_required([:project_id, :prompt, :state, :log_path, :created_at])
     |> validate_inclusion(:title_locked, [0, 1])
+  end
+
+  defp put_change_if_nil(changeset, field, value) do
+    case get_field(changeset, field) do
+      nil -> put_change(changeset, field, value)
+      _ -> changeset
+    end
   end
 end
