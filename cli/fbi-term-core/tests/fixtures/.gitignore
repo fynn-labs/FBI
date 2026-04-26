@@ -1,0 +1,3 @@
+# scrollback-stress.bin is ~700 KB — generated on demand, not committed.
+# Run: ./target/debug/quantico --scenario scrollback-stress --capture-bytes tests/fixtures/scrollback-stress.bin
+scrollback-stress.bin

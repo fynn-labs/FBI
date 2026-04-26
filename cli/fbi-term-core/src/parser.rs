@@ -430,4 +430,160 @@ impl Parser {
         let col = point.column.0;
         (row, col)
     }
+
+    // ── Diff-harness grid dump ────────────────────────────────────────────────
+
+    /// Serialize the current grid to a normalized JSON value for comparison
+    /// with `@xterm/headless` output via the diff harness.
+    ///
+    /// # JSON shape
+    ///
+    /// ```json
+    /// {
+    ///   "cols": 80, "rows": 24,
+    ///   "cursor_row": 0, "cursor_col": 0,
+    ///   "alt_screen": false,
+    ///   "rows_data": [[{"ch":"a","fg":257,"bg":256,...}, ...], ...]
+    /// }
+    /// ```
+    ///
+    /// # Color encoding (must match xterm_ref.mjs)
+    ///
+    ///   - Default fg → `256`  (NamedColor::Foreground discriminant)
+    ///   - Default bg → `257`  (NamedColor::Background discriminant)
+    ///   - Named P16  → 0–15  (NamedColor discriminant for Black..BrightWhite)
+    ///   - P256       → 0–255 (Indexed byte value)
+    ///   - RGB        → `(r<<16)|(g<<8)|b` packed integer
+    ///
+    /// # Wide-char normalization
+    ///
+    /// Wide chars occupy two columns.  The first cell (`WIDE_CHAR` flag) holds
+    /// the character; the second (`WIDE_CHAR_SPACER`) is a zero-width filler.
+    /// Spacer cells are SKIPPED entirely so each wide character emits exactly
+    /// one cell.  xterm_ref.mjs does the same (skips `width === 0` cells).
+    ///
+    /// This handles the emoji width discrepancy: alacritty treats emoji as
+    /// wide (width=2), while xterm.js 5.5 treats them as narrow (width=1).
+    /// By skipping spacers on both sides, each emoji and CJK char emits
+    /// exactly one cell regardless of which parser classified it as wide.
+    pub fn dump_normalized_grid(&self) -> serde_json::Value {
+        use alacritty_terminal::grid::Dimensions;
+        use alacritty_terminal::index::{Column, Line};
+        use alacritty_terminal::term::cell::Flags;
+        use alacritty_terminal::vte::ansi::{Color, NamedColor};
+        use serde_json::{json, Value};
+
+        // Sentinel values — must match xterm_ref.mjs's DEFAULT_FG / DEFAULT_BG.
+        const DEFAULT_FG: u64 = 256; // NamedColor::Foreground discriminant
+        const DEFAULT_BG: u64 = 257; // NamedColor::Background discriminant
+
+        /// Map an alacritty `Color` to its canonical JSON integer.
+        fn encode_color(color: &Color, is_fg: bool) -> u64 {
+            match color {
+                Color::Named(nc) => match nc {
+                    NamedColor::Foreground => DEFAULT_FG,
+                    NamedColor::Background => DEFAULT_BG,
+                    // BrightForeground, DimForeground, Cursor and other special
+                    // named colors map to their default fallback.
+                    NamedColor::BrightForeground
+                    | NamedColor::DimForeground => DEFAULT_FG,
+                    NamedColor::Cursor => {
+                        if is_fg { DEFAULT_FG } else { DEFAULT_BG }
+                    }
+                    // Dim colors: map to their base variant's index (0-7).
+                    NamedColor::DimBlack   => NamedColor::Black as u64,
+                    NamedColor::DimRed     => NamedColor::Red as u64,
+                    NamedColor::DimGreen   => NamedColor::Green as u64,
+                    NamedColor::DimYellow  => NamedColor::Yellow as u64,
+                    NamedColor::DimBlue    => NamedColor::Blue as u64,
+                    NamedColor::DimMagenta => NamedColor::Magenta as u64,
+                    NamedColor::DimCyan    => NamedColor::Cyan as u64,
+                    NamedColor::DimWhite   => NamedColor::White as u64,
+                    // All other named colors have discriminants 0-15 (Black..BrightWhite).
+                    _ => *nc as u64,
+                },
+                Color::Indexed(idx) => *idx as u64,
+                Color::Spec(rgb) => {
+                    ((rgb.r as u64) << 16) | ((rgb.g as u64) << 8) | (rgb.b as u64)
+                }
+            }
+        }
+
+        let grid = self.term.grid();
+        let num_rows = grid.screen_lines();
+        let num_cols = grid.columns();
+        let cursor_point = grid.cursor.point;
+        let cursor_row = cursor_point.line.0 as usize;
+        let cursor_col = cursor_point.column.0;
+
+        // alt_screen: alacritty doesn't expose the active buffer name directly,
+        // but our mode_scanner tracks it from the byte stream.
+        let alt_screen = self.mode_scanner.modes.alt_screen;
+
+        let mut rows_data: Vec<Value> = Vec::with_capacity(num_rows);
+
+        for row_idx in 0..num_rows {
+            let line_ref = Line(row_idx as i32);
+            let row = &grid[line_ref];
+            let mut cells: Vec<Value> = Vec::new();
+            for col_idx in 0..num_cols {
+                let cell = &row[Column(col_idx)];
+
+                // Skip wide-char spacer cells entirely (see Wide-char
+                // normalization note in the doc comment above).
+                if cell.flags.intersects(Flags::WIDE_CHAR_SPACER | Flags::LEADING_WIDE_CHAR_SPACER) {
+                    continue;
+                }
+
+                let ch: String = if cell.c == '\0' || cell.c == ' ' {
+                    " ".to_string()
+                } else {
+                    cell.c.to_string()
+                };
+                let fg = encode_color(&cell.fg, true);
+                let bg = encode_color(&cell.bg, false);
+                let bold      = cell.flags.contains(Flags::BOLD);
+                let italic    = cell.flags.contains(Flags::ITALIC);
+                let underline = cell.flags.contains(Flags::UNDERLINE);
+                let inverse   = cell.flags.contains(Flags::INVERSE);
+
+                cells.push(json!({
+                    "ch": ch,
+                    "fg": fg,
+                    "bg": bg,
+                    "bold": bold,
+                    "italic": italic,
+                    "underline": underline,
+                    "inverse": inverse
+                }));
+            }
+
+            // Trim trailing default cells.
+            while let Some(last) = cells.last() {
+                if last["ch"] == " "
+                    && last["fg"] == DEFAULT_FG
+                    && last["bg"] == DEFAULT_BG
+                    && last["bold"] == false
+                    && last["italic"] == false
+                    && last["underline"] == false
+                    && last["inverse"] == false
+                {
+                    cells.pop();
+                } else {
+                    break;
+                }
+            }
+
+            rows_data.push(Value::Array(cells));
+        }
+
+        json!({
+            "cols": self.cols,
+            "rows": self.rows,
+            "cursor_row": cursor_row,
+            "cursor_col": cursor_col,
+            "alt_screen": alt_screen,
+            "rows_data": rows_data
+        })
+    }
 }
