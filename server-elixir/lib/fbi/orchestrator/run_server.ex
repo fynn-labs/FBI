@@ -254,6 +254,8 @@ defmodule FBI.Orchestrator.RunServer do
   # ---------------------------------------------------------------------------
 
   defp run_lifecycle(:launch, run_id, config, server_pid) do
+    Logger.metadata(run_id: run_id, mode: :launch)
+
     with {:ok, run} <- Queries.get(run_id),
          {:ok, project} <- FBI.Projects.Queries.get(run.project_id) do
       log_path = run.log_path
@@ -302,6 +304,7 @@ defmodule FBI.Orchestrator.RunServer do
         })
 
       {:ok, container_id} = FBI.Docker.create_container(container_spec)
+      Logger.metadata(container_id: container_id)
 
       inject_run_files(
         container_id,
@@ -324,7 +327,7 @@ defmodule FBI.Orchestrator.RunServer do
       {:ok, stdin_socket} = FBI.Docker.attach_container_stdin_only(container_id)
       :ok = set_container(server_pid, container_id, stdin_socket)
 
-      reader_pid = spawn(fn -> read_stdout_loop(stdout_socket, run_id, on_bytes) end)
+      reader_pid = start_reader(stdout_socket, run_id, container_id, on_bytes)
 
       _limit_monitor_pid =
         start_limit_monitor(run_id, mount_dir, container_id, stdin_socket, settings, on_bytes)
@@ -357,6 +360,8 @@ defmodule FBI.Orchestrator.RunServer do
   end
 
   defp run_lifecycle(:resume, run_id, config, server_pid) do
+    Logger.metadata(run_id: run_id, mode: :resume)
+
     with {:ok, run} <- Queries.get(run_id) do
       log_path = run.log_path
       on_bytes = make_on_bytes(run_id, log_path)
@@ -398,6 +403,7 @@ defmodule FBI.Orchestrator.RunServer do
         })
 
       {:ok, container_id} = FBI.Docker.create_container(container_spec)
+      Logger.metadata(container_id: container_id)
 
       if is_nil(run.claude_session_id) do
         preamble = build_preamble(project, run, run_id)
@@ -426,7 +432,7 @@ defmodule FBI.Orchestrator.RunServer do
       {:ok, stdin_socket} = FBI.Docker.attach_container_stdin_only(container_id)
       :ok = set_container(server_pid, container_id, stdin_socket)
 
-      reader_pid = spawn(fn -> read_stdout_loop(stdout_socket, run_id, on_bytes) end)
+      reader_pid = start_reader(stdout_socket, run_id, container_id, on_bytes)
 
       _limit_monitor_pid =
         start_limit_monitor(run_id, mount_dir, container_id, stdin_socket, settings, on_bytes)
@@ -456,6 +462,8 @@ defmodule FBI.Orchestrator.RunServer do
   end
 
   defp run_lifecycle(:continue, run_id, config, server_pid) do
+    Logger.metadata(run_id: run_id, mode: :continue)
+
     with {:ok, run} <- Queries.get(run_id) do
       log_path = run.log_path
       on_bytes = make_on_bytes(run_id, log_path)
@@ -494,6 +502,7 @@ defmodule FBI.Orchestrator.RunServer do
         })
 
       {:ok, container_id} = FBI.Docker.create_container(container_spec)
+      Logger.metadata(container_id: container_id)
       inject_claude_settings(container_id, project, effective_mcps, project_secrets, config)
 
       :ok = FBI.Docker.start_container(container_id)
@@ -506,7 +515,7 @@ defmodule FBI.Orchestrator.RunServer do
       {:ok, stdin_socket} = FBI.Docker.attach_container_stdin_only(container_id)
       :ok = set_container(server_pid, container_id, stdin_socket)
 
-      reader_pid = spawn(fn -> read_stdout_loop(stdout_socket, run_id, on_bytes) end)
+      reader_pid = start_reader(stdout_socket, run_id, container_id, on_bytes)
 
       _limit_monitor_pid =
         start_limit_monitor(run_id, mount_dir, container_id, stdin_socket, settings, on_bytes)
@@ -536,12 +545,15 @@ defmodule FBI.Orchestrator.RunServer do
   end
 
   defp run_lifecycle(:reattach, run_id, config, server_pid) do
+    Logger.metadata(run_id: run_id, mode: :reattach)
+
     with {:ok, run} <- Queries.get(run_id) do
       log_path = run.log_path
       on_bytes = make_on_bytes(run_id, log_path)
       on_bytes.("\n[fbi] reattached after orchestrator restart\n")
 
       container_id = run.container_id
+      Logger.metadata(container_id: container_id)
       settings = FBI.Settings.Queries.get()
       runs_dir = config.runs_dir
       mount_dir = SessionId.mount_dir(runs_dir, run_id)
@@ -552,7 +564,7 @@ defmodule FBI.Orchestrator.RunServer do
 
       since_sec = div(run.started_at || System.os_time(:millisecond), 1000)
       {:ok, log_socket} = FBI.Docker.container_logs(container_id, since: since_sec)
-      _log_reader_pid = spawn(fn -> read_stdout_loop(log_socket, run_id, on_bytes) end)
+      _log_reader_pid = start_reader(log_socket, run_id, container_id, on_bytes)
 
       wip_repo_path = FBI.Orchestrator.WipRepo.path(runs_dir, run_id)
 
@@ -713,6 +725,22 @@ defmodule FBI.Orchestrator.RunServer do
   # ---------------------------------------------------------------------------
   # stdout reader loop
   # ---------------------------------------------------------------------------
+
+  # Spawn the stdout reader as a Task.Supervisor child so crashes surface as
+  # SASL reports in the journal and live readers are listable via
+  # `Task.Supervisor.children(FBI.RunTaskSupervisor)`. Sets Logger.metadata
+  # inside the task so its log lines are tagged the same as the lifecycle
+  # process that started it (run_id/container_id are independent process
+  # state and don't inherit on spawn).
+  defp start_reader(socket, run_id, container_id, on_bytes) do
+    {:ok, pid} =
+      Task.Supervisor.start_child(FBI.RunTaskSupervisor, fn ->
+        Logger.metadata(run_id: run_id, container_id: container_id)
+        read_stdout_loop(socket, run_id, on_bytes)
+      end)
+
+    pid
+  end
 
   defp read_stdout_loop(socket, run_id, on_bytes) do
     # Docker's /containers/:id/logs?follow=1 response uses HTTP/1.1

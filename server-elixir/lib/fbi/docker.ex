@@ -25,58 +25,74 @@ defmodule FBI.Docker do
     :gen_tcp.connect({:local, path}, 0, [:binary, active: false, send_timeout: 10_000])
   end
 
-  defp rest(method, path, body \\ nil, extra_headers \\ []) do
-    conn = connect!()
-    raw_body = if body, do: Jason.encode!(body), else: ""
+  defp rest(method, path, body, extra_headers, opts) do
+    operation = Keyword.get(opts, :operation, :unknown)
 
-    content_headers =
-      if body != nil do
-        [{"Content-Type", "application/json"}, {"Content-Length", byte_size(raw_body)}]
-      else
-        [{"Content-Length", "0"}]
+    :telemetry.span(
+      [:fbi, :docker, :request],
+      %{operation: operation, method: method, path: path},
+      fn ->
+        conn = connect!()
+        raw_body = if body, do: Jason.encode!(body), else: ""
+
+        content_headers =
+          if body != nil do
+            [{"Content-Type", "application/json"}, {"Content-Length", byte_size(raw_body)}]
+          else
+            [{"Content-Length", "0"}]
+          end
+
+        # Connection: close so Docker shuts the socket immediately after the
+        # response and our recv_until_close exits with :closed instead of waiting
+        # 60s for the keep-alive idle timeout. Without this every Docker call
+        # silently paid up to a minute of idle wait.
+        headers =
+          [{"Host", "docker"}, {"Connection", "close"} | content_headers ++ extra_headers]
+
+        header_str = Enum.map_join(headers, "\r\n", fn {k, v} -> "#{k}: #{v}" end)
+        req = "#{method} #{path} HTTP/1.1\r\n#{header_str}\r\n\r\n#{raw_body}"
+        :ok = :gen_tcp.send(conn, req)
+        {status, resp_body} = recv_until_close(conn, "")
+        :gen_tcp.close(conn)
+        {{status, resp_body}, %{operation: operation, status: status}}
       end
-
-    # Connection: close so Docker shuts the socket immediately after the
-    # response and our recv_until_close exits with :closed instead of waiting
-    # 60s for the keep-alive idle timeout. Without this every Docker call
-    # silently paid up to a minute of idle wait.
-    headers =
-      [{"Host", "docker"}, {"Connection", "close"} | content_headers ++ extra_headers]
-
-    header_str = Enum.map_join(headers, "\r\n", fn {k, v} -> "#{k}: #{v}" end)
-    req = "#{method} #{path} HTTP/1.1\r\n#{header_str}\r\n\r\n#{raw_body}"
-    :ok = :gen_tcp.send(conn, req)
-    {status, resp_body} = recv_until_close(conn, "")
-    :gen_tcp.close(conn)
-    {status, resp_body}
+    )
   end
 
-  defp stream_start(method, path, body \\ nil, extra_headers \\ []) do
-    conn = connect!()
-    raw_body = if body, do: Jason.encode!(body), else: ""
+  defp stream_start(method, path, body, extra_headers, opts) do
+    operation = Keyword.get(opts, :operation, :unknown)
 
-    content_headers =
-      if body != nil do
-        [{"Content-Type", "application/json"}, {"Content-Length", byte_size(raw_body)}]
-      else
-        []
+    :telemetry.span(
+      [:fbi, :docker, :request],
+      %{operation: operation, method: method, path: path, streaming: true},
+      fn ->
+        conn = connect!()
+        raw_body = if body, do: Jason.encode!(body), else: ""
+
+        content_headers =
+          if body != nil do
+            [{"Content-Type", "application/json"}, {"Content-Length", byte_size(raw_body)}]
+          else
+            []
+          end
+
+        # Match curl/dockerode-style headers. Empirically, Docker's HTTP server
+        # reacts differently to bare `Host` requests vs requests carrying
+        # User-Agent + Accept; the streaming `/logs?follow=1` socket would close
+        # right after the response headers without these.
+        base = [
+          {"Host", "docker"},
+          {"User-Agent", "fbi-elixir/0.1.0"},
+          {"Accept", "*/*"}
+        ]
+
+        headers = base ++ content_headers ++ extra_headers
+        header_str = Enum.map_join(headers, "\r\n", fn {k, v} -> "#{k}: #{v}" end)
+        req = "#{method} #{path} HTTP/1.1\r\n#{header_str}\r\n\r\n#{raw_body}"
+        :ok = :gen_tcp.send(conn, req)
+        {conn, %{operation: operation, streaming: true}}
       end
-
-    # Match curl/dockerode-style headers. Empirically, Docker's HTTP server
-    # reacts differently to bare `Host` requests vs requests carrying
-    # User-Agent + Accept; the streaming `/logs?follow=1` socket would close
-    # right after the response headers without these.
-    base = [
-      {"Host", "docker"},
-      {"User-Agent", "fbi-elixir/0.1.0"},
-      {"Accept", "*/*"}
-    ]
-
-    headers = base ++ content_headers ++ extra_headers
-    header_str = Enum.map_join(headers, "\r\n", fn {k, v} -> "#{k}: #{v}" end)
-    req = "#{method} #{path} HTTP/1.1\r\n#{header_str}\r\n\r\n#{raw_body}"
-    :ok = :gen_tcp.send(conn, req)
-    conn
+    )
   end
 
   # Read until the peer closes the connection. Uses an infinite timeout
@@ -225,7 +241,7 @@ defmodule FBI.Docker do
         n -> "/containers/create?name=#{URI.encode(n, &URI.char_unreserved?/1)}"
       end
 
-    {status, body} = rest("POST", path, body_spec)
+    {status, body} = rest("POST", path, body_spec, [], operation: :create_container)
 
     case ok_json(status, body) do
       {:ok, %{"Id" => id}} ->
@@ -247,7 +263,7 @@ defmodule FBI.Docker do
   end
 
   def start_container(id) do
-    {status, body} = rest("POST", "/containers/#{id}/start")
+    {status, body} = rest("POST", "/containers/#{id}/start", nil, [], operation: :start_container)
 
     case ok_unit(status, body) do
       :ok ->
@@ -271,7 +287,9 @@ defmodule FBI.Docker do
 
   def stop_container(id, opts \\ []) do
     t = Keyword.get(opts, :t, 10)
-    {status, body} = rest("POST", "/containers/#{id}/stop?t=#{t}")
+
+    {status, body} =
+      rest("POST", "/containers/#{id}/stop?t=#{t}", nil, [], operation: :stop_container)
     # No post-condition check here on purpose: stop's contract is "send
     # signals and possibly wait up to t seconds before SIGKILL". Whether the
     # process has actually exited is `wait_container/1`'s job. Adding an
@@ -300,7 +318,11 @@ defmodule FBI.Docker do
   def remove_container(id, opts \\ []) do
     force = if Keyword.get(opts, :force, false), do: "1", else: "0"
     v = if Keyword.get(opts, :v, false), do: "1", else: "0"
-    {status, body} = rest("DELETE", "/containers/#{id}?force=#{force}&v=#{v}")
+
+    {status, body} =
+      rest("DELETE", "/containers/#{id}?force=#{force}&v=#{v}", nil, [],
+        operation: :remove_container
+      )
 
     case ok_unit(status, body) do
       :ok ->
@@ -318,7 +340,7 @@ defmodule FBI.Docker do
   end
 
   def inspect_container(id) do
-    {status, body} = rest("GET", "/containers/#{id}/json")
+    {status, body} = rest("GET", "/containers/#{id}/json", nil, [], operation: :inspect_container)
     ok_json(status, body)
   end
 
@@ -329,7 +351,9 @@ defmodule FBI.Docker do
     # infinite-timeout recv would block forever waiting for a close that
     # never comes.
     conn =
-      stream_start("POST", "/containers/#{id}/wait", nil, [{"Connection", "close"}])
+      stream_start("POST", "/containers/#{id}/wait", nil, [{"Connection", "close"}],
+        operation: :wait_container
+      )
 
     {status, body} = recv_until_close(conn, "")
     :gen_tcp.close(conn)
@@ -347,7 +371,8 @@ defmodule FBI.Docker do
         "POST",
         "/containers/#{id}/attach?stream=1&stdin=1&stdout=1&stderr=1",
         nil,
-        [{"Upgrade", "tcp"}, {"Connection", "Upgrade"}]
+        [{"Upgrade", "tcp"}, {"Connection", "Upgrade"}],
+        operation: :attach_container
       )
 
     skip_http_headers(conn)
@@ -360,7 +385,8 @@ defmodule FBI.Docker do
         "POST",
         "/containers/#{id}/attach?stream=1&stdin=1&stdout=0&stderr=0",
         nil,
-        [{"Upgrade", "tcp"}, {"Connection", "Upgrade"}]
+        [{"Upgrade", "tcp"}, {"Connection", "Upgrade"}],
+        operation: :attach_container_stdin_only
       )
 
     skip_http_headers(conn)
@@ -369,7 +395,16 @@ defmodule FBI.Docker do
 
   def container_logs(id, opts \\ []) do
     since = Keyword.get(opts, :since, 0)
-    conn = stream_start("GET", "/containers/#{id}/logs?follow=1&stdout=1&stderr=1&since=#{since}")
+
+    conn =
+      stream_start(
+        "GET",
+        "/containers/#{id}/logs?follow=1&stdout=1&stderr=1&since=#{since}",
+        nil,
+        [],
+        operation: :container_logs
+      )
+
     skip_http_headers(conn)
     {:ok, conn}
   end
@@ -455,7 +490,9 @@ defmodule FBI.Docker do
 
     spec = if user != "", do: Map.put(spec, "User", user), else: spec
     spec = if env_list != [], do: Map.put(spec, "Env", env_list), else: spec
-    {status, body} = rest("POST", "/containers/#{container_id}/exec", spec)
+
+    {status, body} =
+      rest("POST", "/containers/#{container_id}/exec", spec, [], operation: :exec_create)
 
     case ok_json(status, body) do
       {:ok, %{"Id" => exec_id}} -> {:ok, exec_id}
@@ -466,7 +503,11 @@ defmodule FBI.Docker do
 
   def exec_start(exec_id, opts \\ []) do
     timeout_ms = Keyword.get(opts, :timeout_ms, 30_000)
-    conn = stream_start("POST", "/exec/#{exec_id}/start", %{"Detach" => false, "Tty" => false})
+
+    conn =
+      stream_start("POST", "/exec/#{exec_id}/start", %{"Detach" => false, "Tty" => false}, [],
+        operation: :exec_start
+      )
     skip_http_headers(conn)
     output = read_all_with_timeout(conn, timeout_ms)
     :gen_tcp.close(conn)
@@ -491,20 +532,24 @@ defmodule FBI.Docker do
   defp strip_docker_frame(data), do: data
 
   def resize_container(id, cols, rows) do
-    {_status, _body} = rest("POST", "/containers/#{id}/resize?w=#{cols}&h=#{rows}")
+    {_status, _body} =
+      rest("POST", "/containers/#{id}/resize?w=#{cols}&h=#{rows}", nil, [],
+        operation: :resize_container
+      )
+
     :ok
   end
 
   # Image operations
 
   def list_images do
-    {status, body} = rest("GET", "/images/json")
+    {status, body} = rest("GET", "/images/json", nil, [], operation: :list_images)
     ok_json(status, body)
   end
 
   def list_containers(opts \\ []) do
     all = if Keyword.get(opts, :all, false), do: "1", else: "0"
-    {status, body} = rest("GET", "/containers/json?all=#{all}")
+    {status, body} = rest("GET", "/containers/json?all=#{all}", nil, [], operation: :list_containers)
     ok_json(status, body)
   end
 
@@ -512,7 +557,9 @@ defmodule FBI.Docker do
     force = if Keyword.get(opts, :force, false), do: "1", else: "0"
 
     {status, body} =
-      rest("DELETE", "/images/#{URI.encode(tag, &URI.char_unreserved?/1)}?force=#{force}")
+      rest("DELETE", "/images/#{URI.encode(tag, &URI.char_unreserved?/1)}?force=#{force}", nil, [],
+        operation: :remove_image
+      )
 
     ok_unit(status, body)
   end
@@ -630,7 +677,11 @@ defmodule FBI.Docker do
         stdin: true
       )
 
-    conn = stream_start("POST", "/exec/#{exec_id}/start", %{"Detach" => false, "Tty" => false})
+    conn =
+      stream_start("POST", "/exec/#{exec_id}/start", %{"Detach" => false, "Tty" => false}, [],
+        operation: :exec_start_inject
+      )
+
     skip_http_headers(conn)
     :gen_tcp.send(conn, tar)
     :gen_tcp.close(conn)
@@ -645,12 +696,16 @@ defmodule FBI.Docker do
   end
 
   def inspect_exec(exec_id) do
-    {status, body} = rest("GET", "/exec/#{exec_id}/json")
+    {status, body} = rest("GET", "/exec/#{exec_id}/json", nil, [], operation: :inspect_exec)
     ok_json(status, body)
   end
 
   def stream_exec_with_stdin(exec_id, stdin_data) do
-    conn = stream_start("POST", "/exec/#{exec_id}/start", %{"Detach" => false, "Tty" => false})
+    conn =
+      stream_start("POST", "/exec/#{exec_id}/start", %{"Detach" => false, "Tty" => false}, [],
+        operation: :stream_exec_with_stdin
+      )
+
     skip_http_headers(conn)
     :gen_tcp.send(conn, stdin_data)
     conn

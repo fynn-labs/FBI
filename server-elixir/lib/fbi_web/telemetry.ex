@@ -79,7 +79,21 @@ defmodule FBIWeb.Telemetry do
       summary("vm.memory.total", unit: {:byte, :kilobyte}),
       summary("vm.total_run_queue_lengths.total"),
       summary("vm.total_run_queue_lengths.cpu"),
-      summary("vm.total_run_queue_lengths.io")
+      summary("vm.total_run_queue_lengths.io"),
+
+      # Docker boundary metrics — emitted by FBI.Docker.rest/5 and stream_start/5
+      # via :telemetry.span([:fbi, :docker, :request], ...). `operation` tags by
+      # the public function name (:create_container, :start_container, …). See
+      # docs/elixir-hardening.md "P1 · :telemetry events at every Docker boundary".
+      summary("fbi.docker.request.stop.duration",
+        unit: {:native, :millisecond},
+        tags: [:operation],
+        description: "Latency of one-shot Docker REST calls and stream handshakes"
+      ),
+      counter("fbi.docker.request.exception.count",
+        tags: [:operation],
+        description: "Exceptions raised inside the Docker request span"
+      )
     ]
   end
 

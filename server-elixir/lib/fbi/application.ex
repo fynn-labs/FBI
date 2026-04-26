@@ -29,6 +29,7 @@ defmodule FBI.Application do
         {DNSCluster, query: Application.get_env(:fbi, :dns_cluster_query) || :ignore},
         {Phoenix.PubSub, name: FBI.PubSub},
         {Registry, keys: :unique, name: FBI.Orchestrator.Registry},
+        {Task.Supervisor, name: FBI.RunTaskSupervisor},
         FBI.Orchestrator.RunSupervisor,
         {FBI.Orchestrator.ResumeScheduler,
          on_fire: &FBI.Orchestrator.resume/1, name: FBI.Orchestrator.ResumeScheduler},
