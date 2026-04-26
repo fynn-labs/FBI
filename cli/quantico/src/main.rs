@@ -1,5 +1,6 @@
 mod argv;
 mod executor;
+mod jsonl;
 mod scenario;
 
 use std::io::Write;
@@ -50,6 +51,10 @@ fn run_scenario(name: Option<&str>, scenario_file: Option<&str>) -> i32 {
         .map(|p| p.display().to_string()).unwrap_or_else(|_| "?".into());
     let argv: Vec<String> = std::env::args().skip(1).collect();
 
+    let home = std::env::var("HOME").unwrap_or_else(|_| "/home/agent".into());
+    let session_id = uuid::Uuid::new_v4().to_string();
+    let session_path = jsonl::session_path(&home, &cwd, &session_id);
+
     let env_get = |k: &str| std::env::var(k).ok();
     let mut stdout = std::io::stdout();
     let mut ctx = executor::ExecCtx {
@@ -58,6 +63,7 @@ fn run_scenario(name: Option<&str>, scenario_file: Option<&str>) -> i32 {
         env: &env_get,
         cwd,
         argv,
+        session_path,
     };
     match executor::run(&scenario, &mut ctx) {
         Ok(executor::Outcome::Exited(c)) => c,

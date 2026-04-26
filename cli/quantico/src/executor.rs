@@ -1,5 +1,6 @@
 use crate::scenario::{Scenario, Step};
 use std::io::Write;
+use std::path::PathBuf;
 
 pub struct ExecCtx<'a, W: Write> {
     pub stdout: &'a mut W,
@@ -7,6 +8,7 @@ pub struct ExecCtx<'a, W: Write> {
     pub env: &'a dyn Fn(&str) -> Option<String>,
     pub cwd: String,
     pub argv: Vec<String>,
+    pub session_path: PathBuf,
 }
 
 #[derive(Debug, PartialEq)]
@@ -37,9 +39,11 @@ pub fn run<W: Write>(scenario: &Scenario, ctx: &mut ExecCtx<W>) -> std::io::Resu
                 }
                 ctx.stdout.flush()?;
             }
-            // Other steps (jsonl, limit) added in later tasks.
-            _ => {
-                writeln!(ctx.stdout, "[quantico] step not yet implemented: {:?}", step)?;
+            Step::WriteJsonl { kind, content } => {
+                crate::jsonl::append(&ctx.session_path, kind, content)?;
+            }
+            Step::EmitLimitBreach { .. } => {
+                writeln!(ctx.stdout, "[quantico] step not yet implemented: EmitLimitBreach")?;
             }
         }
     }
@@ -60,6 +64,7 @@ mod tests {
             env: &fake_env,
             cwd: "/workspace".into(),
             argv: vec!["--dangerously-skip-permissions".into()],
+            session_path: PathBuf::from("/tmp/dummy.jsonl"),
         }
     }
 
@@ -92,6 +97,29 @@ mod tests {
     }
 
     #[test]
+    fn write_jsonl_step_creates_file() {
+        use tempfile::tempdir;
+        let dir = tempdir().unwrap();
+        let path = dir.path().join("s.jsonl");
+        let scenario = Scenario {
+            name: "t".into(),
+            steps: vec![
+                Step::WriteJsonl { kind: "user".into(), content: "hi".into() },
+                Step::Exit(0),
+            ],
+        };
+        let mut buf: Vec<u8> = Vec::new();
+        let mut c = ExecCtx {
+            stdout: &mut buf, speed_mult: 1.0, env: &fake_env,
+            cwd: "/workspace".into(), argv: vec![],
+            session_path: path.clone(),
+        };
+        run(&scenario, &mut c).unwrap();
+        assert!(path.exists());
+        assert_eq!(std::fs::read_to_string(&path).unwrap().lines().count(), 1);
+    }
+
+    #[test]
     fn echo_env_emits_block() {
         fn env(name: &str) -> Option<String> {
             if name == "RUN_ID" { Some("42".into()) } else { None }
@@ -107,6 +135,7 @@ mod tests {
             env: &env,
             cwd: "/workspace".into(),
             argv: vec![],
+            session_path: PathBuf::from("/tmp/dummy.jsonl"),
         };
         run(&scenario, &mut c).unwrap();
         let s = String::from_utf8(buf).unwrap();
