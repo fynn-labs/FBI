@@ -12,12 +12,22 @@ fn main() {
     let invocation = argv::parse(&args);
     let exit_code = match invocation {
         argv::Invocation::PluginMarketplaceAdd(name) => {
-            println!("[quantico] marketplace added: {}", name);
-            0
+            if std::env::var("MOCK_CLAUDE_SCENARIO").as_deref() == Ok("plugin-fail") {
+                eprintln!("[quantico] marketplace add failed (scenario): {}", name);
+                1
+            } else {
+                println!("[quantico] marketplace added: {}", name);
+                0
+            }
         }
         argv::Invocation::PluginInstall(name) => {
-            println!("[quantico] plugin installed: {}", name);
-            0
+            if std::env::var("MOCK_CLAUDE_SCENARIO").as_deref() == Ok("plugin-fail") {
+                eprintln!("[quantico] plugin install failed (scenario): {}", name);
+                1
+            } else {
+                println!("[quantico] plugin installed: {}", name);
+                0
+            }
         }
         argv::Invocation::Unsupported(arg) => {
             eprintln!("quantico: unsupported argument: {}", arg);

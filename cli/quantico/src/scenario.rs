@@ -241,17 +241,41 @@ steps:
 
 const DEFAULT_YAML: &str = include_str!("../scenarios/default.yaml");
 const ENV_ECHO_YAML: &str = include_str!("../scenarios/env-echo.yaml");
+const CHATTY_YAML: &str = include_str!("../scenarios/chatty.yaml");
+const LIMIT_BREACH_YAML: &str = include_str!("../scenarios/limit-breach.yaml");
+const LIMIT_BREACH_HUMAN_YAML: &str = include_str!("../scenarios/limit-breach-human.yaml");
+const CRASH_FAST_YAML: &str = include_str!("../scenarios/crash-fast.yaml");
+const HANG_YAML: &str = include_str!("../scenarios/hang.yaml");
+const GARBLED_YAML: &str = include_str!("../scenarios/garbled.yaml");
+const SLOW_STARTUP_YAML: &str = include_str!("../scenarios/slow-startup.yaml");
+const RESUME_AWARE_YAML: &str = include_str!("../scenarios/resume-aware.yaml");
+const TOOL_HEAVY_YAML: &str = include_str!("../scenarios/tool-heavy.yaml");
+const PLUGIN_FAIL_YAML: &str = include_str!("../scenarios/plugin-fail.yaml");
 
 pub fn lookup(name: &str) -> Option<Scenario> {
     let yaml = match name {
         "default" => DEFAULT_YAML,
+        "chatty" => CHATTY_YAML,
+        "limit-breach" => LIMIT_BREACH_YAML,
+        "limit-breach-human" => LIMIT_BREACH_HUMAN_YAML,
+        "crash-fast" => CRASH_FAST_YAML,
+        "hang" => HANG_YAML,
+        "garbled" => GARBLED_YAML,
+        "slow-startup" => SLOW_STARTUP_YAML,
         "env-echo" => ENV_ECHO_YAML,
+        "resume-aware" => RESUME_AWARE_YAML,
+        "tool-heavy" => TOOL_HEAVY_YAML,
+        "plugin-fail" => PLUGIN_FAIL_YAML,
         _ => return None,
     };
     Some(Scenario::parse(yaml).expect("built-in scenario must parse"))
 }
 
-pub const BUILT_IN_NAMES: &[&str] = &["default", "env-echo"];
+pub const BUILT_IN_NAMES: &[&str] = &[
+    "default", "chatty", "limit-breach", "limit-breach-human",
+    "crash-fast", "hang", "garbled", "slow-startup",
+    "env-echo", "resume-aware", "tool-heavy", "plugin-fail",
+];
 
 #[cfg(test)]
 mod lookup_tests {
@@ -280,5 +304,14 @@ mod lookup_tests {
         for n in BUILT_IN_NAMES {
             assert!(lookup(n).is_some(), "built-in {} did not resolve", n);
         }
+    }
+
+    #[test]
+    fn scenarios_json_matches_built_in_names() {
+        let raw = include_str!("../scenarios.json");
+        let v: serde_json::Value = serde_json::from_str(raw).unwrap();
+        let names: Vec<&str> = v["scenarios"].as_array().unwrap()
+            .iter().map(|s| s.as_str().unwrap()).collect();
+        assert_eq!(names, BUILT_IN_NAMES);
     }
 }

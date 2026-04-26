@@ -1,0 +1,5 @@
+name: resume-aware
+steps:
+  - emit: "Running scenario 'resume-aware'.\n"
+  - emit: "(if launched with --resume, main.rs already printed the resume marker before this scenario started)\n"
+  - exit: 0
