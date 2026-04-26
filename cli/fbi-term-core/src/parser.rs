@@ -228,6 +228,24 @@ impl Parser {
         self.bytes_fed
     }
 
+    /// Resize the terminal to new dimensions.
+    ///
+    /// Updates the internal `alacritty_terminal::Term` grid and the cached
+    /// `cols` and `rows` fields. The mode_scanner and checkpoints are left
+    /// unchanged because they track logical parsing state that is independent
+    /// of the terminal's width and height — ANSI modes don't change just
+    /// because the screen got bigger.
+    pub fn resize(&mut self, cols: u16, rows: u16) {
+        if cols == self.cols && rows == self.rows {
+            return; // nothing to do
+        }
+
+        let size = TermSize { cols: cols as usize, rows: rows as usize };
+        self.term.resize(size);
+        self.cols = cols;
+        self.rows = rows;
+    }
+
     // ── Snapshot ──────────────────────────────────────────────────────────────
 
     /// Serialize the current mode state + grid + cursor position to an ANSI
