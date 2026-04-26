@@ -225,7 +225,7 @@ defmodule FBI.Orchestrator.RunServer do
         Process.flag(:trap_exit, true)
 
         try do
-          run_lifecycle(mode, state.run_id, state.config, parent)
+          run_lifecycle(mode, state.run_id, state.config, parent, state.term_handle)
         catch
           kind, reason ->
             Logger.error(
@@ -248,9 +248,10 @@ defmodule FBI.Orchestrator.RunServer do
 
   def handle_cast({:write_stdin, _}, state), do: {:noreply, state}
 
-  def handle_cast({:resize, cols, rows}, %{container_id: cid} = state) when cid != nil do
+  def handle_cast({:resize, cols, rows}, %{container_id: cid, term_handle: handle} = state)
+      when cid != nil and handle != nil do
     FBI.Docker.resize_container(cid, cols, rows)
-    ScreenState.resize(state.run_id, cols, rows)
+    FBI.Terminal.resize(handle, cols, rows)
     {:noreply, state}
   end
 
@@ -451,13 +452,13 @@ defmodule FBI.Orchestrator.RunServer do
   # Lifecycle implementations
   # ---------------------------------------------------------------------------
 
-  defp run_lifecycle(:launch, run_id, config, server_pid) do
+  defp run_lifecycle(:launch, run_id, config, server_pid, term_handle) do
     Logger.metadata(run_id: run_id, mode: :launch)
 
     with {:ok, run} <- Queries.get(run_id),
          {:ok, project} <- FBI.Projects.Queries.get(run.project_id) do
       log_path = run.log_path
-      on_bytes = make_on_bytes(run_id, log_path)
+      on_bytes = make_on_bytes(run_id, log_path, term_handle)
       on_bytes.("[fbi] resolving image\n")
 
       image_tag = resolve_image_tag(project, config, on_bytes)
@@ -566,12 +567,12 @@ defmodule FBI.Orchestrator.RunServer do
     end
   end
 
-  defp run_lifecycle(:resume, run_id, config, server_pid) do
+  defp run_lifecycle(:resume, run_id, config, server_pid, term_handle) do
     Logger.metadata(run_id: run_id, mode: :resume)
 
     with {:ok, run} <- Queries.get(run_id) do
       log_path = run.log_path
-      on_bytes = make_on_bytes(run_id, log_path)
+      on_bytes = make_on_bytes(run_id, log_path, term_handle)
       settings = FBI.Settings.Queries.get()
 
       on_bytes.(
@@ -678,12 +679,12 @@ defmodule FBI.Orchestrator.RunServer do
     end
   end
 
-  defp run_lifecycle(:continue, run_id, config, server_pid) do
+  defp run_lifecycle(:continue, run_id, config, server_pid, term_handle) do
     Logger.metadata(run_id: run_id, mode: :continue)
 
     with {:ok, run} <- Queries.get(run_id) do
       log_path = run.log_path
-      on_bytes = make_on_bytes(run_id, log_path)
+      on_bytes = make_on_bytes(run_id, log_path, term_handle)
       on_bytes.("\n[fbi] continuing from session #{run.claude_session_id}\n")
 
       {:ok, project} = FBI.Projects.Queries.get(run.project_id)
@@ -771,12 +772,12 @@ defmodule FBI.Orchestrator.RunServer do
     end
   end
 
-  defp run_lifecycle(:reattach, run_id, config, server_pid) do
+  defp run_lifecycle(:reattach, run_id, config, server_pid, term_handle) do
     Logger.metadata(run_id: run_id, mode: :reattach)
 
     with {:ok, run} <- Queries.get(run_id) do
       log_path = run.log_path
-      on_bytes = make_on_bytes(run_id, log_path)
+      on_bytes = make_on_bytes(run_id, log_path, term_handle)
       on_bytes.("\n[fbi] reattached after orchestrator restart\n")
 
       container_id = run.container_id
@@ -1004,11 +1005,19 @@ defmodule FBI.Orchestrator.RunServer do
   # on_bytes callback
   # ---------------------------------------------------------------------------
 
-  defp make_on_bytes(run_id, log_path) do
+  defp make_on_bytes(run_id, log_path, term_handle) do
     fn chunk ->
+      # Persist first so historical Range queries always see the bytes, even
+      # if a crash occurs between this line and the feed/broadcast lines.
       LogStore.append(log_path, chunk)
+
+      # Parse BEFORE broadcasting. This closes the snapshot-vs-broadcast race
+      # the old (broadcast-then-feed) code had: a viewer whose snapshot is
+      # being built in response to a hello will now always see a parser state
+      # that already includes this chunk.
+      FBI.Terminal.feed(term_handle, chunk)
+
       Phoenix.PubSub.broadcast(FBI.PubSub, "run:#{run_id}:bytes", {:bytes, chunk})
-      ScreenState.feed(run_id, chunk)
     end
   end
 
