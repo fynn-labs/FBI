@@ -377,7 +377,7 @@ describe('TerminalController', () => {
     expect(c._debugBuffers().latestState).toBe('succeeded');
   });
 
-  it('pause() sets paused state; live bytes are dropped while paused', () => {
+  it('pause() sets paused state; live bytes are buffered (not rendered) while paused', () => {
     const shell = makeStubShell();
     acquiredShells.set(22, shell);
     const term = makeFakeXterm();
@@ -390,10 +390,15 @@ describe('TerminalController', () => {
     c.pause();
     expect(c._debugBuffers().paused).toBe(true);
     term.write.mockClear();
-    for (const cb of shell._bytes) cb(new TextEncoder().encode('dropped'));
+    for (const cb of shell._bytes) cb(new TextEncoder().encode('paused'));
+    // Bytes must NOT be rendered to xterm while paused.
     expect(term.write).not.toHaveBeenCalled();
-    expect(c._debugBuffers().liveTailBytes.byteLength).toBe(3); // unchanged
-    expect(c._debugBuffers().liveOffset).toBe(3); // unchanged — dropped bytes aren't counted
+    // But bytes MUST be retained in liveTailBytes and liveOffset so that
+    // resume's tail-fetch math stays correct (Phase 8.1 bug fix: the old
+    // code dropped bytes from liveTailBytes when paused, causing resume to
+    // undershoot the tail fetch and permanently lose content).
+    expect(c._debugBuffers().liveTailBytes.byteLength).toBe(9); // 'pre' + 'paused'
+    expect(c._debugBuffers().liveOffset).toBe(9); // both batches counted
   });
 
   it('pause() is idempotent; double pause does not fire listeners twice', () => {
@@ -468,7 +473,12 @@ describe('TerminalController', () => {
     await new Promise((r) => setTimeout(r, 0));
 
     const bufs = c._debugBuffers();
-    expect(bufs.loadedBytes.byteLength).toBe(CHUNK_SIZE + 4); // seed + 'SNAP'
+    // loadedBytes is the raw seed fetch only — snap.ansi is NOT included
+    // (see seedInitialHistory: "Do NOT include snap.ansi here"). The old
+    // snapshot was "\e[2J\e[H" which wiped the viewport; the server now
+    // sends a real ANSI replay, but it is written by the snapshot handler
+    // directly, not stored in loadedBytes.
+    expect(bufs.loadedBytes.byteLength).toBe(CHUNK_SIZE);
     expect(bufs.loadedStartOffset).toBe(FULL_TOTAL - CHUNK_SIZE);
     expect(bufs.liveOffset).toBe(FULL_TOTAL);
   });
@@ -551,7 +561,9 @@ describe('TerminalController', () => {
     await c.loadOlderChunk();
 
     const b = c._debugBuffers();
-    expect(b.loadedBytes.byteLength).toBe(CHUNK_SIZE + CHUNK_SIZE + 1); // older + seed + 'S'
+    // loadedBytes = olderBytes (CHUNK_SIZE) + seedBytes (CHUNK_SIZE).
+    // snap.ansi is NOT stored in loadedBytes (see seedInitialHistory comment).
+    expect(b.loadedBytes.byteLength).toBe(CHUNK_SIZE + CHUNK_SIZE); // older + seed
     expect(b.loadedStartOffset).toBe(TOTAL - 2 * CHUNK_SIZE);
     expect(b.loadedBytes[0]).toBe(67);
     expect(b.loadedBytes[CHUNK_SIZE - 1]).toBe(67);

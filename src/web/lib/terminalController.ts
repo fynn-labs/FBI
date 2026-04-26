@@ -130,15 +130,13 @@ export class TerminalController {
       this.term.write(snap.ansi);
       this.onSnapshotParsed();
       this.scheduleCursorRedraw();
-      // If the server rendered this snapshot at a different size than our
-      // terminal (another viewer's hello resized the PTY), immediately
-      // reclaim the correct size. Without this, all subsequent PTY output
-      // comes in at the wrong width, making content look narrow.
-      if (snap.cols !== this.term.cols || snap.rows !== this.term.rows) {
-        queueMicrotask(() => {
-          if (!this.disposed) this.shell.sendHello(this.term.cols, this.term.rows);
-        });
-      }
+      // NOTE: A dim mismatch between snap.cols/rows and this.term.cols/rows is
+      // now an expected, design-intended state for non-focused viewers. The
+      // TerminalTakeoverBanner component (Phase 8.3) handles the UX for this
+      // case. The old reclaim loop (sendHello when dims differed) caused a
+      // thrash loop with multiple viewers: each viewer would immediately
+      // reclaim focus, triggering a new snapshot for all viewers, triggering
+      // another reclaim, and so on (Phase 8.1 fix).
       if (!this.seeded) {
         this.seeded = true;
         // Defer to a microtask so synchronous subscribers (tests, or any
@@ -150,19 +148,23 @@ export class TerminalController {
 
     this.unsubBytes = this.shell.onBytes((data) => {
       if (this.disposed) return;
-      // Drop while paused OR rebuilding: no xterm write, no liveTailBytes append.
-      // Paused blocks user-visible live updates; rebuilding blocks recursive
-      // writes from an onBytes handler firing mid-rebuild (which would race
-      // with rebuildXterm's own writes and double-write the same bytes).
-      if (this.paused || this.rebuilding) return;
-      this.term.write(data);
-      // Retain the live tail so pause/chunk-load/resume rebuilds can replay
-      // it. Grows unbounded by design — see spec Q8 (no cap in v1).
+      // Always retain the live tail and advance liveOffset, regardless of
+      // pause/rebuild state. Dropping bytes from liveTailBytes here means
+      // resume's tail-fetch math undershoots and the rebuild loses content
+      // permanently (Bug 2 in 2026-04-26-terminal-rust-rewrite-design.md §7).
+      // Only the visible-render is gated: while paused the user is reading
+      // history; while rebuilding we're mid-reset and any concurrent write
+      // would race with rebuildXterm's own writes and double-render the same
+      // bytes. Both gates preserve correctness by keeping writes out of the
+      // live xterm, while the append-only liveTailBytes accumulation ensures
+      // the full byte stream is available when resume kicks off its tail-fetch.
       const next = new Uint8Array(this.liveTailBytes.byteLength + data.byteLength);
       next.set(this.liveTailBytes);
       next.set(data, this.liveTailBytes.byteLength);
       this.liveTailBytes = next;
       this.liveOffset += data.byteLength;
+      if (this.paused || this.rebuilding) return;
+      this.term.write(data);
       // Reset the byte-silence timer on every byte arrival. Ready fires
       // when the stream has been quiet for a short window after the
       // snapshot has been parsed.
