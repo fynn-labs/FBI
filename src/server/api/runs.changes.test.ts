@@ -49,6 +49,8 @@ describe('/api/runs/:id/changes', () => {
         readSnapshotFiles: () => [], readSnapshotDiff: () => ({ path: '', ref: 'wip', hunks: [], truncated: false }),
         readSnapshotPatch: () => '', deleteWipRef: () => {},
       } as never,
+      quanticoEnabled: false,
+      quanticoScenarios: new Set<string>(['default']),
     });
 
     const res = await app.inject({ method: 'GET', url: '/api/runs/1/changes' });

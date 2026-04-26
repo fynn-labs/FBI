@@ -34,7 +34,7 @@ import { registerUsageRoutes } from './api/usage.js';
 import { registerUsageWsRoute } from './api/wsUsage.js';
 import { registerProxyRoutes } from './api/proxy.js';
 import { registerUploadsRoutes } from './api/uploads.js';
-import { registerQuanticoRoutes } from './api/quantico.js';
+import { registerQuanticoRoutes, loadScenarioNames } from './api/quantico.js';
 import { startDraftUploadsGc } from './housekeeping/draftUploads.js';
 import { GhClient } from './github/gh.js';
 
@@ -125,6 +125,8 @@ async function main() {
       initSafeguard: (id) => orchestrator.wipRepo.init(id),
     },
     wipRepo: orchestrator.wipRepo,
+    quanticoEnabled: config.quanticoEnabled,
+    quanticoScenarios: loadScenarioNames(),
   });
   registerSettingsRoutes(app, {
     settings,
