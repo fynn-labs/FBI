@@ -1,0 +1,17 @@
+[package]
+name = "fbi_term"
+version = "0.1.0"
+edition = "2021"
+
+[lib]
+name = "fbi_term"
+crate-type = ["cdylib"]
+path = "src/lib.rs"
+
+[dependencies]
+rustler = "0.37"
+fbi-term-core = { path = "../../../cli/fbi-term-core" }
+
+[profile.release]
+panic = "abort"
+opt-level = 3

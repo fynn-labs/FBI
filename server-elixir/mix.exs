@@ -10,7 +10,8 @@ defmodule FBI.MixProject do
       start_permanent: Mix.env() == :prod,
       aliases: aliases(),
       deps: deps(),
-      listeners: [Phoenix.CodeReloader]
+      listeners: [Phoenix.CodeReloader],
+      rustler_crates: rustler_crates()
     ]
   end
 
@@ -52,7 +53,18 @@ defmodule FBI.MixProject do
       {:bandit, "~> 1.5"},
       {:req, "~> 0.5"},
       {:mint_web_socket, "~> 1.0"},
-      {:file_system, "~> 1.0"}
+      {:file_system, "~> 1.0"},
+      {:rustler, "~> 0.34"}
+    ]
+  end
+
+  defp rustler_crates do
+    [
+      fbi_term: [
+        path: "native/fbi_term",
+        mode: if(Mix.env() == :prod, do: :release, else: :debug),
+        env: [{"CARGO_HOME", System.get_env("CARGO_HOME", Path.expand("~/.cargo"))}]
+      ]
     ]
   end
 

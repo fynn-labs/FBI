@@ -1,3 +1,3 @@
 [workspace]
-members = ["desktop", "cli/fbi-tunnel", "cli/fbi-term-core", "cli/quantico"]
+members = ["desktop", "cli/fbi-tunnel", "cli/fbi-term-core", "cli/quantico", "server-elixir/native/fbi_term"]
 resolver = "2"
