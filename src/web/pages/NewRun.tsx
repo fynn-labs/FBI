@@ -1,7 +1,8 @@
-import { useRef, useState, type FormEvent } from 'react';
+import { useEffect, useRef, useState, type FormEvent } from 'react';
 import { useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import { api, ApiError } from '../lib/api.js';
 import { ModelParamsCollapse, type ModelParamsValue } from '../components/ModelParamsCollapse.js';
+import { MockModeCollapse, type MockModeValue } from '../components/MockModeCollapse.js';
 import { RecentPromptsDropdown } from '../components/RecentPromptsDropdown.js';
 import { UploadTray, type UploadTrayFile } from '../components/UploadTray.js';
 import { FormRow } from '@ui/patterns/FormRow.js';
@@ -42,6 +43,15 @@ export function NewRunPage() {
   const [draftToken, setDraftToken] = useState<string | null>(null);
   const [attached, setAttached] = useState<UploadTrayFile[]>([]);
   const [modelParams, setModelParams] = useState<ModelParamsValue>(loadModelParams);
+  const [mockMode, setMockMode] = useState<MockModeValue>({ mock: false, mock_scenario: null });
+  const [scenarios, setScenarios] = useState<string[] | null>(null);
+
+  useEffect(() => {
+    api.fetchQuanticoScenarios()
+      .then((r) => setScenarios(r.scenarios))
+      .catch(() => setScenarios(null)); // capability off → 404 → leave null
+  }, []);
+
   const textareaRef = useRef<HTMLTextAreaElement | null>(null);
   const dropZoneRef = useRef<HTMLDivElement | null>(null);
 
@@ -71,6 +81,7 @@ export function NewRunPage() {
       draftToken ?? undefined,
       modelParams,
       force,
+      mockMode,
     );
     try {
       localStorage.setItem(LS_KEY, JSON.stringify(modelParams));
@@ -126,6 +137,7 @@ export function NewRunPage() {
         <Input className="w-full" value={branch} onChange={(e) => setBranch(e.target.value)} placeholder="feat/branch-name" />
       </FormRow>
       <ModelParamsCollapse value={modelParams} onChange={setModelParams} />
+      <MockModeCollapse value={mockMode} onChange={setMockMode} scenarios={scenarios} />
       <FormRow label="Prompt">
         <div
           ref={dropZoneRef}

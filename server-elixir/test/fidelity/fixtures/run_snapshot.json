@@ -31,5 +31,7 @@
   "parent_run_id": null,
   "kind": "work",
   "kind_args_json": null,
-  "mirror_status": null
+  "mirror_status": null,
+  "mock": false,
+  "mock_scenario": null
 }

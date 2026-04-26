@@ -24,7 +24,8 @@ const mkRun = (patch: Partial<Run> = {}): Run => ({
   usage_parse_errors: 0, title: null, title_locked: 0, parent_run_id: null,
   kind: 'work' as const, kind_args_json: null,
   base_branch: null, mirror_status: null, ...patch,
-  model: null, effort: null, subagent_model: null, ...patch,
+  model: null, effort: null, subagent_model: null,
+  mock: 0, mock_scenario: null, ...patch,
 });
 
 describe('ProjectList sidebar dot', () => {

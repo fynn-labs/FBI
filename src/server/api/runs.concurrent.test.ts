@@ -30,6 +30,8 @@ describe('POST /api/projects/:id/runs — concurrent-branch guard', () => {
         spawnSubRun: async () => 0, deleteRun: () => {}, initSafeguard: () => {},
       } as never,
       wipRepo: {} as never,
+      quanticoEnabled: false,
+      quanticoScenarios: new Set<string>(['default']),
     });
     const r1 = await app.inject({ method: 'POST', url: '/api/projects/1/runs',
       payload: { prompt: 'p', branch: 'feat/x' } });

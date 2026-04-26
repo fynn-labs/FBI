@@ -55,6 +55,8 @@ defmodule FBIWeb.Router do
     get "/projects/:id/runs", RunsController, :index_for_project
     post "/projects/:id/runs", RunsController, :create
 
+    get "/quantico/scenarios", QuanticoController, :index
+
     get "/runs/:id/transcript", TranscriptController, :show
     get "/runs/:id/files", FilesController, :show
 

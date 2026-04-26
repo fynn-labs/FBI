@@ -51,7 +51,9 @@ CREATE TABLE IF NOT EXISTS runs (
     CHECK (mirror_status IS NULL OR mirror_status IN ('ok','diverged','local_only')),
   model TEXT,
   effort TEXT,
-  subagent_model TEXT
+  subagent_model TEXT,
+  mock INTEGER NOT NULL DEFAULT 0,
+  mock_scenario TEXT
 );
 
 CREATE INDEX IF NOT EXISTS idx_runs_project ON runs(project_id);

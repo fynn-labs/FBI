@@ -54,6 +54,11 @@ export interface Config {
   gitAuthorEmail: string;
   webDir: string;
   cliDistDir: string;
+  quanticoEnabled: boolean;
+  quanticoBinaryPath: string;
+  mockSpeedMult: number;
+  limitMonitorIdleMs: number;
+  limitMonitorWarmupMs: number;
   containerMemMb: number;
   containerCpus: number;
   containerPids: number;
@@ -91,6 +96,11 @@ export function loadConfig(): Config {
     gitAuthorEmail: required('GIT_AUTHOR_EMAIL'),
     webDir: process.env.WEB_DIR ?? path.resolve('dist/web'),
     cliDistDir: process.env.CLI_DIST_DIR ?? path.resolve('dist/cli'),
+    quanticoEnabled: process.env.FBI_QUANTICO_ENABLED === '1',
+    quanticoBinaryPath: process.env.FBI_QUANTICO_BINARY_PATH ?? '/usr/local/lib/fbi/quantico',
+    mockSpeedMult: Number(process.env.MOCK_CLAUDE_SPEED_MULT ?? 1.0),
+    limitMonitorIdleMs: Number(process.env.FBI_LIMIT_MONITOR_IDLE_MS ?? 15_000),
+    limitMonitorWarmupMs: Number(process.env.FBI_LIMIT_MONITOR_WARMUP_MS ?? 60_000),
     containerMemMb: Number(process.env.FBI_CONTAINER_MEM_MB ?? 4096),
     containerCpus: Number(process.env.FBI_CONTAINER_CPUS ?? 2),
     containerPids: Number(process.env.FBI_CONTAINER_PIDS ?? 4096),

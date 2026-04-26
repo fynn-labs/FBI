@@ -41,6 +41,8 @@ defmodule FBI.Runs.Run do
     field :kind, :string, default: "work"
     field :kind_args_json, :string
     field :mirror_status, :string
+    field :mock, :boolean, default: false
+    field :mock_scenario, :string
   end
 
   @type t :: %__MODULE__{}
@@ -52,14 +54,26 @@ defmodule FBI.Runs.Run do
     resume_attempts next_resume_at claude_session_id last_limit_reset_at
     tokens_input tokens_output tokens_cache_read tokens_cache_create tokens_total
     usage_parse_errors title title_locked parent_run_id
-    kind kind_args_json mirror_status
+    kind kind_args_json mirror_status mock mock_scenario
   )a
 
   @spec changeset(t(), map()) :: Ecto.Changeset.t()
   def changeset(run, attrs) do
     run
     |> cast(attrs, [:id | @all_fields])
-    |> validate_required([:project_id, :prompt, :branch_name, :state, :log_path, :created_at])
+    # branch_name is NOT NULL in the DB but an empty string is a valid value meaning
+    # "auto-generate" (the orchestrator reads /fbi-state/branch-name and updates the
+    # column later). Ecto's cast strips "" to nil; we restore the empty-string default
+    # here so that callers may omit branch entirely and still satisfy the DB constraint.
+    |> put_change_if_nil(:branch_name, "")
+    |> validate_required([:project_id, :prompt, :state, :log_path, :created_at])
     |> validate_inclusion(:title_locked, [0, 1])
+  end
+
+  defp put_change_if_nil(changeset, field, value) do
+    case get_field(changeset, field) do
+      nil -> put_change(changeset, field, value)
+      _ -> changeset
+    end
   end
 end

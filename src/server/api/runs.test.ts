@@ -74,6 +74,8 @@ function setup() {
     markStartingForContinueRequest: () => {},
     orchestrator: stubOrchestrator,
     wipRepo: stubWipRepo,
+    quanticoEnabled: false,
+    quanticoScenarios: new Set<string>(['default']),
   });
   return { app, projectId: p.id, launched, cancelled, streams, runs };
 }
@@ -109,6 +111,8 @@ function setupWithUploads() {
     markStartingForContinueRequest: () => {},
     orchestrator: stubOrchestrator,
     wipRepo: stubWipRepo,
+    quanticoEnabled: false,
+    quanticoScenarios: new Set<string>(['default']),
   });
   registerUploadsRoutes(app, { runs, runsDir, draftUploadsDir });
   return { app, projectId: p.id, launched, runs, runsDir, draftUploadsDir };
@@ -133,6 +137,8 @@ function makeApp() {
     markStartingForContinueRequest: () => {},
     orchestrator: stubOrchestrator,
     wipRepo: stubWipRepo,
+    quanticoEnabled: false,
+    quanticoScenarios: new Set<string>(['default']),
   });
   return { app, projects, runs, streams };
 }
@@ -257,6 +263,8 @@ describe('runs routes', () => {
       markStartingForContinueRequest: () => {},
       orchestrator: stubOrchestrator,
       wipRepo: stubWipRepo,
+      quanticoEnabled: false,
+      quanticoScenarios: new Set<string>(['default']),
     });
     const res = await app2.inject({ method: 'POST', url: `/api/runs/${r.id}/resume-now` });
     expect(res.statusCode).toBe(204);
@@ -302,6 +310,8 @@ describe('runs routes', () => {
       markStartingForContinueRequest: () => {},
       orchestrator: stubOrchestrator,
       wipRepo: stubWipRepo,
+      quanticoEnabled: false,
+      quanticoScenarios: new Set<string>(['default']),
     });
     const res = await app.inject({ method: 'POST', url: `/api/runs/${run.id}/continue` });
     expect(res.statusCode).toBe(204);
@@ -345,6 +355,8 @@ describe('runs routes', () => {
       markStartingForContinueRequest: () => {},
       orchestrator: stubOrchestrator,
       wipRepo: stubWipRepo,
+      quanticoEnabled: false,
+      quanticoScenarios: new Set<string>(['default']),
     });
     const start = Date.now();
     const res = await app.inject({ method: 'POST', url: `/api/runs/${run.id}/continue` });
@@ -419,6 +431,8 @@ describe('runs routes', () => {
       gh: { ...stubGh, compareBranch: async () => { ghCalls++; return { commits: [], aheadBy: 0, behindBy: 0, mergeBaseSha: '' }; } },
       orchestrator: stubOrchestrator,
       wipRepo: stubWipRepo,
+      quanticoEnabled: false,
+      quanticoScenarios: new Set<string>(['default']),
     });
     await app.inject({ method: 'GET', url: `/api/runs/${r.id}/changes` });
     await app.inject({ method: 'GET', url: `/api/runs/${r.id}/changes` });
@@ -446,6 +460,8 @@ describe('runs routes', () => {
         execInContainer: async () => ({ stdout: '5\t2\tsrc/a.ts\n-\t-\timg.png\n', stderr: '', exitCode: 0 }),
       },
       wipRepo: stubWipRepo,
+      quanticoEnabled: false,
+      quanticoScenarios: new Set<string>(['default']),
     });
     const res = await app.inject({ method: 'GET', url: `/api/runs/${r.id}/commits/abc1234/files` });
     expect(res.statusCode).toBe(200);
@@ -481,6 +497,8 @@ describe('runs routes', () => {
         execInContainer: async () => ({ stdout: '3\t1\tfoo.ts\n', stderr: '', exitCode: 0 }),
       },
       wipRepo: stubWipRepo,
+      quanticoEnabled: false,
+      quanticoScenarios: new Set<string>(['default']),
     });
     const res = await app.inject({
       method: 'GET',
@@ -517,6 +535,8 @@ describe('runs routes', () => {
       markStartingForContinueRequest: () => {},
       orchestrator: stubOrchestrator,
       wipRepo: stubWipRepo,
+      quanticoEnabled: false,
+      quanticoScenarios: new Set<string>(['default']),
     });
     const res = await app.inject({ method: 'POST', url: `/api/runs/${run.id}/continue` });
     expect(res.statusCode).toBe(409);
@@ -554,6 +574,8 @@ describe('runs routes', () => {
           execHistoryOp: async () => ({ kind: 'complete' as const, sha: 'abc123' }),
         },
         wipRepo: stubWipRepo,
+        quanticoEnabled: false,
+        quanticoScenarios: new Set<string>(['default']),
       });
       const res = await app.inject({ method: 'POST', url: `/api/runs/${run.id}/history`, payload: { op: 'merge' } });
       expect(res.statusCode).toBe(200);
@@ -576,6 +598,8 @@ describe('runs routes', () => {
           spawnSubRun: async (parent, kind) => { spawned.push({ parent, kind }); return 99; },
         },
         wipRepo: stubWipRepo,
+        quanticoEnabled: false,
+        quanticoScenarios: new Set<string>(['default']),
       });
       const res = await app.inject({ method: 'POST', url: `/api/runs/${run.id}/history`, payload: { op: 'merge' } });
       expect(res.statusCode).toBe(200);
@@ -598,6 +622,8 @@ describe('runs routes', () => {
           spawnSubRun: async (parent, kind) => { spawned.push({ parent, kind }); return 88; },
         },
         wipRepo: stubWipRepo,
+        quanticoEnabled: false,
+        quanticoScenarios: new Set<string>(['default']),
       });
       const res = await app.inject({ method: 'POST', url: `/api/runs/${run.id}/history`, payload: { op: 'polish' } });
       expect(res.statusCode).toBe(200);
@@ -621,6 +647,8 @@ describe('runs routes', () => {
           execHistoryOp: async (_rid, op) => { received = op; return { kind: 'complete', sha: 'abc' }; },
         },
         wipRepo: stubWipRepo,
+        quanticoEnabled: false,
+        quanticoScenarios: new Set<string>(['default']),
       });
       const res = await app.inject({ method: 'POST', url: `/api/runs/${run.id}/history`,
         payload: { op: 'push-submodule', path: 'foo' } });
@@ -642,6 +670,8 @@ describe('runs routes', () => {
           execHistoryOp: async () => { throw new Error('Docker daemon not running'); },
         },
         wipRepo: stubWipRepo,
+        quanticoEnabled: false,
+        quanticoScenarios: new Set<string>(['default']),
       });
       const res = await app.inject({ method: 'POST', url: `/api/runs/${run.id}/history`, payload: { op: 'merge' } });
       expect(res.statusCode).toBe(200);
@@ -786,6 +816,78 @@ describe('runs routes', () => {
     });
   });
 
+  describe('POST /api/projects/:id/runs — mock/quantico validation', () => {
+    let quanticoEnabled = false;
+    const quanticoScenarios = new Set<string>(['default', 'limit-breach']);
+    function withCapability(on: boolean) { quanticoEnabled = on; }
+
+    function setupQuantico() {
+      const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'fbi-quantico-'));
+      const db = openDb(path.join(dir, 'db.sqlite'));
+      const projects = new ProjectsRepo(db);
+      const runs = new RunsRepo(db);
+      const p = projects.create({
+        name: 'p', repo_url: 'r', default_branch: 'main',
+        devcontainer_override_json: null, instructions: null,
+        git_author_name: null, git_author_email: null,
+      });
+      const app = Fastify();
+      registerRunsRoutes(app, {
+        runs, projects, gh: stubGh,
+        streams: new RunStreamRegistry(),
+        runsDir: dir,
+        draftUploadsDir: dir,
+        launch: async (_id: number) => {},
+        cancel: async (_id: number) => {},
+        fireResumeNow: (_id: number) => {},
+        continueRun: async (_id: number) => {},
+        markStartingForContinueRequest: () => {},
+        orchestrator: stubOrchestrator,
+        wipRepo: stubWipRepo,
+        get quanticoEnabled() { return quanticoEnabled; },
+        quanticoScenarios,
+      });
+      return { app, pid: p.id, runs };
+    }
+
+    it('rejects mock=true when capability flag is off', async () => {
+      withCapability(false);
+      const { app, pid } = setupQuantico();
+      const res = await app.inject({
+        method: 'POST', url: `/api/projects/${pid}/runs`,
+        payload: { prompt: 'hi', mock: true, mock_scenario: 'default' },
+      });
+      expect(res.statusCode).toBe(400);
+      expect(res.json().error).toMatch(/quantico_disabled/);
+    });
+
+    it('accepts mock=true with valid scenario when capability is on', async () => {
+      withCapability(true);
+      const { app, pid, runs } = setupQuantico();
+      const res = await app.inject({
+        method: 'POST', url: `/api/projects/${pid}/runs`,
+        payload: { prompt: 'hi', mock: true, mock_scenario: 'default' },
+      });
+      expect(res.statusCode).toBeGreaterThanOrEqual(200);
+      expect(res.statusCode).toBeLessThan(300);
+      const created = res.json() as { id: number };
+      const row = runs.get(created.id);
+      expect(row?.mock).toBe(1);
+      expect(row?.mock_scenario).toBe('default');
+    });
+
+    it('rejects mock=true with unknown scenario name', async () => {
+      withCapability(true);
+      const { app, pid } = setupQuantico();
+      const res = await app.inject({
+        method: 'POST', url: `/api/projects/${pid}/runs`,
+        payload: { prompt: 'hi', mock: true, mock_scenario: 'nonsense' },
+      });
+      expect(res.statusCode).toBe(400);
+      expect(res.json().error).toMatch(/invalid_scenario/);
+    });
+  });
+
   describe('parseSubmoduleLog', () => {
     it('extracts a bump with commit subjects', () => {
       const raw =
@@ -857,6 +959,8 @@ describe('runs routes', () => {
       },
       orchestrator: stubOrchestrator,
       wipRepo: stubWipRepo,
+      quanticoEnabled: false,
+      quanticoScenarios: new Set<string>(['default']),
     });
 
     const res = await app.inject({ method: 'GET', url: `/api/runs/${r.id}/changes` });
@@ -913,6 +1017,8 @@ describe('runs routes', () => {
         markStartingForContinueRequest: () => {},
         orchestrator: stubOrchestrator,
         wipRepo,
+        quanticoEnabled: false,
+        quanticoScenarios: new Set<string>(['default']),
       });
 
       return { app, run, wipRepo, seedSnapshot, dir };

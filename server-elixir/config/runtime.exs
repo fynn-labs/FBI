@@ -1,5 +1,13 @@
 import Config
 
+config :fbi,
+  quantico_enabled: System.get_env("FBI_QUANTICO_ENABLED") == "1",
+  quantico_binary_path: System.get_env("FBI_QUANTICO_BINARY_PATH") || "/usr/local/lib/fbi/quantico",
+  quantico_scenarios: FBI.Quantico.load_scenario_names(),
+  mock_speed_mult: System.get_env("MOCK_CLAUDE_SPEED_MULT") || "1.0",
+  limit_monitor_idle_ms: String.to_integer(System.get_env("FBI_LIMIT_MONITOR_IDLE_MS") || "15000"),
+  limit_monitor_warmup_ms: String.to_integer(System.get_env("FBI_LIMIT_MONITOR_WARMUP_MS") || "60000")
+
 # config/runtime.exs is executed for all environments, including
 # during releases. It is executed after compilation and before the
 # system starts, so it is typically used to load production configuration

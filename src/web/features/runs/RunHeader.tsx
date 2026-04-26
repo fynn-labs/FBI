@@ -92,7 +92,7 @@ export function RunHeader({ run, onCancel, onDelete, onContinue, onRenamed }: Ru
           </>
         )}
       </h1>
-      <Pill tone={TONE[run.state]}>{run.state}</Pill>
+      <Pill tone={TONE[run.state]} data-testid="run-state-badge">{run.state}</Pill>
       {run.branch_name && (
         <CodeBlock>{run.branch_name}{run.head_commit ? `@${run.head_commit.slice(0, 8)}` : ''}</CodeBlock>
       )}

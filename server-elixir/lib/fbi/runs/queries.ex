@@ -446,7 +446,9 @@ defmodule FBI.Runs.Queries do
       :parent_run_id,
       :kind,
       :kind_args_json,
-      :mirror_status
+      :mirror_status,
+      :mock,
+      :mock_scenario
     ])
   end
 end

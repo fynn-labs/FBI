@@ -12,6 +12,8 @@ export interface CreateRunInput {
   model?: string | null;
   effort?: string | null;
   subagent_model?: string | null;
+  mock?: boolean;
+  mock_scenario?: string | null;
 }
 
 export interface ListFilteredInput {
@@ -43,8 +45,9 @@ export class RunsRepo {
              (project_id, prompt, branch_name, state, log_path,
               created_at, state_entered_at,
               parent_run_id, kind, kind_args_json,
-              model, effort, subagent_model)
-           VALUES (?, ?, ?, 'queued', '', ?, ?, ?, ?, ?, ?, ?, ?)`
+              model, effort, subagent_model,
+              mock, mock_scenario)
+           VALUES (?, ?, ?, 'queued', '', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
         )
         .run(
           input.project_id,
@@ -58,6 +61,8 @@ export class RunsRepo {
           input.model ?? null,
           input.effort ?? null,
           input.subagent_model ?? null,
+          input.mock ? 1 : 0,
+          input.mock_scenario ?? null,
         );
       const id = Number(stub.lastInsertRowid);
       const logPath = input.log_path_tmpl(id);
