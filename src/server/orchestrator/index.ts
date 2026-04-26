@@ -835,6 +835,8 @@ export class Orchestrator {
   ): LimitMonitor {
     return new LimitMonitor({
       mountDir: this.mountDirFor(runId),
+      idleMs: this.deps.config.limitMonitorIdleMs,
+      warmupMs: this.deps.config.limitMonitorWarmupMs,
       onDetect: () => {
         if (!this.deps.settings.get().auto_resume_enabled) return;
         this.limitFired.set(runId, true);
