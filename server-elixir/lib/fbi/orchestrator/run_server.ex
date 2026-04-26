@@ -22,7 +22,6 @@ defmodule FBI.Orchestrator.RunServer do
   alias FBI.Runs.{Queries, LogStore}
 
   alias FBI.Orchestrator.{
-    ScreenState,
     ResumeDetector,
     ResultParser,
     TitleWatcher,
@@ -557,7 +556,7 @@ defmodule FBI.Orchestrator.RunServer do
 
       Process.exit(reader_pid, :kill)
       FBI.Docker.remove_container(container_id, force: true, v: true)
-      ScreenState.clear(run_id)
+      # NIF handle is GC'd automatically via ResourceArc when the GenServer terminates.
 
       result
     else
@@ -672,7 +671,6 @@ defmodule FBI.Orchestrator.RunServer do
 
       Process.exit(reader_pid, :kill)
       FBI.Docker.remove_container(container_id, force: true, v: true)
-      ScreenState.clear(run_id)
       result
     else
       _ -> :error
@@ -765,7 +763,6 @@ defmodule FBI.Orchestrator.RunServer do
 
       Process.exit(reader_pid, :kill)
       FBI.Docker.remove_container(container_id, force: true, v: true)
-      ScreenState.clear(run_id)
       result
     else
       _ -> :error
@@ -819,7 +816,6 @@ defmodule FBI.Orchestrator.RunServer do
       ])
 
       FBI.Docker.remove_container(container_id, force: true, v: true)
-      ScreenState.clear(run_id)
       result
     else
       _ -> :error
