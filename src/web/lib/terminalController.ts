@@ -516,6 +516,11 @@ export class TerminalController {
   private async seedInitialHistory(snap: RunWsSnapshotMessage): Promise<void> {
     try {
       const snapBytes = new TextEncoder().encode(snap.ansi);
+      // Capture before the first await: any liveTailBytes[0..liveAtSeedStart-1]
+      // will be in the transcript by the time we fetch it (they were received
+      // before this microtask ran). They must be trimmed to avoid a double-write
+      // in rebuildXterm([loadedBytes, liveTailBytes]).
+      const liveAtSeedStart = this.liveOffset;
       const headerTotal = await this.fetchTranscriptMeta();
       if (headerTotal === 0) {
         this.loadedBytes = snapBytes;
@@ -538,7 +543,12 @@ export class TerminalController {
       if (this.disposed) return;
       this.loadedBytes = concat([seedBytes, snapBytes]);
       this.loadedStartOffset = start;
-      this.liveOffset = headerTotal;
+      // Trim the bytes that arrived before seedInitialHistory started — they
+      // are already included in seedBytes. Keep only bytes received during
+      // the async fetches (genuinely past headerTotal in the transcript).
+      const tail = this.liveTailBytes.subarray(liveAtSeedStart);
+      this.liveTailBytes = tail;
+      this.liveOffset = headerTotal + tail.byteLength;
       // Gate onBytes and onScroll during the rebuild so live WS bytes
       // aren't double-written and xterm's transient scroll events
       // (term.reset(), write() autoscroll) don't trigger spurious

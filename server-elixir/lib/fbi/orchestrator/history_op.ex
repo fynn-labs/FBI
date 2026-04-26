@@ -105,7 +105,6 @@ defmodule FBI.Orchestrator.HistoryOp do
 
   @doc "Run history op in a transient alpine/git container (for finished runs)."
   def run_in_transient_container(opts) do
-    _run_id = opts.run_id
     env_map = opts.env
     repo_url = opts.repo_url
     script_path = opts.history_op_script_path
@@ -115,30 +114,70 @@ defmodule FBI.Orchestrator.HistoryOp do
 
     env_list = Enum.map(env_map, fn {k, v} -> "#{k}=#{v}" end)
 
+    # Clone the repo into /workspace before running the script — same
+    # preamble as the TypeScript runHistoryOpInTransientContainer.
+    clone_cmd =
+      Enum.join(
+        [
+          "set -e",
+          "git clone --quiet \"$REPO_URL\" . >/dev/null 2>&1",
+          "git config user.name \"$GIT_AUTHOR_NAME\"",
+          "git config user.email \"$GIT_AUTHOR_EMAIL\"",
+          "/usr/local/bin/fbi-history-op.sh"
+        ],
+        "; "
+      )
+
     spec = %{
       "Image" => "alpine/git:latest",
+      # Docker creates this directory when starting the container.
+      "WorkingDir" => "/workspace",
       "Env" => [
         "REPO_URL=#{repo_url}",
         "GIT_AUTHOR_NAME=#{author_name}",
         "GIT_AUTHOR_EMAIL=#{author_email}" | env_list
       ],
-      "Cmd" => ["/usr/local/bin/fbi-history-op.sh"],
+      "Cmd" => ["/bin/sh", "-c", clone_cmd],
       "HostConfig" => %{
-        "AutoRemove" => true,
+        # Keep the container until we've read its logs; remove manually below.
+        "AutoRemove" => false,
         "Binds" => [
           "#{script_path}:/usr/local/bin/fbi-history-op.sh:ro",
-          "#{wip_path}:/wip.git:rw"
+          # Mount safeguard at /safeguard — the path the script checks.
+          "#{wip_path}:/safeguard:rw"
         ]
       }
     }
 
     {:ok, container_id} = FBI.Docker.create_container(spec)
     :ok = FBI.Docker.start_container(container_id)
+    # Open the log stream before the container can exit so we don't race
+    # with AutoRemove. Docker's follow=1 keeps the connection open until
+    # the container exits, so read_container_stdout/1 blocks until then.
+    {:ok, logs_conn} = FBI.Docker.container_logs(container_id)
+    stdout = read_container_stdout(logs_conn)
     {:ok, status_code} = FBI.Docker.wait_container(container_id)
     FBI.Docker.remove_container(container_id, force: true)
-    # Transient container stdout is not captured; only the exit code is available.
-    # Success (exit 0) returns :completed with an empty sha; the caller should not
-    # rely on the sha field from this path.
-    parse_result("", status_code)
+    parse_result(stdout, status_code)
   end
+
+  # Read Docker-multiplexed log stream until the container exits (EOF).
+  defp read_container_stdout(conn, acc \\ "") do
+    case FBI.Docker.recv_chunked(conn) do
+      {:ok, data} -> read_container_stdout(conn, acc <> strip_docker_frames(data))
+      :eof -> acc
+      {:error, _} -> acc
+    end
+  end
+
+  # Strip Docker multiplexed-stream 8-byte frame headers, returning payload.
+  defp strip_docker_frames(<<>>), do: ""
+
+  defp strip_docker_frames(<<_type, 0, 0, 0, size::32-big, rest::binary>>)
+       when byte_size(rest) >= size do
+    <<payload::binary-size(size), remainder::binary>> = rest
+    payload <> strip_docker_frames(remainder)
+  end
+
+  defp strip_docker_frames(data), do: data
 end
