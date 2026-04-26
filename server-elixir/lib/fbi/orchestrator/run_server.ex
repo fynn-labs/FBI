@@ -376,6 +376,7 @@ defmodule FBI.Orchestrator.RunServer do
       runs_dir = config.runs_dir
       mount_dir = ensure_dir(SessionId.mount_dir(runs_dir, run_id), 0o777)
       state_dir = ensure_dir(SessionId.state_dir(runs_dir, run_id), 0o777)
+      _uploads_dir = ensure_dir(SessionId.uploads_dir(runs_dir, run_id), 0o755)
       scripts_dir = ensure_scripts_dir(SessionId.scripts_dir(runs_dir, run_id), config)
       wip_repo_path = FBI.Orchestrator.WipRepo.init(runs_dir, run_id)
 
@@ -475,6 +476,7 @@ defmodule FBI.Orchestrator.RunServer do
       runs_dir = config.runs_dir
       mount_dir = ensure_dir(SessionId.mount_dir(runs_dir, run_id), 0o777)
       state_dir = ensure_dir(SessionId.state_dir(runs_dir, run_id), 0o777)
+      _uploads_dir = ensure_dir(SessionId.uploads_dir(runs_dir, run_id), 0o755)
       scripts_dir = ensure_scripts_dir(SessionId.scripts_dir(runs_dir, run_id), config)
       wip_repo_path = FBI.Orchestrator.WipRepo.init(runs_dir, run_id)
 
@@ -1050,11 +1052,14 @@ defmodule FBI.Orchestrator.RunServer do
     env = env ++ Enum.map(project_secrets, fn {k, v} -> "#{k}=#{v}" end)
     env = env ++ model_param_env(run)
 
+    uploads_dir = SessionId.uploads_dir(config.runs_dir, run_id)
+
     binds = [
       "#{to_bind_host.(Path.join(scripts_dir, "supervisor.sh"))}:/usr/local/bin/supervisor.sh:ro",
       "#{to_bind_host.(Path.join(scripts_dir, "finalizeBranch.sh"))}:/usr/local/bin/fbi-finalize-branch.sh:ro",
       "#{to_bind_host.(Path.join(scripts_dir, "fbi-history-op.sh"))}:/usr/local/bin/fbi-history-op.sh:ro",
       "#{to_bind_host.(wip_path)}:/safeguard:rw",
+      "#{to_bind_host.(uploads_dir)}:/fbi/uploads:ro",
       "#{to_bind_host.(mount_dir)}:/home/agent/.claude/projects/",
       "#{to_bind_host.(state_dir)}:/fbi-state/"
     ]
