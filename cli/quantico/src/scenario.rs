@@ -238,3 +238,47 @@ steps:
         assert!(Scenario::parse(yaml).is_err());
     }
 }
+
+const DEFAULT_YAML: &str = include_str!("../scenarios/default.yaml");
+const ENV_ECHO_YAML: &str = include_str!("../scenarios/env-echo.yaml");
+
+pub fn lookup(name: &str) -> Option<Scenario> {
+    let yaml = match name {
+        "default" => DEFAULT_YAML,
+        "env-echo" => ENV_ECHO_YAML,
+        _ => return None,
+    };
+    Some(Scenario::parse(yaml).expect("built-in scenario must parse"))
+}
+
+pub const BUILT_IN_NAMES: &[&str] = &["default", "env-echo"];
+
+#[cfg(test)]
+mod lookup_tests {
+    use super::*;
+
+    #[test]
+    fn default_is_present_and_parses() {
+        let s = lookup("default").expect("default exists");
+        assert_eq!(s.name, "default");
+        assert!(!s.steps.is_empty());
+    }
+
+    #[test]
+    fn env_echo_is_present_and_parses() {
+        let s = lookup("env-echo").expect("env-echo exists");
+        assert_eq!(s.name, "env-echo");
+    }
+
+    #[test]
+    fn unknown_returns_none() {
+        assert!(lookup("nope").is_none());
+    }
+
+    #[test]
+    fn built_in_names_all_resolve() {
+        for n in BUILT_IN_NAMES {
+            assert!(lookup(n).is_some(), "built-in {} did not resolve", n);
+        }
+    }
+}
