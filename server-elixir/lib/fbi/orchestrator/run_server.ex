@@ -299,6 +299,7 @@ defmodule FBI.Orchestrator.RunServer do
           scripts_dir: scripts_dir,
           wip_path: wip_repo_path,
           project_secrets: project_secrets,
+          settings: settings,
           config: config,
           resume_session_id: nil
         })
@@ -398,6 +399,7 @@ defmodule FBI.Orchestrator.RunServer do
           scripts_dir: scripts_dir,
           wip_path: wip_repo_path,
           project_secrets: project_secrets,
+          settings: settings,
           config: config,
           resume_session_id: run.claude_session_id
         })
@@ -497,6 +499,7 @@ defmodule FBI.Orchestrator.RunServer do
           scripts_dir: scripts_dir,
           wip_path: wip_repo_path,
           project_secrets: project_secrets,
+          settings: settings,
           config: config,
           resume_session_id: run.claude_session_id
         })
@@ -973,6 +976,13 @@ defmodule FBI.Orchestrator.RunServer do
   # Container helpers
   # ---------------------------------------------------------------------------
 
+  # Merge global + project lists, dedupe, newline-join for env-var transport.
+  # Mirrors TS `uniq([...settingsData.global_X, ...project.X])` at
+  # src/server/orchestrator/index.ts:231-232,256-257.
+  defp merged_list(global, project) do
+    ((global || []) ++ (project || [])) |> Enum.uniq() |> Enum.join("\n")
+  end
+
   defp resolve_image_tag(project, config, on_bytes) do
     devcontainer_files =
       FBI.Orchestrator.DevcontainerFetcher.fetch(
@@ -1006,6 +1016,7 @@ defmodule FBI.Orchestrator.RunServer do
       scripts_dir: scripts_dir,
       wip_path: wip_path,
       project_secrets: project_secrets,
+      settings: settings,
       config: config,
       resume_session_id: resume_session_id
     } = opts
@@ -1026,8 +1037,8 @@ defmodule FBI.Orchestrator.RunServer do
       "DEFAULT_BRANCH=#{project.default_branch}",
       "GIT_AUTHOR_NAME=#{project.git_author_name || config.git_author_name}",
       "GIT_AUTHOR_EMAIL=#{project.git_author_email || config.git_author_email}",
-      "FBI_MARKETPLACES=#{Enum.join(project.marketplaces || [], "\n")}",
-      "FBI_PLUGINS=#{Enum.join(project.plugins || [], "\n")}",
+      "FBI_MARKETPLACES=#{merged_list(settings.global_marketplaces, project.marketplaces)}",
+      "FBI_PLUGINS=#{merged_list(settings.global_plugins, project.plugins)}",
       "IS_SANDBOX=1"
     ]
 
