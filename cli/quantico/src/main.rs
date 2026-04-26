@@ -22,14 +22,14 @@ fn main() {
             eprintln!("quantico: unsupported argument: {}", arg);
             2
         }
-        argv::Invocation::Run { scenario: name, scenario_file, resume_session_id: _ } => {
-            run_scenario(name.as_deref(), scenario_file.as_deref())
+        argv::Invocation::Run { scenario: name, scenario_file, resume_session_id } => {
+            run_scenario(name.as_deref(), scenario_file.as_deref(), resume_session_id.as_deref())
         }
     };
     std::process::exit(exit_code);
 }
 
-fn run_scenario(name: Option<&str>, scenario_file: Option<&str>) -> i32 {
+fn run_scenario(name: Option<&str>, scenario_file: Option<&str>, resume_session_id: Option<&str>) -> i32 {
     let scenario = if let Some(path) = scenario_file {
         match std::fs::read_to_string(path) {
             Ok(yaml) => match scenario::Scenario::parse(&yaml) {
@@ -53,8 +53,25 @@ fn run_scenario(name: Option<&str>, scenario_file: Option<&str>) -> i32 {
     let argv: Vec<String> = std::env::args().skip(1).collect();
 
     let home = std::env::var("HOME").unwrap_or_else(|_| "/home/agent".into());
-    let session_id = uuid::Uuid::new_v4().to_string();
+    let session_id = match resume_session_id {
+        Some(id) => {
+            let path = jsonl::session_path(&home, &cwd, id);
+            if !path.exists() {
+                eprintln!("Error: session {} not found", id);
+                return 1;
+            }
+            id.to_string()
+        }
+        None => uuid::Uuid::new_v4().to_string(),
+    };
     let session_path = jsonl::session_path(&home, &cwd, &session_id);
+    if let Some(parent) = session_path.parent() {
+        let _ = std::fs::create_dir_all(parent);
+    }
+    if resume_session_id.is_some() {
+        use std::io::Write;
+        let _ = writeln!(std::io::stdout(), "[quantico] resumed from {}", session_id);
+    }
 
     let env_get = |k: &str| std::env::var(k).ok();
     let mut stdout = std::io::stdout();
