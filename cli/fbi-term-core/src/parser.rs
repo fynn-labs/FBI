@@ -57,6 +57,7 @@ use alacritty_terminal::grid::Dimensions;
 use alacritty_terminal::term::Config;
 use vte::ansi::Processor;
 
+use crate::checkpoint::CheckpointStore;
 use crate::modes::ModeScanner;
 
 // ── Private size helper ───────────────────────────────────────────────────────
@@ -133,6 +134,14 @@ pub struct Parser {
     /// prepend a mode-replay prefix.  See `crate::modes` for the full
     /// rationale.
     pub(crate) mode_scanner: ModeScanner,
+
+    /// Periodic `ModeState` checkpoints for `snapshot_at(offset)`.
+    ///
+    /// Every ~256 KB of transcript, `record()` saves the current `ModeState`
+    /// so that `snapshot_at` can locate a nearby checkpoint and replay only
+    /// a bounded slice of bytes to reconstruct the exact mode state at any
+    /// historical offset.
+    checkpoints: CheckpointStore,
 }
 
 impl Parser {
@@ -157,13 +166,25 @@ impl Parser {
         // synchronized-update timeout; no setup required.
         let processor = Processor::new();
 
-        Self { term, processor, cols, rows, bytes_fed: 0, mode_scanner: ModeScanner::new() }
+        Self {
+            term,
+            processor,
+            cols,
+            rows,
+            bytes_fed: 0,
+            mode_scanner: ModeScanner::new(),
+            checkpoints: CheckpointStore::new(),
+        }
     }
 
     /// Feed raw PTY bytes into the terminal. May be called repeatedly;
     /// the processor state is preserved across calls (partial escape
     /// sequences are correctly stitched together).
     pub fn feed(&mut self, bytes: &[u8]) {
+        // Capture the byte offset BEFORE this chunk so the checkpoint store
+        // can associate the chunk with the correct transcript position.
+        let offset_before = self.bytes_fed;
+
         // Feed the alacritty processor (handles cell writes, cursor moves,
         // color changes, mode toggles that affect the grid, etc.).
         self.processor.advance(&mut self.term, bytes);
@@ -173,6 +194,14 @@ impl Parser {
         // ignores everything else.  Running it after alacritty means both
         // parsers always see the same bytes in the same order.
         self.mode_scanner.feed(bytes);
+
+        // Record the chunk in the checkpoint store.  We pass:
+        //   - the raw bytes (kept in recent_bytes for replay)
+        //   - offset_before (so the store knows where in the transcript
+        //     this chunk begins)
+        //   - modes AFTER the chunk (what takes effect starting at
+        //     offset_before + bytes.len())
+        self.checkpoints.record(bytes, offset_before, &self.mode_scanner.modes);
 
         self.bytes_fed += bytes.len() as u64;
     }
@@ -227,6 +256,66 @@ impl Parser {
             cols: self.cols,
             rows: self.rows,
             byte_offset: self.bytes_fed,
+        }
+    }
+
+    // ── snapshot_at ───────────────────────────────────────────────────────────
+
+    /// Return the mode state that was active at byte offset `offset` in the
+    /// run's transcript, as ANSI ready to prepend to a historical chunk.
+    ///
+    /// # Use case
+    ///
+    /// The HTTP transcript Range API serves `bytes=A-B` requests. When A > 0,
+    /// the server prepends `snapshot_at(A).ansi` to the response so the
+    /// client's xterm.js parser starts in the right buffer, scroll region,
+    /// and mode state — without needing to replay the entire transcript from
+    /// the beginning.
+    ///
+    /// # Offset semantics
+    ///
+    /// `offset` is the index of the first byte of the range being served.
+    /// "Mode state at offset A" means: the modes active BEFORE byte A was
+    /// processed (equivalently, after bytes 0..A-1 have been processed).
+    /// This matches what a client needs when it starts consuming bytes from A.
+    ///
+    /// # Panics
+    ///
+    /// Panics if `offset > self.bytes_fed()`.  This is a caller error —
+    /// you cannot request mode state beyond the end of the transcript.
+    pub fn snapshot_at(&self, offset: u64) -> crate::ModePrefix {
+        assert!(
+            offset <= self.bytes_fed,
+            "snapshot_at({}): offset exceeds bytes_fed ({})",
+            offset,
+            self.bytes_fed
+        );
+
+        let (cp_offset, cp_modes, replay_bytes) = self
+            .checkpoints
+            .locate(offset)
+            .expect("locate() returned None despite offset <= bytes_fed; this is a bug");
+
+        // Replay bytes from [cp_offset, offset) through a fresh scanner
+        // seeded with the checkpoint's mode state.
+        let mut scanner = crate::modes::ModeScanner::with_initial_state(cp_modes.clone());
+
+        // replay_bytes already covers [cp_offset, offset) — locate() trims
+        // it for us.  We also defensively clamp to avoid panics if the
+        // returned slice is longer than the span (shouldn't happen, but
+        // belt-and-suspenders given the tricky offset arithmetic).
+        let available = replay_bytes.len() as u64;
+        let span = offset.saturating_sub(cp_offset);
+        let to_feed = if span <= available {
+            &replay_bytes[..span as usize]
+        } else {
+            replay_bytes
+        };
+
+        scanner.feed(to_feed);
+
+        crate::ModePrefix {
+            ansi: scanner.emit(self.rows),
         }
     }
 

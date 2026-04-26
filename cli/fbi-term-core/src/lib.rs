@@ -25,6 +25,10 @@ mod serialize;
 // if needed, but the primary consumer is `parser.rs` internally.
 pub mod modes;
 
+// Checkpoint store — periodic ModeState snapshots for snapshot_at().
+pub mod checkpoint;
+pub use checkpoint::CHECKPOINT_INTERVAL;
+
 /// Result of `Parser::snapshot()`. The `ansi` field is a complete
 /// replay of mode state + grid contents + final cursor position;
 /// writing it into a fresh xterm.js terminal at the same dims

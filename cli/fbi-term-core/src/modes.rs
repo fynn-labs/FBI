@@ -134,6 +134,21 @@ impl ModeScanner {
         }
     }
 
+    /// Construct a scanner pre-seeded with an existing `ModeState`.
+    ///
+    /// Used by `Parser::snapshot_at` to replay bytes starting from a
+    /// checkpoint's mode state rather than from default.  The CSI parser
+    /// state begins clean (Normal) because checkpoints are always taken at
+    /// chunk boundaries, never mid-sequence.
+    pub fn with_initial_state(state: ModeState) -> Self {
+        ModeScanner {
+            modes: state,
+            state: ScanState::Normal,
+            csi_private: None,
+            csi_params: String::new(),
+        }
+    }
+
     /// Feed raw bytes into the scanner.  May be called repeatedly; the
     /// state machine survives chunk boundaries (a partial CSI split across
     /// two `feed` calls is correctly completed on the next call).
