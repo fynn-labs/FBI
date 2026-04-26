@@ -511,7 +511,6 @@ export class TerminalController {
    */
   private async seedInitialHistory(snap: RunWsSnapshotMessage): Promise<void> {
     try {
-      const snapBytes = new TextEncoder().encode(snap.ansi);
       // Capture before the first await: any liveTailBytes[0..liveAtSeedStart-1]
       // will be in the transcript by the time we fetch it (they were received
       // before this microtask ran). They must be trimmed to avoid a double-write
@@ -519,7 +518,7 @@ export class TerminalController {
       const liveAtSeedStart = this.liveOffset;
       const headerTotal = await this.fetchTranscriptMeta();
       if (headerTotal === 0) {
-        this.loadedBytes = snapBytes;
+        this.loadedBytes = new Uint8Array();
         this.loadedStartOffset = 0;
         this.liveOffset = 0;
         traceRecord('controller.seed.complete', { bytes: 0 });
@@ -537,7 +536,11 @@ export class TerminalController {
       }
       const seedBytes = new Uint8Array(await res.arrayBuffer());
       if (this.disposed) return;
-      this.loadedBytes = concat([seedBytes, snapBytes]);
+      // Do NOT include snap.ansi here. Before commit 3e3598a, snap.ansi was
+      // the full PTY state used to correct the visible area after truncated
+      // transcript replay. Now snap.ansi is "\e[2J\e[H" (clear-screen only),
+      // which would wipe the viewport and leave the terminal blank.
+      this.loadedBytes = seedBytes;
       this.loadedStartOffset = start;
       // Trim the bytes that arrived before seedInitialHistory started — they
       // are already included in seedBytes. Keep only bytes received during
