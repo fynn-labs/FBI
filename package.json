@@ -4,7 +4,7 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "build": "npm run build:server && npm run build:web",
+    "build": "npm run build:server && npm run build:web && npm run cli:dist",
     "build:server": "tsc -p tsconfig.server.json && cp src/server/db/schema.sql dist/server/db/schema.sql && cp src/server/orchestrator/supervisor.sh dist/server/orchestrator/supervisor.sh && cp src/server/orchestrator/finalizeBranch.sh dist/server/orchestrator/finalizeBranch.sh && cp src/server/orchestrator/fbi-history-op.sh dist/server/orchestrator/fbi-history-op.sh && cp src/server/orchestrator/Dockerfile.tmpl dist/server/orchestrator/Dockerfile.tmpl && cp src/server/orchestrator/postbuild.sh dist/server/orchestrator/postbuild.sh",
     "build:web": "VITE_VERSION=${VITE_VERSION:-$(git rev-parse --short HEAD 2>/dev/null || echo dev)} vite build",
     "dev": "concurrently -k \"npm:dev:server\" \"npm:dev:web\"",
@@ -18,6 +18,10 @@
     "cli:dist": "bash scripts/build-cli-dist.sh",
     "cli:install": "make -C cli/fbi-tunnel install",
     "cli:test": "make -C cli/fbi-tunnel test",
+    "cli:quantico:build": "make -C cli/quantico build",
+    "cli:quantico:test": "make -C cli/quantico test",
+    "e2e": "playwright test",
+    "e2e:install": "playwright install --with-deps chromium",
     "lint": "eslint src",
     "tauri:dev": "cd desktop && npx tauri dev",
     "tauri:build": "cd desktop && npx tauri build"
@@ -48,6 +52,7 @@
     "tar-stream": "^3.1.7"
   },
   "devDependencies": {
+    "@playwright/test": "^1.59.1",
     "@tauri-apps/cli": "^2.10.1",
     "@testing-library/jest-dom": "^6.4.8",
     "@testing-library/react": "^16.0.0",

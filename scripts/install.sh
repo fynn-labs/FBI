@@ -66,6 +66,24 @@ systemctl stop fbi-elixir.service 2>/dev/null || true
 )
 chown -R fbi:fbi "$ELIXIR_DIR"
 
+# ── Quantico (mock-Claude testing binary) ───────────────────────────────────────
+# Only deployed when FBI_QUANTICO_ENABLED=1 is present in /etc/default/fbi.
+if grep -q '^FBI_QUANTICO_ENABLED=1' /etc/default/fbi 2>/dev/null; then
+  install -d -m 755 /usr/local/lib/fbi
+  ARCH="$(uname -m)"
+  case "$ARCH" in
+    x86_64) Q="$SOURCE_DIR/dist/cli/quantico-linux-amd64" ;;
+    aarch64) Q="$SOURCE_DIR/dist/cli/quantico-linux-arm64" ;;
+    *) echo "Unsupported arch for Quantico: $ARCH"; Q="" ;;
+  esac
+  if [ -n "$Q" ] && [ -f "$Q" ]; then
+    install -m 755 "$Q" /usr/local/lib/fbi/quantico
+    echo "Quantico installed at /usr/local/lib/fbi/quantico"
+  else
+    echo "Quantico binary not found ($Q); run 'npm run cli:dist' first" >&2
+  fi
+fi
+
 # ── Environment file ───────────────────────────────────────────────────────────
 # Only written on first install; re-installs preserve operator customisations.
 if [ ! -f /etc/default/fbi ]; then
@@ -82,6 +100,8 @@ GIT_AUTHOR_EMAIL=you@example.com
 # HOST_CLAUDE_DIR=/home/fbi/.claude
 # HOST_DOCKER_SOCKET=/var/run/docker.sock   # forwarded read-write into run containers
 # HOST_DOCKER_GID=995                       # override auto-detected docker group GID
+# Mock-Claude testing binary (development servers only):
+# FBI_QUANTICO_ENABLED=1
 WEB_DIR=/opt/fbi/dist/web
 # Claude Code plugins installed in every run container.
 # Comma- or newline-separated. Projects can add more in the UI.

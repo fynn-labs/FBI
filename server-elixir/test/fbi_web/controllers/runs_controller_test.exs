@@ -114,6 +114,32 @@ defmodule FBIWeb.RunsControllerTest do
     end
   end
 
+  describe "POST /api/projects/:id/runs mock validation" do
+    test "rejects mock=true when capability flag is off", %{conn: conn, project_id: pid} do
+      Application.put_env(:fbi, :quantico_enabled, false)
+      conn = post(conn, ~p"/api/projects/#{pid}/runs", %{"prompt" => "p", "mock" => true})
+      assert json_response(conn, 400)["error"] =~ "quantico_disabled"
+    end
+
+    test "accepts mock=true with valid scenario when capability is on", %{conn: conn, project_id: pid} do
+      Application.put_env(:fbi, :quantico_enabled, true)
+      Application.put_env(:fbi, :quantico_scenarios, MapSet.new(["default"]))
+      conn = post(conn, ~p"/api/projects/#{pid}/runs",
+        %{"prompt" => "p", "mock" => true, "mock_scenario" => "default"})
+      body = json_response(conn, 201)
+      assert body["mock"] == true
+      assert body["mock_scenario"] == "default"
+    end
+
+    test "rejects mock=true with unknown scenario name", %{conn: conn, project_id: pid} do
+      Application.put_env(:fbi, :quantico_enabled, true)
+      Application.put_env(:fbi, :quantico_scenarios, MapSet.new(["default"]))
+      conn = post(conn, ~p"/api/projects/#{pid}/runs",
+        %{"prompt" => "p", "mock" => true, "mock_scenario" => "nonsense"})
+      assert json_response(conn, 400)["error"] =~ "invalid_scenario"
+    end
+  end
+
   describe "PATCH /api/runs/:id" do
     test "returns 400 for too-short (trimmed-empty) title", %{conn: conn, project_id: pid} do
       r = make_run(pid)

@@ -1,8 +1,9 @@
 #!/usr/bin/env bash
 set -euo pipefail
-# Builds fbi-tunnel CLI binaries for the platforms supported by the current
-# host and places them in dist/cli/ with the naming convention expected by
-# the server: fbi-tunnel-{os}-{arch}  (e.g. fbi-tunnel-darwin-arm64).
+# Builds fbi-tunnel and quantico CLI binaries for the platforms supported by
+# the current host and places them in dist/cli/ with the naming convention
+# expected by the server: {crate}-{os}-{arch}
+# (e.g. fbi-tunnel-darwin-arm64, quantico-linux-amd64).
 #
 # On macOS: builds darwin-arm64 + darwin-amd64 (both native, no cross-linker
 #   needed because Apple's toolchain handles both sides of the fat binary split).
@@ -22,11 +23,11 @@ WORKSPACE_TARGET=$(cargo metadata --no-deps --format-version 1 | \
   python3 -c "import sys,json; print(json.load(sys.stdin)['target_directory'])")
 
 build() {
-  local triple="$1" name="$2"
-  echo "→ $triple  →  dist/cli/fbi-tunnel-$name"
+  local triple="$1" name="$2" crate="$3"
+  echo "→ $crate / $triple  →  dist/cli/$crate-$name"
   rustup target add "$triple" 2>/dev/null || true
-  cargo build --release --target "$triple" -p fbi-tunnel
-  cp "$WORKSPACE_TARGET/$triple/release/fbi-tunnel" "$OUT/fbi-tunnel-$name"
+  cargo build --release --target "$triple" -p "$crate"
+  cp "$WORKSPACE_TARGET/$triple/release/$crate" "$OUT/$crate-$name"
 }
 
 HOST_OS=$(uname -s)
@@ -34,23 +35,29 @@ HOST_ARCH=$(uname -m)
 
 case "$HOST_OS/$HOST_ARCH" in
   Darwin/*)
-    build aarch64-apple-darwin darwin-arm64
-    build x86_64-apple-darwin  darwin-amd64
+    build aarch64-apple-darwin darwin-arm64 fbi-tunnel
+    build aarch64-apple-darwin darwin-arm64 quantico
+    build x86_64-apple-darwin  darwin-amd64 fbi-tunnel
+    build x86_64-apple-darwin  darwin-amd64 quantico
     ;;
   Linux/x86_64)
-    build x86_64-unknown-linux-gnu linux-amd64
+    build x86_64-unknown-linux-gnu linux-amd64 fbi-tunnel
+    build x86_64-unknown-linux-gnu linux-amd64 quantico
     if command -v aarch64-linux-gnu-gcc >/dev/null 2>&1; then
       export CARGO_TARGET_AARCH64_UNKNOWN_LINUX_GNU_LINKER=aarch64-linux-gnu-gcc
-      build aarch64-unknown-linux-gnu linux-arm64
+      build aarch64-unknown-linux-gnu linux-arm64 fbi-tunnel
+      build aarch64-unknown-linux-gnu linux-arm64 quantico
     else
       echo "Skipping linux-arm64: install gcc-aarch64-linux-gnu for cross-compilation"
     fi
     ;;
   Linux/aarch64)
-    build aarch64-unknown-linux-gnu linux-arm64
+    build aarch64-unknown-linux-gnu linux-arm64 fbi-tunnel
+    build aarch64-unknown-linux-gnu linux-arm64 quantico
     if command -v x86_64-linux-gnu-gcc >/dev/null 2>&1; then
       export CARGO_TARGET_X86_64_UNKNOWN_LINUX_GNU_LINKER=x86_64-linux-gnu-gcc
-      build x86_64-unknown-linux-gnu linux-amd64
+      build x86_64-unknown-linux-gnu linux-amd64 fbi-tunnel
+      build x86_64-unknown-linux-gnu linux-amd64 quantico
     else
       echo "Skipping linux-amd64: install gcc on an x86_64 host for cross-compilation"
     fi

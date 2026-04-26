@@ -68,6 +68,8 @@ interface Deps {
   markStartingForContinueRequest: (runId: number) => void;  // NEW
   orchestrator: OrchestratorDep;
   wipRepo: WipRepoDep;
+  quanticoEnabled: boolean;
+  quanticoScenarios: Set<string>;
 }
 
 const CHANGES_TTL_MS = 10_000;
@@ -166,6 +168,8 @@ export function registerRunsRoutes(app: FastifyInstance, deps: Deps): void {
       model?: string | null;
       effort?: string | null;
       subagent_model?: string | null;
+      mock?: boolean;
+      mock_scenario?: string | null;
     };
     const hint = (body.branch ?? '').trim();
     const token = typeof body.draft_token === 'string' ? body.draft_token : '';
@@ -179,6 +183,16 @@ export function registerRunsRoutes(app: FastifyInstance, deps: Deps): void {
     });
     if (!verdict.ok) {
       return reply.code(400).send({ error: verdict.message });
+    }
+    const mock = body.mock === true;
+    const mockScenario = body.mock_scenario ?? null;
+    if (mock) {
+      if (!deps.quanticoEnabled) {
+        return reply.code(400).send({ error: 'quantico_disabled' });
+      }
+      if (mockScenario !== null && !deps.quanticoScenarios.has(mockScenario)) {
+        return reply.code(400).send({ error: 'invalid_scenario' });
+      }
     }
     const projectId = Number(id);
     const force = (body as { force?: unknown }).force === true;
@@ -200,6 +214,8 @@ export function registerRunsRoutes(app: FastifyInstance, deps: Deps): void {
       model: body.model ?? null,
       effort: body.effort ?? null,
       subagent_model: body.subagent_model ?? null,
+      mock,
+      mock_scenario: mock ? mockScenario : null,
     });
     if (token.length > 0) {
       try {

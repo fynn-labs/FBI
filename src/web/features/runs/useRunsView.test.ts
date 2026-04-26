@@ -17,6 +17,7 @@ function mkRun(id: number, state: RunState, createdAt: number): Run {
     kind: 'work' as const, kind_args_json: null,
     base_branch: null, mirror_status: null,
     model: null, effort: null, subagent_model: null,
+    mock: 0, mock_scenario: null,
   };
 }
 

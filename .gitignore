@@ -12,3 +12,4 @@ coverage
 .worktrees/
 .playwright-mcp/
 desktop/binaries/fbi-tunnel-*
+cli/quantico/dist/

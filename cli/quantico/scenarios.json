@@ -1,0 +1,7 @@
+{
+  "scenarios": [
+    "default", "chatty", "limit-breach", "limit-breach-human",
+    "crash-fast", "hang", "garbled", "slow-startup",
+    "env-echo", "resume-aware", "tool-heavy", "plugin-fail"
+  ]
+}

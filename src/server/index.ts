@@ -34,6 +34,7 @@ import { registerUsageRoutes } from './api/usage.js';
 import { registerUsageWsRoute } from './api/wsUsage.js';
 import { registerProxyRoutes } from './api/proxy.js';
 import { registerUploadsRoutes } from './api/uploads.js';
+import { registerQuanticoRoutes, loadScenarioNames } from './api/quantico.js';
 import { startDraftUploadsGc } from './housekeeping/draftUploads.js';
 import { GhClient } from './github/gh.js';
 
@@ -124,6 +125,8 @@ async function main() {
       initSafeguard: (id) => orchestrator.wipRepo.init(id),
     },
     wipRepo: orchestrator.wipRepo,
+    quanticoEnabled: config.quanticoEnabled,
+    quanticoScenarios: loadScenarioNames(),
   });
   registerSettingsRoutes(app, {
     settings,
@@ -160,6 +163,7 @@ async function main() {
     cliDistDir: config.cliDistDir,
     version: process.env.FBI_VERSION,
   });
+  registerQuanticoRoutes(app, { quanticoEnabled: config.quanticoEnabled });
 
   // Startup log: is the fbi-tunnel dist dir populated?
   try {

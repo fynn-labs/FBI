@@ -90,36 +90,48 @@ defmodule FBIWeb.RunsController do
     effort = params["effort"]
     subagent_model = params["subagent_model"]
     force = params["force"] == true
+    mock = params["mock"] == true
+    mock_scenario = params["mock_scenario"]
 
-    case FBI.Projects.Queries.get(project_id) do
-      :not_found ->
-        conn |> put_status(404) |> json(%{error: "not found"})
+    cond do
+      mock and not Application.get_env(:fbi, :quantico_enabled, false) ->
+        conn |> put_status(400) |> json(%{error: "quantico_disabled"})
 
-      {:ok, _project} ->
-        if branch_hint && branch_hint != "" && !force do
-          active = Queries.list_active_by_branch(project_id, branch_hint)
+      mock and not is_nil(mock_scenario) and
+          not MapSet.member?(Application.get_env(:fbi, :quantico_scenarios, MapSet.new()), mock_scenario) ->
+        conn |> put_status(400) |> json(%{error: "invalid_scenario"})
 
-          if active != [] do
-            first = hd(active)
+      true ->
+        case FBI.Projects.Queries.get(project_id) do
+          :not_found ->
+            conn |> put_status(404) |> json(%{error: "not found"})
 
-            conn
-            |> put_status(409)
-            |> json(%{
-              error: "branch_in_use",
-              active_run_id: first.id,
-              message:
-                "Run ##{first.id} is already using branch \"#{branch_hint}\". Pass { force: true } to start another run on the same branch anyway."
-            })
-          else
-            do_create(conn, project_id, prompt, branch_hint, model, effort, subagent_model)
-          end
-        else
-          do_create(conn, project_id, prompt, branch_hint, model, effort, subagent_model)
+          {:ok, _project} ->
+            if branch_hint && branch_hint != "" && !force do
+              active = Queries.list_active_by_branch(project_id, branch_hint)
+
+              if active != [] do
+                first = hd(active)
+
+                conn
+                |> put_status(409)
+                |> json(%{
+                  error: "branch_in_use",
+                  active_run_id: first.id,
+                  message:
+                    "Run ##{first.id} is already using branch \"#{branch_hint}\". Pass { force: true } to start another run on the same branch anyway."
+                })
+              else
+                do_create(conn, project_id, prompt, branch_hint, model, effort, subagent_model, mock, mock_scenario)
+              end
+            else
+              do_create(conn, project_id, prompt, branch_hint, model, effort, subagent_model, mock, mock_scenario)
+            end
         end
     end
   end
 
-  defp do_create(conn, project_id, prompt, branch_hint, model, effort, subagent_model) do
+  defp do_create(conn, project_id, prompt, branch_hint, model, effort, subagent_model, mock, mock_scenario) do
     runs_dir = Application.get_env(:fbi, :runs_dir, "/tmp/fbi-runs")
     # branch_name and log_path are required by the schema. Empty string means
     # "auto-generate" — the orchestrator's preamble enrolls Claude to pick a
@@ -135,6 +147,8 @@ defmodule FBIWeb.RunsController do
       model: model,
       effort: effort,
       subagent_model: subagent_model,
+      mock: mock,
+      mock_scenario: mock_scenario,
       # Placeholder: overwritten immediately after insert once we know the id.
       log_path: "_pending_",
       state: "queued"
