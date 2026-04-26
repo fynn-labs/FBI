@@ -104,6 +104,72 @@ defmodule FBIWeb.TranscriptControllerTest do
     assert conn.status == 206
     assert conn.resp_body == "fghij"
     assert Plug.Conn.get_resp_header(conn, "content-range") == ["bytes 5-9/10"]
+    # Non-zero start: x-transcript-mode-prefix-bytes header must be present.
+    [prefix_str] = Plug.Conn.get_resp_header(conn, "x-transcript-mode-prefix-bytes")
+    assert String.match?(prefix_str, ~r/^\d+$/)
+
+    File.rm(path)
+  end
+
+  test "bytes=0-N range: no x-transcript-mode-prefix-bytes header", %{
+    conn: conn,
+    project_id: pid
+  } do
+    content = "abcdefghijklmnopqrstuvwxyz"
+    path = tmp_log(content)
+    r = make_run(pid, path)
+
+    conn =
+      conn
+      |> put_req_header("range", "bytes=0-100")
+      |> get("/api/runs/#{r.id}/transcript")
+
+    assert conn.status == 206
+    assert byte_size(conn.resp_body) == min(101, byte_size(content))
+    assert Plug.Conn.get_resp_header(conn, "x-transcript-mode-prefix-bytes") == []
+
+    File.rm(path)
+  end
+
+  test "bytes=N-M (non-zero start): x-transcript-mode-prefix-bytes header present", %{
+    conn: conn,
+    project_id: pid
+  } do
+    # Write at least 201 bytes so range 100-200 is valid.
+    content = String.duplicate("x", 300)
+    path = tmp_log(content)
+    r = make_run(pid, path)
+
+    conn =
+      conn
+      |> put_req_header("range", "bytes=100-200")
+      |> get("/api/runs/#{r.id}/transcript")
+
+    assert conn.status == 206
+
+    [prefix_str] = Plug.Conn.get_resp_header(conn, "x-transcript-mode-prefix-bytes")
+    prefix_bytes = String.to_integer(prefix_str)
+    # Body must be prefix + 101 bytes of content (bytes 100..200 inclusive).
+    assert byte_size(conn.resp_body) == prefix_bytes + 101
+
+    File.rm(path)
+  end
+
+  test "bytes=0- open-ended from zero: no x-transcript-mode-prefix-bytes header", %{
+    conn: conn,
+    project_id: pid
+  } do
+    content = "hello world"
+    path = tmp_log(content)
+    r = make_run(pid, path)
+
+    conn =
+      conn
+      |> put_req_header("range", "bytes=0-")
+      |> get("/api/runs/#{r.id}/transcript")
+
+    assert conn.status == 206
+    assert Plug.Conn.get_resp_header(conn, "x-transcript-mode-prefix-bytes") == []
 
     File.rm(path)
   end

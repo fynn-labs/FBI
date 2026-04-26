@@ -25,12 +25,27 @@ defmodule FBIWeb.TranscriptController do
           nil ->
             send_resp(conn, 200, LogStore.read_all(run.log_path))
 
+          {:ok, 0, end_offset} ->
+            body = LogStore.read_range(run.log_path, 0, end_offset)
+
+            conn
+            |> put_resp_header("content-range", "bytes 0-#{end_offset}/#{total}")
+            |> send_resp(206, body)
+
           {:ok, start_offset, end_offset} ->
+            # Non-zero start: prepend the mode-state-at-offset prefix so xterm.js
+            # replays this chunk in the correct buffer / scroll region / mode state.
+            # Without the prefix, a chunk replayed mid-stream would start in main
+            # screen / no scroll region / default modes — wrong if the original
+            # bytes had toggled any of those earlier.
+            %FBI.Terminal.ModePrefix{ansi: prefix} = FBI.Orchestrator.snapshot_at(id, start_offset)
             body = LogStore.read_range(run.log_path, start_offset, end_offset)
+            combined = prefix <> body
 
             conn
             |> put_resp_header("content-range", "bytes #{start_offset}-#{end_offset}/#{total}")
-            |> send_resp(206, body)
+            |> put_resp_header("x-transcript-mode-prefix-bytes", Integer.to_string(byte_size(prefix)))
+            |> send_resp(206, combined)
 
           :invalid ->
             conn
