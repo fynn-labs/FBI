@@ -8,11 +8,23 @@ import { api, ApiError } from '../../lib/api.js';
 
 vi.mock('../../lib/api.js', async (importOriginal) => {
   const actual = await importOriginal<typeof import('../../lib/api.js')>();
-  return { ...actual, api: { createRun: vi.fn(), uploadDraftFile: vi.fn(), deleteDraftFile: vi.fn() } };
+  return {
+    ...actual,
+    api: {
+      createRun: vi.fn(),
+      uploadDraftFile: vi.fn(),
+      deleteDraftFile: vi.fn(),
+      fetchQuanticoScenarios: vi.fn().mockRejectedValue(new Error('not enabled')),
+    },
+  };
 });
 
 vi.mock('../../components/ModelParamsCollapse.js', () => ({
   ModelParamsCollapse: () => null,
+}));
+
+vi.mock('../../components/MockModeCollapse.js', () => ({
+  MockModeCollapse: () => null,
 }));
 
 vi.mock('../../components/RecentPromptsDropdown.js', () => ({
