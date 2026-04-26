@@ -1110,9 +1110,34 @@ defmodule FBI.Orchestrator.RunServer do
       "#{to_bind_host.(state_dir)}:/fbi-state/"
     ]
 
-    binds = binds ++ claude_auth_mounts(config)
+    binds =
+      if run.mock do
+        qpath = Application.fetch_env!(:fbi, :quantico_binary_path)
+
+        unless File.exists?(qpath) do
+          raise "quantico binary not found at #{qpath}; mock runs cannot start"
+        end
+
+        binds ++ ["#{qpath}:/usr/local/bin/claude:ro"]
+      else
+        binds
+      end
+
+    binds = if run.mock, do: binds, else: binds ++ claude_auth_mounts(config)
     binds = binds ++ docker_socket_mounts(config)
     binds = binds ++ ssh_agent_mounts(config)
+
+    env =
+      if run.mock do
+        speed = System.get_env("MOCK_CLAUDE_SPEED_MULT") || "1.0"
+
+        env ++ [
+          "MOCK_CLAUDE_SCENARIO=#{run.mock_scenario || "default"}",
+          "MOCK_CLAUDE_SPEED_MULT=#{speed}"
+        ]
+      else
+        env
+      end
 
     env = env ++ ssh_agent_env(config)
 
