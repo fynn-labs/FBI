@@ -243,64 +243,41 @@ export class Orchestrator {
     };
 
     onBytes(Buffer.from(fbi.status('starting container')));
-    const container = await this.deps.docker.createContainer({
-      Image: imageTag,
-      name: `fbi-run-${runId}-${Date.now()}`,
-      User: 'agent',
-      Env: [
-        `RUN_ID=${runId}`,
-        `REPO_URL=${project.repo_url}`,
-        `DEFAULT_BRANCH=${project.default_branch}`,
-        `GIT_AUTHOR_NAME=${authorName}`,
-        `GIT_AUTHOR_EMAIL=${authorEmail}`,
-        `FBI_MARKETPLACES=${marketplaces.join('\n')}`,
-        `FBI_PLUGINS=${plugins.join('\n')}`,
-        'IS_SANDBOX=1',
-        // FBI_BRANCH = where the agent checks out, commits, and pushes.
-        // The user's typed branch wins; if none, supervisor.sh falls back to
-        // claude/run-N (used only as a fallback branch name when FBI_BRANCH is
-        // not provided).
-        ...(run.branch_name ? [`FBI_BRANCH=${run.branch_name}`] : []),
-        ...(opts.resumeSessionId ? [`FBI_RESUME_SESSION_ID=${opts.resumeSessionId}`] : []),
-        ...Object.entries(auth.env()).map(([k, v]) => `${k}=${v}`),
-        ...Object.entries(projectSecrets).map(([k, v]) => `${k}=${v}`),
-        ...modelParamEnvEntries(run),
-      ],
-      Tty: true,
-      OpenStdin: true,
-      StdinOnce: false,
-      Entrypoint: ['/usr/local/bin/supervisor.sh'],
-      HostConfig: {
-        AutoRemove: false,
-        Memory: memMb * 1024 * 1024,
-        NanoCpus: Math.round(cpus * 1e9),
-        PidsLimit: pids,
-        Binds: [
-          `${toBindHost(path.join(scriptsDir, 'supervisor.sh'))}:/usr/local/bin/supervisor.sh:ro`,
-          `${toBindHost(path.join(scriptsDir, 'finalizeBranch.sh'))}:/usr/local/bin/fbi-finalize-branch.sh:ro`,
-          `${toBindHost(path.join(scriptsDir, 'fbi-history-op.sh'))}:/usr/local/bin/fbi-history-op.sh:ro`,
-          buildSafeguardBind(
-            this.deps.config.runsDir,
-            runId,
-            this.deps.config.hostRunsDir,
-          ),
-          `${toBindHost(mountDir)}:/home/agent/.claude/projects/`,
-          `${toBindHost(this.ensureStateDir(runId))}:/fbi-state/`,
-          `${toBindHost(this.ensureUploadsDir(runId))}:/fbi/uploads:ro`,
-          ...claudeAuthMounts(
-            this.deps.config.hostClaudeDir,
-            this.deps.config.hostBindClaudeDir ?? this.deps.config.hostClaudeDir,
-          ),
-          ...dockerSocketMounts(this.deps.config.hostDockerSocket),
-          ...auth.mounts().map((m) =>
-            `${m.source}:${m.target}${m.readOnly ? ':ro' : ''}`
-          ),
-        ],
-        ...(this.deps.config.hostDockerGid !== null
-          ? { GroupAdd: [String(this.deps.config.hostDockerGid)] }
-          : {}),
-      },
-    });
+    const container = await this.deps.docker.createContainer(buildContainerSpec({
+      runId,
+      run: { mock: run.mock, mock_scenario: run.mock_scenario, branch_name: run.branch_name },
+      project: { repo_url: project.repo_url, default_branch: project.default_branch },
+      authorName,
+      authorEmail,
+      marketplaces,
+      plugins,
+      resumeSessionId: opts.resumeSessionId,
+      authEnv: auth.env(),
+      authMounts: auth.mounts(),
+      projectSecrets,
+      modelParamEnv: modelParamEnvEntries(run),
+      imageTag,
+      scriptsDir,
+      mountDir,
+      stateDir: this.ensureStateDir(runId),
+      uploadsDir: this.ensureUploadsDir(runId),
+      safeguardBind: buildSafeguardBind(
+        this.deps.config.runsDir,
+        runId,
+        this.deps.config.hostRunsDir,
+      ),
+      toBindHost,
+      hostClaudeDir: this.deps.config.hostClaudeDir,
+      hostBindClaudeDir: this.deps.config.hostBindClaudeDir ?? this.deps.config.hostClaudeDir,
+      hostDockerSocket: this.deps.config.hostDockerSocket,
+      hostDockerGid: this.deps.config.hostDockerGid,
+      memMb,
+      cpus,
+      pids,
+      containerName: `fbi-run-${runId}-${Date.now()}`,
+      quanticoBinaryPath: this.deps.config.quanticoBinaryPath,
+      mockSpeedMult: this.deps.config.mockSpeedMult,
+    }));
 
     return { container, imageTag, projectSecrets, authCleanup: () => { /* no-op */ } };
   }
@@ -1270,6 +1247,118 @@ function renderSubRunPrompt(kind: 'merge-conflict' | 'polish', args: Record<stri
     `Then: git push --force-with-lease origin ${branch}.\n` +
     `Write a one-line summary of what you did to /fbi-state/session-name.`
   );
+}
+
+export interface BuildContainerSpecInput {
+  runId: number;
+  run: { mock: 0 | 1; mock_scenario: string | null; branch_name: string | null };
+  project: { repo_url: string; default_branch: string };
+  authorName: string;
+  authorEmail: string;
+  marketplaces: string[];
+  plugins: string[];
+  resumeSessionId: string | null;
+  authEnv: Record<string, string>;
+  authMounts: Array<{ source: string; target: string; readOnly?: boolean }>;
+  projectSecrets: Record<string, string>;
+  modelParamEnv: string[];
+  imageTag: string;
+  scriptsDir: string;
+  mountDir: string;
+  stateDir: string;
+  uploadsDir: string;
+  safeguardBind: string;
+  toBindHost: (p: string) => string;
+  hostClaudeDir: string;
+  hostBindClaudeDir: string;
+  hostDockerSocket: string;
+  hostDockerGid: number | null;
+  memMb: number;
+  cpus: number;
+  pids: number;
+  containerName: string;
+  // Quantico:
+  quanticoBinaryPath: string;
+  mockSpeedMult: number;
+}
+
+export function buildContainerSpec(input: BuildContainerSpecInput): Docker.ContainerCreateOptions {
+  const isMock = input.run.mock === 1;
+
+  if (isMock) {
+    // Pre-flight: fail fast with a clear error if the binary is missing.
+    if (!fs.existsSync(input.quanticoBinaryPath)) {
+      throw new Error(
+        `quantico binary not found at ${input.quanticoBinaryPath}; mock runs cannot start`,
+      );
+    }
+  }
+
+  const env: string[] = [
+    `RUN_ID=${input.runId}`,
+    `REPO_URL=${input.project.repo_url}`,
+    `DEFAULT_BRANCH=${input.project.default_branch}`,
+    `GIT_AUTHOR_NAME=${input.authorName}`,
+    `GIT_AUTHOR_EMAIL=${input.authorEmail}`,
+    `FBI_MARKETPLACES=${input.marketplaces.join('\n')}`,
+    `FBI_PLUGINS=${input.plugins.join('\n')}`,
+    'IS_SANDBOX=1',
+    // FBI_BRANCH = where the agent checks out, commits, and pushes.
+    // The user's typed branch wins; if none, supervisor.sh falls back to
+    // claude/run-N (used only as a fallback branch name when FBI_BRANCH is
+    // not provided).
+    ...(input.run.branch_name ? [`FBI_BRANCH=${input.run.branch_name}`] : []),
+    ...(input.resumeSessionId ? [`FBI_RESUME_SESSION_ID=${input.resumeSessionId}`] : []),
+    ...Object.entries(input.authEnv).map(([k, v]) => `${k}=${v}`),
+    ...Object.entries(input.projectSecrets).map(([k, v]) => `${k}=${v}`),
+    ...input.modelParamEnv,
+  ];
+
+  if (isMock) {
+    env.push(`MOCK_CLAUDE_SCENARIO=${input.run.mock_scenario ?? 'default'}`);
+    env.push(`MOCK_CLAUDE_SPEED_MULT=${input.mockSpeedMult}`);
+  }
+
+  const { toBindHost, scriptsDir, mountDir, stateDir, uploadsDir } = input;
+
+  const binds: string[] = [
+    `${toBindHost(path.join(scriptsDir, 'supervisor.sh'))}:/usr/local/bin/supervisor.sh:ro`,
+    `${toBindHost(path.join(scriptsDir, 'finalizeBranch.sh'))}:/usr/local/bin/fbi-finalize-branch.sh:ro`,
+    `${toBindHost(path.join(scriptsDir, 'fbi-history-op.sh'))}:/usr/local/bin/fbi-history-op.sh:ro`,
+    input.safeguardBind,
+    `${toBindHost(mountDir)}:/home/agent/.claude/projects/`,
+    `${toBindHost(stateDir)}:/fbi-state/`,
+    `${toBindHost(uploadsDir)}:/fbi/uploads:ro`,
+  ];
+
+  if (isMock) {
+    binds.push(`${input.quanticoBinaryPath}:/usr/local/bin/claude:ro`);
+  } else {
+    binds.push(...claudeAuthMounts(input.hostClaudeDir, input.hostBindClaudeDir));
+  }
+  binds.push(...dockerSocketMounts(input.hostDockerSocket));
+  binds.push(...input.authMounts.map((m) => `${m.source}:${m.target}${m.readOnly ? ':ro' : ''}`));
+
+  return {
+    Image: input.imageTag,
+    name: input.containerName,
+    User: 'agent',
+    Env: env,
+    Tty: true,
+    OpenStdin: true,
+    StdinOnce: false,
+    Entrypoint: ['/usr/local/bin/supervisor.sh'],
+    HostConfig: {
+      AutoRemove: false,
+      Memory: input.memMb * 1024 * 1024,
+      NanoCpus: Math.round(input.cpus * 1e9),
+      PidsLimit: input.pids,
+      Binds: binds,
+      ...(input.hostDockerGid !== null
+        ? { GroupAdd: [String(input.hostDockerGid)] }
+        : {}),
+    },
+  };
 }
 
 // Bind-mount OAuth tokens. On Linux they live in ~/.claude/.credentials.json;
