@@ -158,6 +158,7 @@ export const api = {
       subagent_model: string | null;
     },
     force?: boolean,
+    mockOptions?: { mock: boolean; mock_scenario: string | null },
   ) =>
     request<Run>(`/api/projects/${projectId}/runs`, {
       method: 'POST',
@@ -167,6 +168,7 @@ export const api = {
         draft_token: draftToken ?? undefined,
         // Spread so null values serialize as null (server treats null === unset).
         ...(modelParams ?? {}),
+        ...(mockOptions ?? {}),
         ...(force ? { force: true } : {}),
       }),
     }),
@@ -315,5 +317,8 @@ export const api = {
 
   downloadRunWipPatch: (id: number): string =>
     `/api/runs/${id}/wip/patch`,
+
+  fetchQuanticoScenarios: () =>
+    request<{ scenarios: string[] }>('/api/quantico/scenarios'),
 
 };
