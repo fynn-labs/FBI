@@ -67,6 +67,8 @@ export interface Run {
   model: string | null;
   effort: string | null;
   subagent_model: string | null;
+  mock: 0 | 1;
+  mock_scenario: string | null;
 }
 
 export interface SecretName {

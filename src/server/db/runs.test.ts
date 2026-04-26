@@ -256,6 +256,27 @@ describe('RunsRepo', () => {
     expect(got.effort).toBe('max');
     expect(got.subagent_model).toBe('sonnet');
   });
+
+  it('persists mock and mock_scenario when provided', () => {
+    const r = runs.create({
+      project_id: projectId, prompt: 'p', branch_hint: undefined,
+      log_path_tmpl: (id) => `/tmp/${id}.log`,
+      model: null, effort: null, subagent_model: null,
+      mock: true, mock_scenario: 'limit-breach',
+    });
+    expect(r.mock).toBe(1);
+    expect(r.mock_scenario).toBe('limit-breach');
+  });
+
+  it('defaults mock to 0 and mock_scenario to null', () => {
+    const r = runs.create({
+      project_id: projectId, prompt: 'p', branch_hint: undefined,
+      log_path_tmpl: (id) => `/tmp/${id}.log`,
+      model: null, effort: null, subagent_model: null,
+    });
+    expect(r.mock).toBe(0);
+    expect(r.mock_scenario).toBeNull();
+  });
 });
 
 describe('RunsRepo auto-resume', () => {
