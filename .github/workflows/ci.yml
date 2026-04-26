@@ -46,7 +46,9 @@ jobs:
         uses: Swatinem/rust-cache@v2
 
       - name: Test
-        run: cargo test -p fbi-tunnel
+        run: |
+          cargo test -p fbi-tunnel
+          cargo test -p quantico
 
   elixir:
     name: Elixir (mix test + format check + warnings-as-errors)
