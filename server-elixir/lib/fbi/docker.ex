@@ -290,6 +290,7 @@ defmodule FBI.Docker do
 
     {status, body} =
       rest("POST", "/containers/#{id}/stop?t=#{t}", nil, [], operation: :stop_container)
+
     # No post-condition check here on purpose: stop's contract is "send
     # signals and possibly wait up to t seconds before SIGKILL". Whether the
     # process has actually exited is `wait_container/1`'s job. Adding an
@@ -508,6 +509,7 @@ defmodule FBI.Docker do
       stream_start("POST", "/exec/#{exec_id}/start", %{"Detach" => false, "Tty" => false}, [],
         operation: :exec_start
       )
+
     skip_http_headers(conn)
     output = read_all_with_timeout(conn, timeout_ms)
     :gen_tcp.close(conn)
@@ -549,7 +551,10 @@ defmodule FBI.Docker do
 
   def list_containers(opts \\ []) do
     all = if Keyword.get(opts, :all, false), do: "1", else: "0"
-    {status, body} = rest("GET", "/containers/json?all=#{all}", nil, [], operation: :list_containers)
+
+    {status, body} =
+      rest("GET", "/containers/json?all=#{all}", nil, [], operation: :list_containers)
+
     ok_json(status, body)
   end
 
@@ -557,7 +562,11 @@ defmodule FBI.Docker do
     force = if Keyword.get(opts, :force, false), do: "1", else: "0"
 
     {status, body} =
-      rest("DELETE", "/images/#{URI.encode(tag, &URI.char_unreserved?/1)}?force=#{force}", nil, [],
+      rest(
+        "DELETE",
+        "/images/#{URI.encode(tag, &URI.char_unreserved?/1)}?force=#{force}",
+        nil,
+        [],
         operation: :remove_image
       )
 

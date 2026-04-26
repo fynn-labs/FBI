@@ -349,7 +349,14 @@ defmodule FBI.Orchestrator.RunServer do
       result =
         await_and_complete(run_id, container_id, on_bytes, settings, config, server_pid)
 
-      stop_watchers([tailer, title_watcher, branch_name_watcher, safeguard_watcher, mirror_poller])
+      stop_watchers([
+        tailer,
+        title_watcher,
+        branch_name_watcher,
+        safeguard_watcher,
+        mirror_poller
+      ])
+
       Process.exit(reader_pid, :kill)
       FBI.Docker.remove_container(container_id, force: true, v: true)
       ScreenState.clear(run_id)
@@ -457,7 +464,14 @@ defmodule FBI.Orchestrator.RunServer do
       result =
         await_and_complete(run_id, container_id, on_bytes, settings, config, server_pid)
 
-      stop_watchers([tailer, title_watcher, branch_name_watcher, safeguard_watcher, mirror_poller])
+      stop_watchers([
+        tailer,
+        title_watcher,
+        branch_name_watcher,
+        safeguard_watcher,
+        mirror_poller
+      ])
+
       Process.exit(reader_pid, :kill)
       FBI.Docker.remove_container(container_id, force: true, v: true)
       ScreenState.clear(run_id)
@@ -543,7 +557,14 @@ defmodule FBI.Orchestrator.RunServer do
       result =
         await_and_complete(run_id, container_id, on_bytes, settings, config, server_pid)
 
-      stop_watchers([tailer, title_watcher, branch_name_watcher, safeguard_watcher, mirror_poller])
+      stop_watchers([
+        tailer,
+        title_watcher,
+        branch_name_watcher,
+        safeguard_watcher,
+        mirror_poller
+      ])
+
       Process.exit(reader_pid, :kill)
       FBI.Docker.remove_container(container_id, force: true, v: true)
       ScreenState.clear(run_id)
@@ -591,7 +612,14 @@ defmodule FBI.Orchestrator.RunServer do
       result =
         await_and_complete(run_id, container_id, on_bytes, settings, config, server_pid)
 
-      stop_watchers([tailer, title_watcher, branch_name_watcher, safeguard_watcher, mirror_poller])
+      stop_watchers([
+        tailer,
+        title_watcher,
+        branch_name_watcher,
+        safeguard_watcher,
+        mirror_poller
+      ])
+
       FBI.Docker.remove_container(container_id, force: true, v: true)
       ScreenState.clear(run_id)
       result
