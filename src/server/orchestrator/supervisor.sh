@@ -145,7 +145,7 @@ MIRROR="claude/run-${RUN_ID}"
 
 # Safeguard push — always runs to the fixed mirror ref.
 (
-  git push safeguard "HEAD:refs/heads/$MIRROR" > /tmp/last-safeguard-push.log 2>&1 \
+  git push --force safeguard "HEAD:refs/heads/$MIRROR" > /tmp/last-safeguard-push.log 2>&1 \
     || echo "fatal: safeguard push failed" >&2
 ) &
 
