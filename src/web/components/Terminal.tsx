@@ -113,6 +113,7 @@ export function Terminal({ runId, interactive }: Props) {
     // listen on the actual scrollable DOM element to catch user scrolls,
     // then read the up-to-date buffer state via detectScroll.
     const viewportEl = host.querySelector('.xterm-viewport') as HTMLElement | null;
+    if (viewportEl) viewportEl.setAttribute('data-testid', 'xterm-viewport');
     let scrollRaf: number | null = null;
     const onViewportScroll = () => {
       if (scrollRaf !== null) return;
@@ -237,7 +238,7 @@ export function Terminal({ runId, interactive }: Props) {
           </button>
         </div>
       )}
-      <div ref={hostRef} className="h-full w-full" />
+      <div ref={hostRef} className="h-full w-full" data-testid="xterm" />
     </div>
   );
 }
