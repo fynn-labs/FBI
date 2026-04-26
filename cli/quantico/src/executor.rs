@@ -42,8 +42,13 @@ pub fn run<W: Write>(scenario: &Scenario, ctx: &mut ExecCtx<W>) -> std::io::Resu
             Step::WriteJsonl { kind, content } => {
                 crate::jsonl::append(&ctx.session_path, kind, content)?;
             }
-            Step::EmitLimitBreach { .. } => {
-                writeln!(ctx.stdout, "[quantico] step not yet implemented: EmitLimitBreach")?;
+            Step::EmitLimitBreach { reset_epoch } => {
+                let now = std::time::SystemTime::now()
+                    .duration_since(std::time::UNIX_EPOCH).unwrap().as_secs();
+                let epoch = crate::limit::resolve_reset_epoch(now, reset_epoch);
+                let line = crate::limit::breach_line(epoch);
+                ctx.stdout.write_all(line.as_bytes())?;
+                ctx.stdout.flush()?;
             }
         }
     }
