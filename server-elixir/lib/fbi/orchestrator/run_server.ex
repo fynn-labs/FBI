@@ -1043,7 +1043,7 @@ defmodule FBI.Orchestrator.RunServer do
       "#{to_bind_host.(Path.join(scripts_dir, "supervisor.sh"))}:/usr/local/bin/supervisor.sh:ro",
       "#{to_bind_host.(Path.join(scripts_dir, "finalizeBranch.sh"))}:/usr/local/bin/fbi-finalize-branch.sh:ro",
       "#{to_bind_host.(Path.join(scripts_dir, "fbi-history-op.sh"))}:/usr/local/bin/fbi-history-op.sh:ro",
-      "#{to_bind_host.(wip_path)}:/home/agent/.safeguard.git:rw",
+      "#{to_bind_host.(wip_path)}:/safeguard:rw",
       "#{to_bind_host.(mount_dir)}:/home/agent/.claude/projects/",
       "#{to_bind_host.(state_dir)}:/fbi-state/"
     ]
