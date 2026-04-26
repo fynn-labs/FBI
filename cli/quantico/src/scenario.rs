@@ -251,6 +251,14 @@ const SLOW_STARTUP_YAML: &str = include_str!("../scenarios/slow-startup.yaml");
 const RESUME_AWARE_YAML: &str = include_str!("../scenarios/resume-aware.yaml");
 const TOOL_HEAVY_YAML: &str = include_str!("../scenarios/tool-heavy.yaml");
 const PLUGIN_FAIL_YAML: &str = include_str!("../scenarios/plugin-fail.yaml");
+const ALT_SCREEN_CYCLE_YAML: &str = include_str!("../scenarios/alt-screen-cycle.yaml");
+const SCROLL_REGION_STRESS_YAML: &str = include_str!("../scenarios/scroll-region-stress.yaml");
+const MOUSE_MODES_CYCLE_YAML: &str = include_str!("../scenarios/mouse-modes-cycle.yaml");
+const CJK_WIDE_YAML: &str = include_str!("../scenarios/cjk-wide.yaml");
+const TRUECOLOR_YAML: &str = include_str!("../scenarios/truecolor.yaml");
+const BRACKETED_PASTE_CYCLE_YAML: &str = include_str!("../scenarios/bracketed-paste-cycle.yaml");
+const CURSOR_STYLES_YAML: &str = include_str!("../scenarios/cursor-styles.yaml");
+const SCROLLBACK_STRESS_YAML: &str = include_str!("../scenarios/scrollback-stress.yaml");
 
 pub fn lookup(name: &str) -> Option<Scenario> {
     let yaml = match name {
@@ -266,6 +274,14 @@ pub fn lookup(name: &str) -> Option<Scenario> {
         "resume-aware" => RESUME_AWARE_YAML,
         "tool-heavy" => TOOL_HEAVY_YAML,
         "plugin-fail" => PLUGIN_FAIL_YAML,
+        "alt-screen-cycle" => ALT_SCREEN_CYCLE_YAML,
+        "scroll-region-stress" => SCROLL_REGION_STRESS_YAML,
+        "mouse-modes-cycle" => MOUSE_MODES_CYCLE_YAML,
+        "cjk-wide" => CJK_WIDE_YAML,
+        "truecolor" => TRUECOLOR_YAML,
+        "bracketed-paste-cycle" => BRACKETED_PASTE_CYCLE_YAML,
+        "cursor-styles" => CURSOR_STYLES_YAML,
+        "scrollback-stress" => SCROLLBACK_STRESS_YAML,
         _ => return None,
     };
     Some(Scenario::parse(yaml).expect("built-in scenario must parse"))
@@ -275,6 +291,9 @@ pub const BUILT_IN_NAMES: &[&str] = &[
     "default", "chatty", "limit-breach", "limit-breach-human",
     "crash-fast", "hang", "garbled", "slow-startup",
     "env-echo", "resume-aware", "tool-heavy", "plugin-fail",
+    "alt-screen-cycle", "scroll-region-stress", "mouse-modes-cycle",
+    "cjk-wide", "truecolor", "bracketed-paste-cycle", "cursor-styles",
+    "scrollback-stress",
 ];
 
 #[cfg(test)]

@@ -1,0 +1,13 @@
+name: mouse-modes-cycle
+steps:
+  - emit_ansi: "\x1b[?1000h"
+  - emit_ansi: "\x1b[?1006h"
+  - sleep_ms: 30
+  - emit_ansi: "\x1b[?1000l"
+  - emit_ansi: "\x1b[?1003h"
+  - emit_ansi: "\x1b[?1006l"
+  - emit_ansi: "\x1b[?1015h"
+  - sleep_ms: 30
+  - emit_ansi: "\x1b[?1003l"
+  - emit_ansi: "\x1b[?1015l"
+  - exit: 0
