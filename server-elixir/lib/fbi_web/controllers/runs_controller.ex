@@ -121,9 +121,12 @@ defmodule FBIWeb.RunsController do
 
   defp do_create(conn, project_id, prompt, branch_hint, model, effort, subagent_model) do
     runs_dir = Application.get_env(:fbi, :runs_dir, "/tmp/fbi-runs")
-    # branch_name and log_path are required by the schema; use defaults that
-    # will be overwritten by the orchestrator during launch.
-    branch_name = if branch_hint && branch_hint != "", do: branch_hint, else: "main"
+    # branch_name and log_path are required by the schema. Empty string means
+    # "auto-generate" — the orchestrator's preamble enrolls Claude to pick a
+    # name (2–4 kebab-case words) and write it to /fbi-state/branch-name, and
+    # BranchNameWatcher updates this column once Claude does. Mirrors TS
+    # `branchHint = input.branch_hint ?? ''` (src/server/db/runs.ts:39).
+    branch_name = if branch_hint && branch_hint != "", do: branch_hint, else: ""
 
     attrs = %{
       project_id: project_id,

@@ -26,6 +26,7 @@ defmodule FBI.Orchestrator.RunServer do
     ResumeDetector,
     ResultParser,
     TitleWatcher,
+    BranchNameWatcher,
     UsageTailer,
     LimitMonitor,
     RuntimeStateWatcher,
@@ -341,13 +342,14 @@ defmodule FBI.Orchestrator.RunServer do
 
       tailer = start_usage_tailer(run_id, mount_dir)
       title_watcher = start_title_watcher(run_id, state_dir)
+      branch_name_watcher = start_branch_name_watcher(run_id, state_dir)
       safeguard_watcher = start_safeguard_watcher(run_id, wip_repo_path, run.branch_name)
       mirror_poller = start_mirror_poller(run_id, state_dir)
 
       result =
         await_and_complete(run_id, container_id, on_bytes, settings, config, server_pid)
 
-      stop_watchers([tailer, title_watcher, safeguard_watcher, mirror_poller])
+      stop_watchers([tailer, title_watcher, branch_name_watcher, safeguard_watcher, mirror_poller])
       Process.exit(reader_pid, :kill)
       FBI.Docker.remove_container(container_id, force: true, v: true)
       ScreenState.clear(run_id)
@@ -448,13 +450,14 @@ defmodule FBI.Orchestrator.RunServer do
 
       tailer = start_usage_tailer(run_id, mount_dir)
       title_watcher = start_title_watcher(run_id, state_dir)
+      branch_name_watcher = start_branch_name_watcher(run_id, state_dir)
       safeguard_watcher = start_safeguard_watcher(run_id, wip_repo_path, run.branch_name)
       mirror_poller = start_mirror_poller(run_id, state_dir)
 
       result =
         await_and_complete(run_id, container_id, on_bytes, settings, config, server_pid)
 
-      stop_watchers([tailer, title_watcher, safeguard_watcher, mirror_poller])
+      stop_watchers([tailer, title_watcher, branch_name_watcher, safeguard_watcher, mirror_poller])
       Process.exit(reader_pid, :kill)
       FBI.Docker.remove_container(container_id, force: true, v: true)
       ScreenState.clear(run_id)
@@ -533,13 +536,14 @@ defmodule FBI.Orchestrator.RunServer do
 
       tailer = start_usage_tailer(run_id, mount_dir)
       title_watcher = start_title_watcher(run_id, state_dir)
+      branch_name_watcher = start_branch_name_watcher(run_id, state_dir)
       safeguard_watcher = start_safeguard_watcher(run_id, wip_repo_path, run.branch_name)
       mirror_poller = start_mirror_poller(run_id, state_dir)
 
       result =
         await_and_complete(run_id, container_id, on_bytes, settings, config, server_pid)
 
-      stop_watchers([tailer, title_watcher, safeguard_watcher, mirror_poller])
+      stop_watchers([tailer, title_watcher, branch_name_watcher, safeguard_watcher, mirror_poller])
       Process.exit(reader_pid, :kill)
       FBI.Docker.remove_container(container_id, force: true, v: true)
       ScreenState.clear(run_id)
@@ -580,13 +584,14 @@ defmodule FBI.Orchestrator.RunServer do
 
       tailer = start_usage_tailer(run_id, mount_dir)
       title_watcher = start_title_watcher(run_id, state_dir)
+      branch_name_watcher = start_branch_name_watcher(run_id, state_dir)
       safeguard_watcher = start_safeguard_watcher(run_id, wip_repo_path, run.branch_name)
       mirror_poller = start_mirror_poller(run_id, state_dir)
 
       result =
         await_and_complete(run_id, container_id, on_bytes, settings, config, server_pid)
 
-      stop_watchers([tailer, title_watcher, safeguard_watcher, mirror_poller])
+      stop_watchers([tailer, title_watcher, branch_name_watcher, safeguard_watcher, mirror_poller])
       FBI.Docker.remove_container(container_id, force: true, v: true)
       ScreenState.clear(run_id)
       result
@@ -854,6 +859,16 @@ defmodule FBI.Orchestrator.RunServer do
     end)
   end
 
+  defp start_branch_name_watcher(run_id, state_dir) do
+    safe_start("BranchNameWatcher", fn ->
+      BranchNameWatcher.start_link(
+        path: Path.join(state_dir, "branch-name"),
+        poll_ms: 1000,
+        on_branch_name: fn name -> Queries.set_branch_name(run_id, name) end
+      )
+    end)
+  end
+
   defp start_title_watcher(run_id, state_dir) do
     safe_start("TitleWatcher", fn ->
       TitleWatcher.start_link(
@@ -1044,7 +1059,10 @@ defmodule FBI.Orchestrator.RunServer do
       "IS_SANDBOX=1"
     ]
 
-    env = if run.branch_name, do: ["FBI_BRANCH=#{run.branch_name}" | env], else: env
+    env =
+      if run.branch_name && run.branch_name != "",
+        do: ["FBI_BRANCH=#{run.branch_name}" | env],
+        else: env
 
     env =
       if resume_session_id, do: ["FBI_RESUME_SESSION_ID=#{resume_session_id}" | env], else: env
@@ -1139,22 +1157,46 @@ defmodule FBI.Orchestrator.RunServer do
   end
 
   defp build_preamble(project, run, run_id) do
-    branch = run.branch_name || "claude/run-#{run_id}"
-
-    [
-      "You are working in /workspace on #{project.repo_url}.",
-      "Its default branch is #{project.default_branch}. Do NOT commit to #{project.default_branch}.",
-      "You are working on branch `#{branch}`. Make all commits here.",
-      "Do NOT push to or modify any other branch.",
-      "",
-      "As soon as you understand the task, write a short name (4–8 words,",
-      "imperative, no trailing punctuation) describing this session to",
-      "`/fbi-state/session-name`. You may overwrite it later if your",
-      "understanding changes. Also include a refined `title` field in the",
-      "final result JSON.",
-      ""
-    ]
+    ([
+       "You are working in /workspace on #{project.repo_url}.",
+       "Its default branch is #{project.default_branch}. Do NOT commit to #{project.default_branch}."
+     ] ++
+       branch_preamble_lines(run_id, run.branch_name) ++
+       [
+         "",
+         "As soon as you understand the task, write a short name (4–8 words,",
+         "imperative, no trailing punctuation) describing this session to",
+         "`/fbi-state/session-name`. You may overwrite it later if your",
+         "understanding changes. Also include a refined `title` field in the",
+         "final result JSON.",
+         ""
+       ])
     |> Enum.join("\n")
+  end
+
+  # Mirrors TS branchPreambleLines/2 (src/server/orchestrator/index.ts:312-328).
+  # Auto-generated mode (no user-supplied branch, or branch equals the safeguard
+  # mirror name): enroll Claude to pick a branch name and write it to
+  # /fbi-state/branch-name. Explicit mode: tell Claude the branch and forbid
+  # touching others.
+  defp branch_preamble_lines(run_id, branch_name) do
+    mirror = "claude/run-#{run_id}"
+    auto_generated? = is_nil(branch_name) or branch_name == "" or branch_name == mirror
+
+    if auto_generated? do
+      [
+        "Before your first commit, choose a short descriptive branch name",
+        "(2–4 kebab-case words, e.g. `feat/fbi-tunnel-rust`) based on the task.",
+        "Write it to `/fbi-state/branch-name`, then run `git checkout -b <name>`",
+        "to rename your working branch. The system keeps `#{mirror}` as a private",
+        "safeguard mirror automatically — do NOT push to it yourself."
+      ]
+    else
+      [
+        "You are working on branch `#{branch_name}`. Make all commits here.",
+        "Do NOT push to or modify any other branch."
+      ]
+    end
   end
 
   defp read_file_from_container(container_id, path) do
