@@ -1,5 +1,7 @@
 #[allow(dead_code)]
 mod scenario;
+#[allow(dead_code)]
+mod argv;
 
 fn main() {
     eprintln!("quantico: not yet implemented");
