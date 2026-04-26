@@ -46,6 +46,11 @@ export function MetaTab({ run, siblings }: MetaTabProps) {
         </Row>
         <Row label="started"><TimestampRelative iso={new Date(run.created_at).toISOString()} /></Row>
         {run.branch_name && <Row label="branch"><CodeBlock>{run.branch_name}</CodeBlock></Row>}
+        {run.exit_code != null && (
+          <Row label="exit code">
+            <span className="font-mono" data-testid="run-exit-code">{run.exit_code}</span>
+          </Row>
+        )}
       </Group>
 
       {run.state === 'awaiting_resume' && (

@@ -131,7 +131,7 @@ defmodule FBIWeb.RunsController do
     end
   end
 
-  defp do_create(conn, project_id, prompt, branch_hint, model, effort, subagent_model, mock \\ false, mock_scenario \\ nil) do
+  defp do_create(conn, project_id, prompt, branch_hint, model, effort, subagent_model, mock, mock_scenario) do
     runs_dir = Application.get_env(:fbi, :runs_dir, "/tmp/fbi-runs")
     # branch_name and log_path are required by the schema. Empty string means
     # "auto-generate" — the orchestrator's preamble enrolls Claude to pick a

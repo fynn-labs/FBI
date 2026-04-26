@@ -46,6 +46,7 @@ export function MockModeCollapse(props: {
           <label className="flex items-center gap-3">
             <input
               type="checkbox"
+              data-testid="mockmode-enable"
               checked={value.mock}
               onChange={toggle}
             />

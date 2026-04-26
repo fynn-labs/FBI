@@ -1131,7 +1131,7 @@ defmodule FBI.Orchestrator.RunServer do
 
     env =
       if run.mock do
-        speed = System.get_env("MOCK_CLAUDE_SPEED_MULT") || "1.0"
+        speed = Application.get_env(:fbi, :mock_speed_mult, "1.0")
 
         env ++ [
           "MOCK_CLAUDE_SCENARIO=#{run.mock_scenario || "default"}",

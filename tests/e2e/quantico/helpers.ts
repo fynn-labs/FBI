@@ -25,7 +25,7 @@ export async function createMockRun(
   await page.getByPlaceholder(/Describe what Claude should do/i)
     .fill(opts.prompt ?? `quantico ${opts.scenario}`);
   await page.getByTestId('mockmode-toggle').click();
-  await page.getByRole('checkbox').check();
+  await page.getByTestId('mockmode-enable').check();
   await page.getByTestId('mockmode-scenario-select').selectOption(opts.scenario);
 
   await page.getByRole('button', { name: /Start run/i }).click();
