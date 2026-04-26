@@ -2,9 +2,10 @@ mod argv;
 mod executor;
 mod jsonl;
 mod limit;
+mod prompt_token;
 mod scenario;
 
-use std::io::Write;
+use std::io::{IsTerminal, Read, Write};
 
 fn main() {
     let args: Vec<String> = std::env::args().skip(1).collect();
@@ -23,7 +24,17 @@ fn main() {
             2
         }
         argv::Invocation::Run { scenario: name, scenario_file, resume_session_id } => {
-            run_scenario(name.as_deref(), scenario_file.as_deref(), resume_session_id.as_deref())
+            // Read stdin (non-TTY only) and scan for an override token.
+            let resolved_name = if scenario_file.is_some() {
+                name  // scenario_file wins; --scenario is moot
+            } else {
+                let mut prompt_text = String::new();
+                if !std::io::stdin().is_terminal() {
+                    let _ = std::io::stdin().read_to_string(&mut prompt_text);
+                }
+                prompt_token::extract(&prompt_text).or(name)
+            };
+            run_scenario(resolved_name.as_deref(), scenario_file.as_deref(), resume_session_id.as_deref())
         }
     };
     std::process::exit(exit_code);
