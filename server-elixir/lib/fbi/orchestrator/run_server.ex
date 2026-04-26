@@ -965,6 +965,8 @@ defmodule FBI.Orchestrator.RunServer do
     safe_start("LimitMonitor", fn ->
       LimitMonitor.start_link(
         mount_dir: mount_dir,
+        idle_ms: Application.get_env(:fbi, :limit_monitor_idle_ms, 15_000),
+        warmup_ms: Application.get_env(:fbi, :limit_monitor_warmup_ms, 60_000),
         on_detect: fn ->
           if settings.auto_resume_enabled do
             :gen_tcp.send(attach_socket, <<3>>)
