@@ -1,6 +1,6 @@
 import type { Terminal as Xterm } from '@xterm/xterm';
 import { acquireShell, releaseShell, getLastSnapshot } from './shellRegistry.js';
-import { publishUsage, publishState, publishTitle, publishChanges } from '../features/runs/usageBus.js';
+import { publishUsage, publishState, publishTitle, publishChanges, publishFocusState } from '../features/runs/usageBus.js';
 import { record as traceRecord, strPreview } from './terminalTrace.js';
 import type { ShellHandle } from './ws.js';
 import { apiBase } from './api.js';
@@ -10,6 +10,7 @@ import type {
   RunWsTitleMessage,
   ChangesPayload,
   RunWsSnapshotMessage,
+  RunWsFocusStateMessage,
   RunState,
 } from '@shared/types.js';
 
@@ -53,9 +54,15 @@ export class TerminalController {
   private unsubSnapshot: (() => void) | null = null;
   private unsubOpen: (() => void) | null = null;
   private unsubEvents: (() => void) | null = null;
+  private unsubVisibility: (() => void) | null = null;
 
   private inputDisposable: { dispose(): void } | null = null;
   private hostClickHandler: (() => void) | null = null;
+
+  // Tracks whether this viewer is the focused/driving viewer. Used to avoid
+  // sending redundant focus events on every keystroke (implicit-focus-on-stdin
+  // rule: type → focus, but only if not already focused).
+  private isFocused = false;
 
   // Hard lifecycle flag. Once true, all callbacks become no-ops and the
   // class is unusable; monotonic.
@@ -105,6 +112,14 @@ export class TerminalController {
       }
       else if (msg.type === 'title') publishTitle(runId, msg as unknown as RunWsTitleMessage);
       else if (msg.type === 'changes') publishChanges(runId, msg as unknown as ChangesPayload);
+      else if (msg.type === 'focus_state') {
+        // Server tells us whether someone holds focus and whether it's us.
+        // isFocused tracks "am I the driving viewer" — used by the
+        // implicit-focus-on-stdin rule to avoid spamming focus events.
+        const focusMsg = msg as unknown as RunWsFocusStateMessage;
+        this.isFocused = focusMsg.by_self;
+        publishFocusState(runId, focusMsg);
+      }
     });
 
     this.unsubSnapshot = this.shell.onSnapshot((snap) => {
@@ -200,6 +215,20 @@ export class TerminalController {
       traceRecord('controller.hello', { cols: this.term.cols, rows: this.term.rows });
       this.shell.sendHello(this.term.cols, this.term.rows);
     });
+
+    // Visibility change: send focus when the tab becomes visible, blur when
+    // it's hidden. This lets the server track which viewer is actively watching
+    // and avoid keeping a focus lock on a backgrounded tab.
+    const visibilityHandler = (): void => {
+      if (this.disposed) return;
+      if (document.visibilityState === 'visible') {
+        this.shell.sendFocus();
+      } else if (document.visibilityState === 'hidden') {
+        this.shell.sendBlur();
+      }
+    };
+    document.addEventListener('visibilitychange', visibilityHandler);
+    this.unsubVisibility = () => document.removeEventListener('visibilitychange', visibilityHandler);
   }
 
   setInteractive(on: boolean): void {
@@ -214,6 +243,13 @@ export class TerminalController {
     if (effective && !this.inputDisposable) {
       this.inputDisposable = this.term.onData((d) => {
         traceRecord('controller.input', strPreview(d));
+        // Implicit focus: typing implies the user wants to drive this terminal.
+        // Skipping when already focused avoids spamming focus events on every
+        // keystroke — the server only needs to know on the first keypress after
+        // another viewer was last focused (or on initial connection).
+        if (!this.isFocused) {
+          this.shell.sendFocus();
+        }
         this.shell.send(new TextEncoder().encode(d));
       });
       this.hostClickHandler = () => this.term.focus();
@@ -736,6 +772,7 @@ export class TerminalController {
     this.unsubSnapshot?.(); this.unsubSnapshot = null;
     this.unsubOpen?.(); this.unsubOpen = null;
     this.unsubEvents?.(); this.unsubEvents = null;
+    this.unsubVisibility?.(); this.unsubVisibility = null;
     this.pauseListeners.clear();
     this.chunkStateListeners.clear();
     this.rebuildingListeners.clear();

@@ -372,6 +372,20 @@ export interface RunWsHelloMessage {
   rows: number;
 }
 
+/**
+ * Sent by the server whenever focus state changes. `focused` is true if any
+ * viewer has focus. `by_self` is true if this particular connection is the
+ * one that holds focus (i.e., this viewer is driving the PTY dimensions).
+ *
+ * Used by the frontend to show/hide the TerminalTakeoverBanner and to
+ * avoid sending redundant focus events on every keystroke.
+ */
+export interface RunWsFocusStateMessage {
+  type: 'focus_state';
+  focused: boolean;
+  by_self: boolean;
+}
+
 export interface ListeningPort {
   port: number;
   proto: 'tcp';

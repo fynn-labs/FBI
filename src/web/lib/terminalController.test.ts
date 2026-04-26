@@ -12,11 +12,13 @@ vi.mock('./shellRegistry.js', () => ({
 
 // Mock usageBus publishers so the controller can route typed events.
 const usagePublishes: Array<[number, unknown]> = [];
+const focusStatePublishes: Array<[number, unknown]> = [];
 vi.mock('../features/runs/usageBus.js', () => ({
   publishUsage: (runId: number, s: unknown) => { usagePublishes.push([runId, s]); },
   publishState: vi.fn(),
   publishTitle: vi.fn(),
-  publishFiles: vi.fn(),
+  publishChanges: vi.fn(),
+  publishFocusState: (runId: number, frame: unknown) => { focusStatePublishes.push([runId, frame]); },
 }));
 
 import { TerminalController, CHUNK_SIZE } from './terminalController.js';
@@ -29,6 +31,8 @@ function makeStubShell(opts: { openState?: 'open' | 'pending' } = {}): ShellHand
   sentHello: Array<{ cols: number; rows: number }>;
   resizes: Array<{ cols: number; rows: number }>;
   sent: Uint8Array[];
+  sentFocus: number;
+  sentBlur: number;
 } {
   const bytes: Array<(d: Uint8Array) => void> = [];
   const snap: Array<(s: RunWsSnapshotMessage) => void> = [];
@@ -46,6 +50,8 @@ function makeStubShell(opts: { openState?: 'open' | 'pending' } = {}): ShellHand
     sentHello: [] as Array<{ cols: number; rows: number }>,
     resizes: [] as Array<{ cols: number; rows: number }>,
     sent: [] as Uint8Array[],
+    sentFocus: 0,
+    sentBlur: 0,
     onBytes: vi.fn((cb: (d: Uint8Array) => void) => { bytes.push(cb); return () => { const i = bytes.indexOf(cb); if (i !== -1) bytes.splice(i, 1); }; }),
     onSnapshot: vi.fn((cb: (s: RunWsSnapshotMessage) => void) => { snap.push(cb); return () => { const i = snap.indexOf(cb); if (i !== -1) snap.splice(i, 1); }; }),
     onTypedEvent: vi.fn(<T extends { type: string }>(cb: (m: T) => void) => { const w = (m: { type: string }) => cb(m as T); events.push(w); return () => { const i = events.indexOf(w); if (i !== -1) events.splice(i, 1); }; }),
@@ -57,6 +63,8 @@ function makeStubShell(opts: { openState?: 'open' | 'pending' } = {}): ShellHand
     send: vi.fn((d: Uint8Array) => { stub.sent.push(d); }),
     resize: vi.fn((cols: number, rows: number) => { stub.resizes.push({ cols, rows }); }),
     sendHello: vi.fn((cols: number, rows: number) => { stub.sentHello.push({ cols, rows }); }),
+    sendFocus: vi.fn(() => { stub.sentFocus++; }),
+    sendBlur: vi.fn(() => { stub.sentBlur++; }),
     close: vi.fn(),
   };
   return stub;
@@ -123,6 +131,7 @@ function installFetchMock() {
 beforeEach(() => {
   acquiredShells.clear();
   usagePublishes.length = 0;
+  focusStatePublishes.length = 0;
   fetchCalls.length = 0;
   fetchResponder = () => ({ status: 404, headers: {}, body: new Uint8Array() });
   installFetchMock();

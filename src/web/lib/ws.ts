@@ -10,6 +10,10 @@ export interface ShellHandle {
   send(data: Uint8Array): void;
   resize(cols: number, rows: number): void;
   sendHello(cols: number, rows: number): void;
+  /** Tell the server this viewer is claiming focus (wants to drive PTY dims). */
+  sendFocus(): void;
+  /** Tell the server this viewer is relinquishing focus (tab hidden, etc.). */
+  sendBlur(): void;
   close(): void;
 }
 
@@ -120,6 +124,18 @@ export function openShell(runId: number): ShellHandle {
       if (ws.readyState === WebSocket.OPEN) {
         record('ws.out.hello', { cols, rows });
         ws.send(JSON.stringify({ type: 'hello', cols, rows }));
+      }
+    },
+    sendFocus: () => {
+      if (ws.readyState === WebSocket.OPEN) {
+        record('ws.out.focus', {});
+        ws.send(JSON.stringify({ type: 'focus' }));
+      }
+    },
+    sendBlur: () => {
+      if (ws.readyState === WebSocket.OPEN) {
+        record('ws.out.blur', {});
+        ws.send(JSON.stringify({ type: 'blur' }));
       }
     },
     close: () => {
