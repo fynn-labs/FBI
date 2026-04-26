@@ -87,8 +87,7 @@ if config_env() == :prod do
   end
 
   config :fbi,
-    host_ssh_auth_sock:
-      System.get_env("HOST_SSH_AUTH_SOCK") || System.get_env("SSH_AUTH_SOCK")
+    host_ssh_auth_sock: System.get_env("HOST_SSH_AUTH_SOCK") || System.get_env("SSH_AUTH_SOCK")
 
   database_path =
     System.get_env("DATABASE_PATH") ||

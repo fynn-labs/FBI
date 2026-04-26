@@ -43,6 +43,23 @@ defmodule FBIWeb.Sockets.ShellWSHandler do
     end
   end
 
+  def handle_in({text, [opcode: :text]}, %{run_id: run_id} = state) do
+    case Jason.decode(text) do
+      {:ok, %{"type" => "resize", "cols" => cols, "rows" => rows}} ->
+        FBI.Orchestrator.resize(run_id, cols, rows)
+        {:ok, state}
+
+      _ ->
+        {:ok, state}
+    end
+  end
+
+  # Incoming binary frames: forward to container stdin
+  def handle_in({data, [opcode: :binary]}, %{run_id: run_id} = state) do
+    FBI.Orchestrator.write_stdin(run_id, data)
+    {:ok, state}
+  end
+
   # Build the initial-connect snapshot from the run's persisted log file
   # rather than the in-memory ring buffer. The log is the source of truth and
   # never evicts content, so refresh produces the same screen as the live
@@ -69,23 +86,6 @@ defmodule FBIWeb.Sockets.ShellWSHandler do
       _ ->
         @clear_screen
     end
-  end
-
-  def handle_in({text, [opcode: :text]}, %{run_id: run_id} = state) do
-    case Jason.decode(text) do
-      {:ok, %{"type" => "resize", "cols" => cols, "rows" => rows}} ->
-        FBI.Orchestrator.resize(run_id, cols, rows)
-        {:ok, state}
-
-      _ ->
-        {:ok, state}
-    end
-  end
-
-  # Incoming binary frames: forward to container stdin
-  def handle_in({data, [opcode: :binary]}, %{run_id: run_id} = state) do
-    FBI.Orchestrator.write_stdin(run_id, data)
-    {:ok, state}
   end
 
   # PubSub: binary terminal bytes — forward as binary frame

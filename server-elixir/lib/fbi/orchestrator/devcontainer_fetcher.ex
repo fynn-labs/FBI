@@ -35,7 +35,18 @@ defmodule FBI.Orchestrator.DevcontainerFetcher do
       File.mkdir_p!(tmp_parent)
 
       with {:ok, _} <-
-             git(["clone", "--depth=1", "--filter=blob:none", "--sparse", "--no-tags", repo_url, tmp], env),
+             git(
+               [
+                 "clone",
+                 "--depth=1",
+                 "--filter=blob:none",
+                 "--sparse",
+                 "--no-tags",
+                 repo_url,
+                 tmp
+               ],
+               env
+             ),
            {:ok, _} <- git(["-C", tmp, "sparse-checkout", "set", ".devcontainer"], env),
            {:ok, _} <- git(["-C", tmp, "checkout"], env),
            dc_dir = Path.join(tmp, ".devcontainer"),
