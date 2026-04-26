@@ -14,6 +14,9 @@ pub enum Step {
     WriteJsonl { kind: String, content: String },
 }
 
+// Step does NOT derive Deserialize: serde_yaml 0.9 dropped support for
+// externally-tagged enums via the map form (`- emit: "..."`), so we hand-roll
+// the visitor below to support both that form and bare-string variants.
 impl<'de> Deserialize<'de> for Step {
     fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
         // A Step is either a plain string ("sleep_forever") or a single-key map.
@@ -53,7 +56,7 @@ impl<'de> Deserialize<'de> for Step {
                         Step::Exit(v)
                     }
                     "sleep_forever" => {
-                        let _: serde_yaml::Value = map.next_value()?;
+                        let _: bool = map.next_value()?;
                         Step::SleepForever
                     }
                     "echo_env" => {
@@ -62,12 +65,14 @@ impl<'de> Deserialize<'de> for Step {
                     }
                     "emit_limit_breach" => {
                         #[derive(Deserialize)]
+                        #[serde(deny_unknown_fields)]
                         struct LimitBreach { reset_epoch: String }
                         let v: LimitBreach = map.next_value()?;
                         Step::EmitLimitBreach { reset_epoch: v.reset_epoch }
                     }
                     "write_jsonl" => {
                         #[derive(Deserialize)]
+                        #[serde(deny_unknown_fields)]
                         struct WriteJsonl {
                             #[serde(rename = "type")]
                             kind: String,
@@ -172,5 +177,64 @@ steps:
 "#;
         let s2 = Scenario::parse(yaml_map).unwrap();
         assert_eq!(s2.steps, vec![Step::SleepForever]);
+    }
+
+    #[test]
+    fn parses_emit_ansi() {
+        let yaml = r#"
+name: a
+steps:
+  - emit_ansi: "\x1b[32mok\x1b[0m\n"
+"#;
+        let s = Scenario::parse(yaml).unwrap();
+        assert_eq!(s.steps[0], Step::EmitAnsi("\x1b[32mok\x1b[0m\n".into()));
+    }
+
+    #[test]
+    fn parses_echo_env() {
+        let yaml = r#"
+name: a
+steps:
+  - echo_env:
+      - RUN_ID
+      - HOME
+"#;
+        let s = Scenario::parse(yaml).unwrap();
+        assert_eq!(s.steps[0], Step::EchoEnv(vec!["RUN_ID".into(), "HOME".into()]));
+    }
+
+    #[test]
+    fn parses_write_jsonl() {
+        let yaml = r#"
+name: a
+steps:
+  - write_jsonl:
+      type: user
+      content: hello
+"#;
+        let s = Scenario::parse(yaml).unwrap();
+        assert_eq!(s.steps[0], Step::WriteJsonl { kind: "user".into(), content: "hello".into() });
+    }
+
+    #[test]
+    fn rejects_typo_in_write_jsonl() {
+        let yaml = r#"
+name: a
+steps:
+  - write_jsonl:
+      type: user
+      contnet: hello
+"#;
+        assert!(Scenario::parse(yaml).is_err(), "deny_unknown_fields should reject typo");
+    }
+
+    #[test]
+    fn rejects_non_bool_sleep_forever_value() {
+        let yaml = r#"
+name: a
+steps:
+  - sleep_forever: 42
+"#;
+        assert!(Scenario::parse(yaml).is_err());
     }
 }
