@@ -270,6 +270,12 @@ export class TerminalController {
     this.shell.resize(cols, rows);
   }
 
+  /** Expose the underlying ShellHandle so callers can send focus/blur without
+   *  needing a separate acquireShell() call that would bump the refcount. */
+  getShell(): ShellHandle {
+    return this.shell;
+  }
+
   /**
    * Subscribe to the one-shot "ready" signal that fires after the first
    * snapshot has been written to xterm (cached or from the server). If the

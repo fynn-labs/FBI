@@ -6,6 +6,22 @@ import userEvent from '@testing-library/user-event';
 const pauseListeners = new Set<(p: boolean) => void>();
 const chunkStateListeners = new Set<(s: string) => void>();
 let lastController: { pause: () => void; resume: () => void; loadOlderChunk: () => Promise<void>; onScroll: (s: { atBottom: boolean; nearTop: boolean }) => void } | null = null;
+
+// Stub ShellHandle returned by getShell() — needs sendFocus/sendBlur for the banner.
+const stubShell = {
+  onBytes: () => () => {},
+  onTypedEvent: () => () => {},
+  // onSnapshot is called by Terminal.tsx to track snap dims; return a no-op unsub.
+  onSnapshot: () => () => {},
+  onOpen: () => () => {},
+  send: vi.fn(),
+  resize: vi.fn(),
+  sendHello: vi.fn(),
+  sendFocus: vi.fn(),
+  sendBlur: vi.fn(),
+  close: vi.fn(),
+};
+
 vi.mock('../lib/terminalController.js', () => {
   return {
     TerminalController: vi.fn().mockImplementation(() => {
@@ -22,6 +38,7 @@ vi.mock('../lib/terminalController.js', () => {
         onChunkStateChange: (cb: (s: string) => void) => { chunkStateListeners.add(cb); return () => chunkStateListeners.delete(cb); },
         onRebuildingChange: (_cb: (r: boolean) => void) => () => { /* noop */ },
         onScroll: vi.fn(),
+        getShell: () => stubShell,
         dispose: vi.fn(),
       };
       lastController = inst;
@@ -29,6 +46,11 @@ vi.mock('../lib/terminalController.js', () => {
     }),
   };
 });
+
+// Mock usageBus — useFocusState returns null in tests (no WS events).
+vi.mock('../features/runs/usageBus.js', () => ({
+  useFocusState: () => null,
+}));
 
 // Mock xterm.
 vi.mock('@xterm/xterm', () => {

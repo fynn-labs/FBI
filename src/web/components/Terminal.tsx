@@ -4,6 +4,9 @@ import { FitAddon } from '@xterm/addon-fit';
 import '@xterm/xterm/css/xterm.css';
 import { TerminalController } from '../lib/terminalController.js';
 import { detectScroll } from '../lib/scrollDetection.js';
+import { useFocusState } from '../features/runs/usageBus.js';
+import { TerminalTakeoverBanner } from './TerminalTakeoverBanner.js';
+import type { ShellHandle } from '../lib/ws.js';
 import {
   record as traceRecord,
   isTracing,
@@ -32,9 +35,15 @@ function isLightMode() {
 export function Terminal({ runId, interactive }: Props) {
   const hostRef = useRef<HTMLDivElement>(null);
   const controllerRef = useRef<TerminalController | null>(null);
+  const shellRef = useRef<ShellHandle | null>(null);
   const [paused, setPaused] = useState(false);
   const [chunkState, setChunkState] = useState<'idle' | 'loading' | 'error'>('idle');
   const [ready, setReady] = useState(false);
+  // Local terminal dims (updated on resize) for dim-mismatch banner.
+  const [termDims, setTermDims] = useState<{ cols: number; rows: number } | null>(null);
+  // Latest snapshot dims received from the server.
+  const [snapDims, setSnapDims] = useState<{ cols: number; rows: number } | null>(null);
+  const focusState = useFocusState(runId);
 
   const [, forceTraceRerender] = useState(0);
   useEffect(() => traceSubscribe(() => forceTraceRerender((n) => n + 1)), []);
@@ -89,10 +98,19 @@ export function Terminal({ runId, interactive }: Props) {
 
     const controller = new TerminalController(runId, term, host);
     controllerRef.current = controller;
+    shellRef.current = controller.getShell();
     setReady(controller.isReady());
     if (!controller.isReady()) {
       controller.onReady(() => setReady(true));
     }
+
+    // Track snapshot dims for the TerminalTakeoverBanner — updated whenever
+    // the server sends a new snapshot.
+    const unsubSnapDims = controller.getShell().onSnapshot((snap) => {
+      setSnapDims({ cols: snap.cols, rows: snap.rows });
+    });
+    // Initialise termDims from the xterm instance (before any resize events).
+    setTermDims({ cols: term.cols, rows: term.rows });
 
     const unsubPause = controller.onPauseChange((p) => setPaused(p));
     const unsubChunkState = controller.onChunkStateChange((s) => setChunkState(s));
@@ -138,7 +156,10 @@ export function Terminal({ runId, interactive }: Props) {
     let roTimer: ReturnType<typeof setTimeout> | null = null;
     const runFit = () => {
       roTimer = null;
-      if (safeFit()) controller.resize(term.cols, term.rows);
+      if (safeFit()) {
+        controller.resize(term.cols, term.rows);
+        setTermDims({ cols: term.cols, rows: term.rows });
+      }
     };
     const ro = new ResizeObserver(() => {
       if (roTimer !== null) clearTimeout(roTimer);
@@ -151,7 +172,10 @@ export function Terminal({ runId, interactive }: Props) {
       if (winResizeTimer !== null) clearTimeout(winResizeTimer);
       winResizeTimer = setTimeout(() => {
         winResizeTimer = null;
-        if (safeFit()) controller.resize(term.cols, term.rows);
+        if (safeFit()) {
+          controller.resize(term.cols, term.rows);
+          setTermDims({ cols: term.cols, rows: term.rows });
+        }
       }, 120);
     };
     window.addEventListener('resize', onWinResize);
@@ -166,10 +190,12 @@ export function Terminal({ runId, interactive }: Props) {
       unsubPause();
       unsubChunkState();
       unsubRebuilding();
+      unsubSnapDims();
       if (scrollRaf !== null) cancelAnimationFrame(scrollRaf);
       viewportEl?.removeEventListener('scroll', onViewportScroll);
       controller.dispose();
       controllerRef.current = null;
+      shellRef.current = null;
       term.dispose();
     };
   }, [runId]);
@@ -183,7 +209,7 @@ export function Terminal({ runId, interactive }: Props) {
   };
 
   return (
-    <div className="relative h-full w-full bg-terminal">
+    <div className="relative h-full w-full bg-terminal flex flex-col">
       {!ready && (
         <div className="pointer-events-none absolute inset-0 z-20 flex items-center justify-center bg-terminal text-text-dim text-[12px]">
           <span>Loading terminal…</span>
@@ -224,6 +250,19 @@ export function Terminal({ runId, interactive }: Props) {
           )}
         </div>
       )}
+      {/* Dim-mismatch banner: shown when a different viewer is driving the PTY
+          at a different size than our xterm. Sits above the terminal canvas so
+          it pushes content down rather than overlapping it. */}
+      {shellRef.current && snapDims && termDims && (
+        <TerminalTakeoverBanner
+          shell={shellRef.current}
+          termCols={termDims.cols}
+          termRows={termDims.rows}
+          snapshotCols={snapDims.cols}
+          snapshotRows={snapDims.rows}
+          isFocused={focusState?.by_self ?? false}
+        />
+      )}
       {isTracing() && (
         <div
           className="absolute bottom-1 right-2 z-30 select-none rounded bg-red-900/80 px-2 py-0.5 text-[10px] font-mono text-red-100 shadow ring-1 ring-red-300/30 backdrop-blur"
@@ -238,7 +277,9 @@ export function Terminal({ runId, interactive }: Props) {
           </button>
         </div>
       )}
-      <div ref={hostRef} className="h-full w-full" data-testid="xterm" />
+      {/* overflow:auto so when PTY > viewer dims, user can scroll to see the
+          terminal canvas rather than it being clipped. */}
+      <div ref={hostRef} className="h-full w-full" style={{ overflow: 'auto' }} data-testid="xterm" />
     </div>
   );
 }
